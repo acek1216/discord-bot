@@ -154,6 +154,41 @@ async def on_message(message):
         await message.channel.send(reply)
         # ▼▼▼▼▼【修正点2】Notion書き込み処理を追加 ▼▼▼▼▼
         await post_to_notion(user_name, query, reply, bot_name="パープレさん")
+        
+    # みんなに
+    
+    elif content.startswith("!みんなで "):
+        query = content[len("!みんなで "):]
+        await message.channel.send("🧠 みんなに質問を送ります…")
+
+        philipo_reply = await ask_philipo(user_id, query)
+        await message.channel.send(f"🧤 **フィリポ** より:\n{philipo_reply}")
+
+        gemini_reply = await ask_gemini(user_id, query)
+        await message.channel.send(f"🎓 **ジェミニ先生** より:\n{gemini_reply}")
+
+        perplexity_reply = await ask_perplexity(user_id, query)
+        await message.channel.send(f"🔎 **パープレさん** より:\n{perplexity_reply}")
+
+    # 三連モード（順番引き継ぎ風）
+    
+    elif content.startswith("!三連 "):
+        query = content[len("!三連 "):]
+        await message.channel.send("🎩 フィリポに伺わせますので、しばしお待ちくださいませ。")
+        philipo_reply = await ask_philipo(user_id, query)
+        await message.channel.send(f"🧤 **フィリポ** より:\n{philipo_reply}")
+
+        try:
+            await message.channel.send("🎓 ジェミニ先生に引き継ぎます…")
+            gemini_reply = await ask_gemini(user_id, philipo_reply)
+            await message.channel.send(f"🎓 **ジェミニ先生** より:\n{gemini_reply}")
+        except Exception as e:
+            await message.channel.send("⚠️ ジェミニ先生は現在ご多忙のようです。スキップします。")
+            gemini_reply = philipo_reply  # フィリポの返答を次に渡す
+
+        await message.channel.send("🔎 パープレさんに情報確認を依頼します…")
+        perplexity_reply = await ask_perplexity(user_id, gemini_reply)
+        await message.channel.send(f"🔎 **パープレさん** より:\n{perplexity_reply}")
     
     # (三連、逆三連などの他のコマンドは、必要に応じて同様に修正してください)
     elif content.startswith("!逆三連 "):
