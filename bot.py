@@ -42,9 +42,14 @@ gemini_memory = {}
 perplexity_memory = {}
 processing_users = set()
 
-# --- Notion書き込み関数 ---
-async def post_to_notion(user_name, question, answer, bot_name):
+# --- Notion書き込み関数 (★ここを修正しました) ---
+def _sync_post_to_notion(user_name, question, answer, bot_name):
+    """Notionに書き込む同期的なコア処理"""
     try:
+        # 2000文字以上の回答はNotionの制限に合わせて切り詰める
+        if len(answer) > 1900:
+            answer = answer[:1900] + "... (文字数制限のため省略)"
+
         children = [
             {"object": "block", "type": "paragraph", "paragraph": {"rich_text": [{"type": "text", "text": {"content": f"👤 {user_name}: {question}"}}]}},
             {"object": "block", "type": "paragraph", "paragraph": {"rich_text": [{"type": "text", "text": {"content": f"🤖 {bot_name}: {answer}"}}]}}
@@ -53,6 +58,11 @@ async def post_to_notion(user_name, question, answer, bot_name):
         print(f"✅ Notionへの書き込み成功 (ボット: {bot_name})")
     except Exception as e:
         print(f"❌ Notionエラー: {e}")
+
+async def post_to_notion(user_name, question, answer, bot_name):
+    """Notionへの書き込みを非同期で安全に呼び出す"""
+    loop = asyncio.get_event_loop()
+    await loop.run_in_executor(None, _sync_post_to_notion, user_name, question, answer, bot_name)
 
 # --- 各AIモデル呼び出し関数 ---
 async def ask_philipo(user_id, prompt, attachment_data=None, attachment_mime_type=None):
