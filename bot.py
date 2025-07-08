@@ -39,6 +39,7 @@ client = discord.Client(intents=intents)
 philipo_memory = {}
 gemini_memory = {}
 perplexity_memory = {}
+processing_users = set()
 
 # --- Notion書き込み関数 ---
 async def post_to_notion(user_name, question, answer, bot_name):
