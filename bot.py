@@ -73,11 +73,8 @@ async def ask_philipo(user_id, prompt):
 async def ask_gemini(user_id, prompt):
     loop = asyncio.get_event_loop()
     history = gemini_memory.get(user_id, "")
-     full_prompt = (
-        "あなたは論理と感情の架け橋となるAI教師です。"
-        "哲学・構造・言語表現に長けており、質問には冷静かつ丁寧に答えてください。\n\n"
-        + history + f"\nユーザー: {prompt}\n先生:"
-    )
+    full_prompt = ("あなたは論理と感情の架け橋となるAI教師です。""哲学・構造・言語表現に長けており、質問には冷静かつ丁寧に答えてください。\n\n"
+    + history + f"\nユーザー: {prompt}\n先生:")
     response = await loop.run_in_executor(None, gemini_model.generate_content, full_prompt)
     reply = response.text
     gemini_memory[user_id] = full_prompt + reply
