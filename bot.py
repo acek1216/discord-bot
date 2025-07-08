@@ -9,7 +9,7 @@ from notion_client import Client
 import requests # Perplexity用
 import io
 from PIL import Image
-import base64 # ★画像データを扱うために追加
+import base64
 
 # --- 環境変数の読み込み ---
 load_dotenv()
@@ -55,18 +55,14 @@ async def post_to_notion(user_name, question, answer, bot_name):
         print(f"❌ Notionエラー: {e}")
 
 # --- 各AIモデル呼び出し関数 ---
-# ▼▼▼ ask_philipo関数を修正しました ▼▼▼
 async def ask_philipo(user_id, prompt, attachment_data=None, attachment_mime_type=None):
     history = philipo_memory.get(user_id, [])
     system_message = {"role": "system", "content": "あなたは執事フィリポです。礼儀正しく対応してください。"}
-    
     user_content = [{"type": "text", "text": prompt}]
-    # URLの代わりに、画像データを直接エンコードして渡す方式に変更
     if attachment_data and "image" in attachment_mime_type:
         base64_image = base64.b64encode(attachment_data).decode('utf-8')
         image_url_content = f"data:{attachment_mime_type};base64,{base64_image}"
         user_content.append({"type": "image_url", "image_url": {"url": image_url_content}})
-        
     user_message = {"role": "user", "content": user_content}
     messages = [system_message] + history + [user_message]
     response = await openai_client.chat.completions.create(model="gpt-4o", messages=messages, max_tokens=2000)
@@ -139,7 +135,6 @@ async def on_message(message):
                 await message.channel.send("🎩 執事が画像を拝見し、伺います。しばしお待ちくださいませ。")
             else:
                 await message.channel.send("🎩 執事に伺わせますので、しばしお待ちくださいませ。")
-            # ▼▼▼ ask_philipoの呼び出し方を修正 ▼▼▼
             reply = await ask_philipo(user_id, query, attachment_data=attachment_data, attachment_mime_type=attachment_mime_type)
             await message.channel.send(reply)
             await post_to_notion(user_name, query, reply, "フィリポ")
@@ -168,18 +163,29 @@ async def on_message(message):
         elif content.startswith("!みんなで "):
             query = content[len("!みんなで "):]
             await message.channel.send("🧠 みんなに質問を送ります…")
-            # ▼▼▼ ask_philipoの呼び出し方を修正 ▼▼▼
+            
+            # ▼▼▼ !みんなでコマンドのロジックを修正 ▼▼▼
+            query_for_perplexity = query
+            if attachment_data:
+                # まずジェミニに画像の説明を生成させる
+                image_description = await ask_gemini(user_id, "この添付ファイルの内容を簡潔に説明してください。", attachment_data, attachment_mime_type)
+                query_for_perplexity = f"{query}\n\n[添付資料の概要: {image_description}]"
+
+            # 各AIへのタスクを作成
             philipo_task = ask_philipo(user_id, query, attachment_data=attachment_data, attachment_mime_type=attachment_mime_type)
             gemini_task = ask_gemini(user_id, query, attachment_data=attachment_data, attachment_mime_type=attachment_mime_type)
-            perplexity_task = ask_perplexity(user_id, query)
+            perplexity_task = ask_perplexity(user_id, query_for_perplexity) # パープレには説明付きのクエリを渡す
+            
+            # 同時に実行
             results = await asyncio.gather(philipo_task, gemini_task, perplexity_task, return_exceptions=True)
             philipo_reply, gemini_reply, perplexity_reply = results
+            
             if not isinstance(philipo_reply, Exception): await message.channel.send(f"🧤 **フィリポ** より:\n{philipo_reply}")
-            else: print(f"フィリポエラー: {philipo_reply}") # エラーログを追加
+            else: print(f"フィリポエラー: {philipo_reply}")
             if not isinstance(gemini_reply, Exception): await message.channel.send(f"🎓 **ジェミニ先生** より:\n{gemini_reply}")
-            else: print(f"ジェミニエラー: {gemini_reply}") # エラーログを追加
+            else: print(f"ジェミニエラー: {gemini_reply}")
             if not isinstance(perplexity_reply, Exception): await message.channel.send(f"🔎 **パープレさん** より:\n{perplexity_reply}")
-            else: print(f"パープレエラー: {perplexity_reply}") # エラーログを追加
+            else: print(f"パープレエラー: {perplexity_reply}")
 
         elif content.startswith("!三連 "):
             query = content[len("!三連 "):]
@@ -187,7 +193,6 @@ async def on_message(message):
                 await message.channel.send("🎩 執事が画像を拝見し、伺います。")
             else:
                 await message.channel.send("🎩 執事に伺わせますので、しばしお待ちくださいませ。")
-            # ▼▼▼ ask_philipoの呼び出し方を修正 ▼▼▼
             philipo_reply = await ask_philipo(user_id, query, attachment_data=attachment_data, attachment_mime_type=attachment_mime_type)
             await message.channel.send(f"🧤 **フィリポ** より:\n{philipo_reply}")
             await message.channel.send("🎓 ジェミニ先生に引き継ぎます…")
