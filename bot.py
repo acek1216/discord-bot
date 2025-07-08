@@ -6,6 +6,8 @@ import requests
 import os
 from dotenv import load_dotenv
 from notion_client import Client
+import io
+from PIL import Image # Pillowライブラリを追加
 
 # --- 環境変数の読み込み ---
 load_dotenv()
@@ -65,19 +67,46 @@ async def post_to_notion(user_name, question, answer, bot_name="フィリポ"):
 async def ask_philipo(user_id, prompt):
     history = philipo_memory.get(user_id, [])
     messages = [{"role": "system", "content": "あなたは執事フィリポです。礼儀正しく対応してください。"}] + history + [{"role": "user", "content": prompt}]
-    response = await openai_client.chat.completions.create(model="gpt-4o", messages=messages)
+    
+    # ユーザーからのプロンプトを作成（画像がある場合とない場合で分岐）
+    user_content = [{"type": "text", "text": prompt}]
+    if image_url:
+        user_content.append({"type": "image_url", "image_url": {"url": image_url}})
+        
+    user_message = {"role": "user", "content": user_content}
+    
+    messages = [system_message] + history + [user_message]
+    
+    response = await openai_client.chat.completions.create(model="gpt-4o", messages=messages, max_tokens=2000)
     reply = response.choices[0].message.content
-    philipo_memory[user_id] = history + [{"role": "user", "content": prompt}, {"role": "assistant", "content": reply}]
+    
+    # 履歴を更新（アシスタントの返信のみを保存）
+    philipo_memory[user_id] = history + [user_message, {"role": "assistant", "content": reply}]
     return reply
 
 async def ask_gemini(user_id, prompt):
     loop = asyncio.get_event_loop()
     history = gemini_memory.get(user_id, "")
     full_prompt = ("あなたは論理と感情の架け橋となるAI教師です。""哲学・構造・言語表現に長けており、質問には冷静かつ丁寧に答えてください。\n\n"
-    + history + f"\nユーザー: {prompt}\n先生:")
-    response = await loop.run_in_executor(None, gemini_model.generate_content, full_prompt)
+    
+    # APIに渡すコンテンツリストを作成
+    contents = [system_prompt, f"これまでの会話:\n{history_text}\n\nユーザー: {prompt}"]
+    
+    # 添付ファイルがある場合、コンテンツリストに追加
+    if attachment_data and attachment_mime_type:
+        # 画像の場合はPillowを使って最適化
+        if "image" in attachment_mime_type:
+            img = Image.open(io.BytesIO(attachment_data))
+            contents.append(img)
+        else: # その他のファイルタイプの場合（PDFなど）
+            contents.append({'mime_type': attachment_mime_type, 'data': attachment_data})
+
+    response = await gemini_model.generate_content_async(contents)
     reply = response.text
-    gemini_memory[user_id] = full_prompt + reply
+
+    # 履歴を更新
+    current_history = sensei_memory.get(user_id, [])
+    sensei_memory[user_id] = current_history + [{"role": "ユーザー", "content": prompt}, {"role": "先生", "content": reply}]
     return reply
 
 async def ask_perplexity(user_id, prompt):
@@ -112,6 +141,41 @@ def _sync_ask_perplexity(user_id, prompt):
 @client.event
 async def on_ready():
     print(f"✅ ログイン成功: {client.user}")
+
+@client.event
+async def on_message(message):
+    """メッセージが投稿されたときに実行され、添付ファイルを処理する"""
+    if message.author.bot:
+        return
+
+    content = message.content
+    user_id = str(message.author.id)
+    user_name = message.author.display_name
+
+    # 添付ファイルの情報を取得
+    attachment_url = None
+    attachment_data = None
+    attachment_mime_type = None
+    if message.attachments:
+        attachment = message.attachments[0] # 最初の添付ファイルのみを対象
+        attachment_url = attachment.url
+        attachment_data = await attachment.read()
+        attachment_mime_type = attachment.content_type
+
+    # コマンドの処理
+    if content.startswith("!フィリポ "):
+        query = content[len("!フィリポ "):]
+        await message.channel.send("🎩 執事が画像を拝見し、伺います。しばしお待ちくださいませ。")
+        reply = await ask_philipo(user_id, query, image_url=attachment_url)
+        await message.channel.send(reply)
+        await post_to_notion(user_name, query, reply, "フィリポ")
+
+    elif content.startswith("!ジェミニ "):
+        query = content[len("!ジェミニ "):]
+        await message.channel.send("🧑‍🏫 先生が資料を拝見し、考察中です。少々お待ちください。")
+        reply = await ask_sensei(user_id, query, attachment_data=attachment_data, attachment_mime_type=attachment_mime_type)
+        await message.channel.send(reply)
+        await post_to_notion(user_name, query, reply, "先生")
 
 @client.event
 async def on_message(message):
