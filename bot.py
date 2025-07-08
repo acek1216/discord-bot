@@ -33,41 +33,36 @@ gemini_memory = {}
 perplexity_memory = {}
 
 # ✅ Notion投稿関数（ログ付き）
+from notion_client import Client as NotionClient
+
+notion = NotionClient(auth=notion_api_key)
+
 async def post_to_notion(user_name, question, answer):
-    notion_url = "https://api.notion.com/v1/blocks/" + notion_page_id + "/children"
-    headers = {
-        "Authorization": f"Bearer {notion_api_key}",
-        "Content-Type": "application/json",
-        "Notion-Version": "2022-06-28"
-    }
-    data = {
-        "children": [
+    try:
+        children = [
             {
                 "object": "block",
                 "type": "paragraph",
                 "paragraph": {
-                    "rich_text": [
-                        {"type": "text", "text": {"content": f"👤 {user_name}:\n{question}"}}
-                    ]
-                }
+                    "rich_text": [{"type": "text", "text": {"content": f"👤 {user_name}: {question}"}}]
+                },
             },
             {
                 "object": "block",
                 "type": "paragraph",
                 "paragraph": {
-                    "rich_text": [
-                        {"type": "text", "text": {"content": f"🤖 フィリポ:\n{answer}"}}
-                    ]
-                }
-            }
+                    "rich_text": [{"type": "text", "text": {"content": f"🤖 フィリポ: {answer}"}}]
+                },
+            },
         ]
-    }
 
-    try:
-        response = requests.patch(notion_url, headers=headers, json=data)
-        print("📦 Notion投稿レスポンス:", response.status_code, response.text)
+        response = notion.blocks.children.append(
+            block_id=notion_page_id,
+            children=children
+        )
+        print("✅ Notion書き込み成功:", response)
     except Exception as e:
-        print("❌ Notion投稿エラー:", e)
+        print("❌ Notion書き込みエラー:", e)
 
 # ✅ 各AIへの問い
 async def ask_philipo(user_id, prompt):
