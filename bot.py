@@ -111,100 +111,112 @@ async def on_message(message):
     if message.author.bot:
         return
 
-    content = message.content
-    user_id = str(message.author.id)
-    user_name = message.author.display_name
+    # ▼▼▼ ロック開始 ▼▼▼
+    if message.author.id in processing_users:
+        print(f"⚠️ ユーザー {message.author.id} のリクエストを多重処理のためスキップしました。")
+        return
+    processing_users.add(message.author.id)
+    
+    try:
+        content = message.content
+        user_id = str(message.author.id)
+        user_name = message.author.display_name
 
-    attachment_url = None
-    attachment_data = None
-    attachment_mime_type = None
-    if message.attachments:
-        attachment = message.attachments[0]
-        attachment_url = attachment.url
-        attachment_data = await attachment.read()
-        attachment_mime_type = attachment.content_type
+        attachment_url = None
+        attachment_data = None
+        attachment_mime_type = None
+        if message.attachments:
+            attachment = message.attachments[0]
+            attachment_url = attachment.url
+            attachment_data = await attachment.read()
+            attachment_mime_type = attachment.content_type
 
-    # --- 単独コマンド ---
-    if content.startswith("!フィリポ "):
-        query = content[len("!フィリポ "):]
-        if attachment_data:
-            await message.channel.send("🎩 執事が画像を拝見し、伺います。しばしお待ちくださいませ。")
-        else:
-            await message.channel.send("🎩 執事に伺わせますので、しばしお待ちくださいませ。")
-        
-        reply = await ask_philipo(user_id, query, image_url=attachment_url)
-        await message.channel.send(reply)
-        await post_to_notion(user_name, query, reply, "フィリポ")
+        # --- コマンド処理 ---
+        if content.startswith("!フィリポ "):
+            query = content[len("!フィリポ "):]
+            if attachment_data:
+                await message.channel.send("🎩 執事が画像を拝見し、伺います。しばしお待ちくださいませ。")
+            else:
+                await message.channel.send("🎩 執事に伺わせますので、しばしお待ちくださいませ。")
+            
+            reply = await ask_philipo(user_id, query, image_url=attachment_url)
+            await message.channel.send(reply)
+            await post_to_notion(user_name, query, reply, "フィリポ")
 
-    elif content.startswith("!ジェミニ "):
-        query = content[len("!ジェミニ "):]
-        if attachment_data:
-            await message.channel.send("🧑‍🏫 先生が資料を拝見し、考察中です。少々お待ちください。")
-        else:
-            await message.channel.send("🧑‍🏫 先生が考察中です。少々お待ちください。")
+        # (他のコマンドも同様に動作します)
+        elif content.startswith("!ジェミニ "):
+            query = content[len("!ジェミニ "):]
+            if attachment_data:
+                await message.channel.send("🧑‍🏫 先生が資料を拝見し、考察中です。少々お待ちください。")
+            else:
+                await message.channel.send("🧑‍🏫 先生が考察中です。少々お待ちください。")
 
-        reply = await ask_gemini(user_id, query, attachment_data=attachment_data, attachment_mime_type=attachment_mime_type)
-        await message.channel.send(reply)
-        await post_to_notion(user_name, query, reply, "ジェミニ先生")
+            reply = await ask_gemini(user_id, query, attachment_data=attachment_data, attachment_mime_type=attachment_mime_type)
+            await message.channel.send(reply)
+            await post_to_notion(user_name, query, reply, "ジェミニ先生")
 
-    elif content.startswith("!パープレ "):
-        query = content[len("!パープレ "):]
-        if attachment_data:
-            await message.channel.send("🔎 パープレさんは画像を直接見ることができません。テキストのみで回答します。")
-        else:
-            await message.channel.send("🔎 パープレさんが検索中です…")
-        
-        reply = await ask_perplexity(user_id, query)
-        await message.channel.send(reply)
-        await post_to_notion(user_name, query, reply, "パープレさん")
+        elif content.startswith("!パープレ "):
+            query = content[len("!パープレ "):]
+            if attachment_data:
+                await message.channel.send("🔎 パープレさんは画像を直接見ることができません。テキストのみで回答します。")
+            else:
+                await message.channel.send("🔎 パープレさんが検索中です…")
+            
+            reply = await ask_perplexity(user_id, query)
+            await message.channel.send(reply)
+            await post_to_notion(user_name, query, reply, "パープレさん")
 
-    # --- 複合コマンド ---
-    elif content.startswith("!みんなで "):
-        query = content[len("!みんなで "):]
-        await message.channel.send("🧠 みんなに質問を送ります…")
-        philipo_task = ask_philipo(user_id, query, image_url=attachment_url)
-        gemini_task = ask_gemini(user_id, query, attachment_data=attachment_data, attachment_mime_type=attachment_mime_type)
-        perplexity_task = ask_perplexity(user_id, query)
-        results = await asyncio.gather(philipo_task, gemini_task, perplexity_task, return_exceptions=True)
-        philipo_reply, gemini_reply, perplexity_reply = results
-        if not isinstance(philipo_reply, Exception): await message.channel.send(f"🧤 **フィリポ** より:\n{philipo_reply}")
-        if not isinstance(gemini_reply, Exception): await message.channel.send(f"🎓 **ジェミニ先生** より:\n{gemini_reply}")
-        if not isinstance(perplexity_reply, Exception): await message.channel.send(f"🔎 **パープレさん** より:\n{perplexity_reply}")
+        elif content.startswith("!みんなで "):
+            query = content[len("!みんなで "):]
+            await message.channel.send("🧠 みんなに質問を送ります…")
+            philipo_task = ask_philipo(user_id, query, image_url=attachment_url)
+            gemini_task = ask_gemini(user_id, query, attachment_data=attachment_data, attachment_mime_type=attachment_mime_type)
+            perplexity_task = ask_perplexity(user_id, query)
+            results = await asyncio.gather(philipo_task, gemini_task, perplexity_task, return_exceptions=True)
+            philipo_reply, gemini_reply, perplexity_reply = results
+            if not isinstance(philipo_reply, Exception): await message.channel.send(f"🧤 **フィリポ** より:\n{philipo_reply}")
+            if not isinstance(gemini_reply, Exception): await message.channel.send(f"🎓 **ジェミニ先生** より:\n{gemini_reply}")
+            if not isinstance(perplexity_reply, Exception): await message.channel.send(f"🔎 **パープレさん** より:\n{perplexity_reply}")
 
-    elif content.startswith("!三連 "):
-        query = content[len("!三連 "):]
-        if attachment_data:
-            await message.channel.send("🎩 執事が画像を拝見し、伺います。")
-        else:
-            await message.channel.send("🎩 執事に伺わせますので、しばしお待ちくださいませ。")
-        
-        philipo_reply = await ask_philipo(user_id, query, image_url=attachment_url)
-        await message.channel.send(f"🧤 **フィリポ** より:\n{philipo_reply}")
-        await message.channel.send("🎓 ジェミニ先生に引き継ぎます…")
-        gemini_reply = await ask_gemini(user_id, philipo_reply)
-        await message.channel.send(f"🎓 **ジェミニ先生** より:\n{gemini_reply}")
-        await message.channel.send("🔎 パープレさんに情報確認を依頼します…")
-        perplexity_reply = await ask_perplexity(user_id, gemini_reply)
-        await message.channel.send(f"🔎 **パープレさん** より:\n{perplexity_reply}")
+        elif content.startswith("!三連 "):
+            query = content[len("!三連 "):]
+            if attachment_data:
+                await message.channel.send("🎩 執事が画像を拝見し、伺います。")
+            else:
+                await message.channel.send("🎩 執事に伺わせますので、しばしお待ちくださいませ。")
+            
+            philipo_reply = await ask_philipo(user_id, query, image_url=attachment_url)
+            await message.channel.send(f"🧤 **フィリポ** より:\n{philipo_reply}")
+            await message.channel.send("🎓 ジェミニ先生に引き継ぎます…")
+            gemini_reply = await ask_gemini(user_id, philipo_reply)
+            await message.channel.send(f"🎓 **ジェミニ先生** より:\n{gemini_reply}")
+            await message.channel.send("🔎 パープレさんに情報確認を依頼します…")
+            perplexity_reply = await ask_perplexity(user_id, gemini_reply)
+            await message.channel.send(f"🔎 **パープレさん** より:\n{perplexity_reply}")
 
-    elif content.startswith("!逆三連 "):
-        query = content[len("!逆三連 "):]
-        query_for_perplexity = query
-        if attachment_data:
-            await message.channel.send("🔎 画像を認識して、パープレさんに伝えます…")
-            image_description = await ask_gemini(user_id, "この添付ファイルの内容を簡潔に説明してください。", attachment_data, attachment_mime_type)
-            query_for_perplexity = f"{query}\n\n[添付資料の概要: {image_description}]"
-        
-        await message.channel.send("🔎 パープレさんが先陣を切ります…")
-        perplexity_reply = await ask_perplexity(user_id, query_for_perplexity)
-        await message.channel.send(f"🔎 **パープレさん** より:\n{perplexity_reply}")
-        await message.channel.send("🎓 ジェミニ先生に引き継ぎます…")
-        gemini_reply = await ask_gemini(user_id, perplexity_reply)
-        await message.channel.send(f"🎓 **ジェミニ先生** より:\n{gemini_reply}")
-        await message.channel.send("🎩 フィリポが最終まとめを行います…")
-        philipo_reply = await ask_philipo(user_id, gemini_reply)
-        await message.channel.send(f"🎩 **フィリポ** より:\n{philipo_reply}")
-        await post_to_notion(user_name, query, philipo_reply, bot_name="逆三連(フィリポ)")
+        elif content.startswith("!逆三連 "):
+            query = content[len("!逆三連 "):]
+            query_for_perplexity = query
+            if attachment_data:
+                await message.channel.send("🔎 画像を認識して、パープレさんに伝えます…")
+                image_description = await ask_gemini(user_id, "この添付ファイルの内容を簡潔に説明してください。", attachment_data, attachment_mime_type)
+                query_for_perplexity = f"{query}\n\n[添付資料の概要: {image_description}]"
+            
+            await message.channel.send("🔎 パープレさんが先陣を切ります…")
+            perplexity_reply = await ask_perplexity(user_id, query_for_perplexity)
+            await message.channel.send(f"🔎 **パープレさん** より:\n{perplexity_reply}")
+            await message.channel.send("🎓 ジェミニ先生に引き継ぎます…")
+            gemini_reply = await ask_gemini(user_id, perplexity_reply)
+            await message.channel.send(f"🎓 **ジェミニ先生** より:\n{gemini_reply}")
+            await message.channel.send("🎩 フィリポが最終まとめを行います…")
+            philipo_reply = await ask_philipo(user_id, gemini_reply)
+            await message.channel.send(f"🎩 **フィリポ** より:\n{philipo_reply}")
+            await post_to_notion(user_name, query, philipo_reply, bot_name="逆三連(フィリポ)")
+
+    finally:
+        # ▼▼▼ 必ずロックを解除する ▼▼▼
+        if message.author.id in processing_users:
+            processing_users.remove(message.author.id)
 
 # --- 起動 ---
 client.run(DISCORD_TOKEN)
