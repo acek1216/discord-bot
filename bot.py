@@ -167,6 +167,27 @@ async def on_message(message):
         perplexity_reply = await ask_perplexity(user_id, gemini_reply)
         await message.channel.send(f"🔎 **パープレさん** より:\n{perplexity_reply}")
 
+    elif content.startswith("!逆三連 "):
+        query = content[len("!逆三連 "):]
+        await message.channel.send("🔎 パープレさんが先陣を切ります…")
+        perplexity_reply = await ask_perplexity(user_id, query)
+        await message.channel.send(f"🔎 **パープレさん** より:\n{perplexity_reply}")
+
+        try:
+            await message.channel.send("🎓 ジェミニ先生に引き継ぎます…")
+            gemini_reply = await ask_gemini(user_id, perplexity_reply)
+            await message.channel.send(f"🎓 **ジェミニ先生** より:\n{gemini_reply}")
+        except Exception as e:
+            await message.channel.send("⚠️ ジェミニ先生は現在ご多忙のようです。スキップします。")
+            gemini_reply = perplexity_reply
+
+        await message.channel.send("🎩 フィリポが最終まとめを行います…")
+        philipo_reply = await ask_philipo(user_id, gemini_reply)
+        await message.channel.send(f"🎩 **フィリポ** より:\n{philipo_reply}")
+
+        # ✅ Notion記録（フィリポの最終回答のみ）
+        await post_to_notion(user_name, query, philipo_reply)
+
 
 # ✅ 起動
 client.run(DISCORD_TOKEN)
