@@ -62,10 +62,11 @@ async def post_to_notion(user_name, question, answer):
             }
         ]
     }
-
-    # ✅ レスポンスを確認してエラー内容を出力
-    response = requests.patch(notion_url, headers=headers, json=data)
-    print("📦 Notion投稿レスポンス:", response.status_code, response.text)
+    try:
+        response = requests.patch(notion_url, headers=headers, json=data)
+        print("📦 Notion投稿レスポンス:", response.status_code, response.text)
+    except Exception as e:
+        print("❌ Notion投稿エラー:", e)
 
 # ✅ 各AIへの問い
 async def ask_philipo(user_id, prompt):
