@@ -102,14 +102,12 @@ async def on_ready():
     print(f"✅ ログイン成功: {client.user}")
 
 # ✅ メイン処理
-@client.event
 async def on_message(message):
     if message.author.bot:
         return
 
     content = message.content
     user_id = str(message.author.id)
-
     # ファイル処理（省略可）
 
     # フィリポ
