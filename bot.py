@@ -87,7 +87,7 @@ async def ask_philipo(user_id, prompt):
 async def ask_gemini(user_id, prompt):
     loop = asyncio.get_event_loop()
     history = gemini_memory.get(user_id, "")
-    full_prompt = ("あなたは論理と感情の架け橋となるAI教師です。""哲学・構造・言語表現に長けており、質問には冷静かつ丁寧に答えてください。\n\n"
+    full_prompt = ("あなたは論理と感情の架け橋となるAI教師です。""哲学・構造・言語表現に長けており、質問には冷静かつ丁寧に答えてください。\n\n")
     
     # APIに渡すコンテンツリストを作成
     contents = [system_prompt, f"これまでの会話:\n{history_text}\n\nユーザー: {prompt}"]
