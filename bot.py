@@ -32,9 +32,9 @@ philipo_memory = {}
 gemini_memory = {}
 perplexity_memory = {}
 
-# ✅ Notion投稿関数
+# ✅ Notion投稿関数（ログ付き）
 async def post_to_notion(user_name, question, answer):
-    notion_url = f"https://api.notion.com/v1/blocks/{notion_page_id}/children"
+    notion_url = "https://api.notion.com/v1/blocks/" + notion_page_id + "/children"
     headers = {
         "Authorization": f"Bearer {notion_api_key}",
         "Content-Type": "application/json",
@@ -62,6 +62,7 @@ async def post_to_notion(user_name, question, answer):
             }
         ]
     }
+
     try:
         response = requests.patch(notion_url, headers=headers, json=data)
         print("📦 Notion投稿レスポンス:", response.status_code, response.text)
