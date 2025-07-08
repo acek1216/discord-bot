@@ -34,7 +34,7 @@ perplexity_memory = {}
 
 # ✅ Notion投稿関数
 async def post_to_notion(user_name, question, answer):
-    notion_url = "https://api.notion.com/v1/blocks/" + notion_page_id + "/children"
+    notion_url = f"https://api.notion.com/v1/blocks/{notion_page_id}/children"
     headers = {
         "Authorization": f"Bearer {notion_api_key}",
         "Content-Type": "application/json",
@@ -62,7 +62,10 @@ async def post_to_notion(user_name, question, answer):
             }
         ]
     }
-    requests.patch(notion_url, headers=headers, json=data)
+
+    # ✅ レスポンスを確認してエラー内容を出力
+    response = requests.patch(notion_url, headers=headers, json=data)
+    print("📦 Notion投稿レスポンス:", response.status_code, response.text)
 
 # ✅ 各AIへの問い
 async def ask_philipo(user_id, prompt):
