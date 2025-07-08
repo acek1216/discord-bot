@@ -68,12 +68,40 @@ async def ask_philipo(user_id, prompt):
     philipo_memory[user_id] = history + [{"role": "user", "content": prompt}, {"role": "assistant", "content": reply}]
     return reply
 
-# 必要に応じてジェミニ・パープレ関数も残す
+async def ask_gemini(user_id, prompt):
+    loop = asyncio.get_event_loop()
+    history = gemini_memory.get(user_id, "")
+    full_prompt = history + f"\nユーザー: {prompt}\n先生:"
+    response = await loop.run_in_executor(None, gemini_model.generate_content, full_prompt)
+    reply = response.text
+    gemini_memory[user_id] = full_prompt + reply
+    return reply
 
+async def ask_perplexity(user_id, prompt):
+    history = perplexity_memory.get(user_id, "")
+    payload = {
+        "model": "sonar-pro",
+        "messages": [
+            {"role": "system", "content": "あなたは探索神パープレです。情報収集と構造整理を得意とし、簡潔にお答えします。"},
+            {"role": "user", "content": prompt}
+        ],
+        "stream": False
+    }
+    headers = {
+        "Authorization": f"Bearer {perplexity_api_key}",
+        "Content-Type": "application/json"
+    }
+    response = requests.post("https://api.perplexity.ai/chat/completions", json=payload, headers=headers)
+    reply = response.json()["choices"][0]["message"]["content"]
+    perplexity_memory[user_id] = history + "\n" + prompt + "\n" + reply
+    return reply
+
+# ✅ 起動ログ
 @client.event
 async def on_ready():
-    print(f"✅ Discordログイン: {client.user}")
+    print(f"✅ ログイン成功: {client.user}")
 
+# ✅ メイン処理
 @client.event
 async def on_message(message):
     if message.author.bot:
@@ -81,13 +109,64 @@ async def on_message(message):
 
     content = message.content
     user_id = str(message.author.id)
-    user_name = message.author.display_name
 
+    # ファイル処理（省略可）
+
+    # フィリポ
     if content.startswith("!フィリポ "):
         query = content[len("!フィリポ "):]
         await message.channel.send("🎩 フィリポに伺わせますので、しばしお待ちくださいませ。")
         reply = await ask_philipo(user_id, query)
         await message.channel.send(reply)
-        await post_to_notion(user_name, query, reply)  # ← 公式SDK経由で絶対書き込まれる！
 
+    # ジェミニ
+    elif content.startswith("!ジェミニ "):
+        query = content[len("!ジェミニ "):]
+        await message.channel.send("🎓 ジェミニ先生に尋ねてみますね。")
+        reply = await ask_gemini(user_id, query)
+        await message.channel.send(reply)
+
+    # パープレ
+    elif content.startswith("!パープレ "):
+        query = content[len("!パープレ "):]
+        await message.channel.send("🔎 パープレさんが検索中です…")
+        reply = await ask_perplexity(user_id, query)
+        await message.channel.send(reply)
+
+    # みんなに
+    elif content.startswith("!みんなで "):
+        query = content[len("!みんなで "):]
+        await message.channel.send("🧠 みんなに質問を送ります…")
+
+        philipo_reply = await ask_philipo(user_id, query)
+        await message.channel.send(f"🧤 **フィリポ** より:\n{philipo_reply}")
+
+        gemini_reply = await ask_gemini(user_id, query)
+        await message.channel.send(f"🎓 **ジェミニ先生** より:\n{gemini_reply}")
+
+        perplexity_reply = await ask_perplexity(user_id, query)
+        await message.channel.send(f"🔎 **パープレさん** より:\n{perplexity_reply}")
+
+    # 三連モード（順番引き継ぎ風）
+    
+    elif content.startswith("!三連 "):
+        query = content[len("!三連 "):]
+        await message.channel.send("🎩 フィリポに伺わせますので、しばしお待ちくださいませ。")
+        philipo_reply = await ask_philipo(user_id, query)
+        await message.channel.send(f"🧤 **フィリポ** より:\n{philipo_reply}")
+
+        try:
+            await message.channel.send("🎓 ジェミニ先生に引き継ぎます…")
+            gemini_reply = await ask_gemini(user_id, philipo_reply)
+            await message.channel.send(f"🎓 **ジェミニ先生** より:\n{gemini_reply}")
+        except Exception as e:
+            await message.channel.send("⚠️ ジェミニ先生は現在ご多忙のようです。スキップします。")
+            gemini_reply = philipo_reply  # フィリポの返答を次に渡す
+
+        await message.channel.send("🔎 パープレさんに情報確認を依頼します…")
+        perplexity_reply = await ask_perplexity(user_id, gemini_reply)
+        await message.channel.send(f"🔎 **パープレさん** より:\n{perplexity_reply}")
+
+
+# ✅ 起動
 client.run(DISCORD_TOKEN)
