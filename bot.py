@@ -131,11 +131,23 @@ async def on_message(message):
         # --- 単独コマンド ---
         if content.startswith("!フィリポ "):
             query = content[len("!フィリポ "):]
-            if attachment_data:
-                await message.channel.send("🎩 執事が画像を拝見し、伺います。しばしお待ちくださいませ。")
+            query_for_philipo = query
+            attachment_for_philipo = attachment_data
+            
+            # ▼▼▼ PDF連携処理を追加 ▼▼▼
+            if attachment_data and "image" not in attachment_mime_type:
+                await message.channel.send("🎩 執事がジェミニ先生に資料の要約を依頼しております…")
+                summary = await ask_gemini(user_id, "この添付資料の内容を詳細に要約してください。", attachment_data, attachment_mime_type)
+                query_for_philipo = f"{query}\n\n[添付資料の要約:\n{summary}\n]"
+                attachment_for_philipo = None # 要約したので、フィリポにはファイルを渡さない
+                await message.channel.send("🎩 要約を元に、考察いたします。")
             else:
-                await message.channel.send("🎩 執事に伺わせますので、しばしお待ちくださいませ。")
-            reply = await ask_philipo(user_id, query, attachment_data=attachment_data, attachment_mime_type=attachment_mime_type)
+                if attachment_data:
+                    await message.channel.send("🎩 執事が画像を拝見し、伺います。しばしお待ちくださいませ。")
+                else:
+                    await message.channel.send("🎩 執事に伺わせますので、しばしお待ちくださいませ。")
+            
+            reply = await ask_philipo(user_id, query_for_philipo, attachment_data=attachment_for_philipo, attachment_mime_type=attachment_mime_type)
             await message.channel.send(reply)
             await post_to_notion(user_name, query, reply, "フィリポ")
 
@@ -166,17 +178,23 @@ async def on_message(message):
             
             # ▼▼▼ !みんなでコマンドのロジックを修正 ▼▼▼
             query_for_perplexity = query
+            query_for_philipo = query
+            attachment_for_philipo = attachment_data
+
             if attachment_data:
-                # まずジェミニに画像の説明を生成させる
-                image_description = await ask_gemini(user_id, "この添付ファイルの内容を簡潔に説明してください。", attachment_data, attachment_mime_type)
-                query_for_perplexity = f"{query}\n\n[添付資料の概要: {image_description}]"
+                # まずジェミニに画像/PDFの説明を生成させる
+                summary = await ask_gemini(user_id, "この添付ファイルの内容を簡潔に説明してください。", attachment_data, attachment_mime_type)
+                query_for_perplexity = f"{query}\n\n[添付資料の概要: {summary}]"
+                # フィリポがPDFを読めない場合も、要約を渡す
+                if "image" not in attachment_mime_type:
+                    query_for_philipo = query_for_perplexity
+                    attachment_for_philipo = None
 
             # 各AIへのタスクを作成
-            philipo_task = ask_philipo(user_id, query, attachment_data=attachment_data, attachment_mime_type=attachment_mime_type)
+            philipo_task = ask_philipo(user_id, query_for_philipo, attachment_data=attachment_for_philipo, attachment_mime_type=attachment_mime_type)
             gemini_task = ask_gemini(user_id, query, attachment_data=attachment_data, attachment_mime_type=attachment_mime_type)
-            perplexity_task = ask_perplexity(user_id, query_for_perplexity) # パープレには説明付きのクエリを渡す
+            perplexity_task = ask_perplexity(user_id, query_for_perplexity)
             
-            # 同時に実行
             results = await asyncio.gather(philipo_task, gemini_task, perplexity_task, return_exceptions=True)
             philipo_reply, gemini_reply, perplexity_reply = results
             
@@ -189,11 +207,22 @@ async def on_message(message):
 
         elif content.startswith("!三連 "):
             query = content[len("!三連 "):]
-            if attachment_data:
-                await message.channel.send("🎩 執事が画像を拝見し、伺います。")
+            query_for_philipo = query
+            attachment_for_philipo = attachment_data
+
+            if attachment_data and "image" not in attachment_mime_type:
+                await message.channel.send("🎩 執事がジェミニ先生に資料の要約を依頼しております…")
+                summary = await ask_gemini(user_id, "この添付資料の内容を詳細に要約してください。", attachment_data, attachment_mime_type)
+                query_for_philipo = f"{query}\n\n[添付資料の要約:\n{summary}\n]"
+                attachment_for_philipo = None
+                await message.channel.send("🎩 要約を元に、考察いたします。")
             else:
-                await message.channel.send("🎩 執事に伺わせますので、しばしお待ちくださいませ。")
-            philipo_reply = await ask_philipo(user_id, query, attachment_data=attachment_data, attachment_mime_type=attachment_mime_type)
+                if attachment_data:
+                    await message.channel.send("🎩 執事が画像を拝見し、伺います。")
+                else:
+                    await message.channel.send("🎩 執事に伺わせますので、しばしお待ちくださいませ。")
+
+            philipo_reply = await ask_philipo(user_id, query_for_philipo, attachment_data=attachment_for_philipo, attachment_mime_type=attachment_mime_type)
             await message.channel.send(f"🧤 **フィリポ** より:\n{philipo_reply}")
             await message.channel.send("🎓 ジェミニ先生に引き継ぎます…")
             gemini_reply = await ask_gemini(user_id, philipo_reply)
