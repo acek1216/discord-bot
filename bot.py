@@ -134,12 +134,11 @@ async def on_message(message):
             query_for_philipo = query
             attachment_for_philipo = attachment_data
             
-            # ▼▼▼ PDF連携処理を追加 ▼▼▼
             if attachment_data and "image" not in attachment_mime_type:
                 await message.channel.send("🎩 執事がジェミニ先生に資料の要約を依頼しております…")
                 summary = await ask_gemini(user_id, "この添付資料の内容を詳細に要約してください。", attachment_data, attachment_mime_type)
                 query_for_philipo = f"{query}\n\n[添付資料の要約:\n{summary}\n]"
-                attachment_for_philipo = None # 要約したので、フィリポにはファイルを渡さない
+                attachment_for_philipo = None
                 await message.channel.send("🎩 要約を元に、考察いたします。")
             else:
                 if attachment_data:
@@ -176,21 +175,17 @@ async def on_message(message):
             query = content[len("!みんなで "):]
             await message.channel.send("🧠 みんなに質問を送ります…")
             
-            # ▼▼▼ !みんなでコマンドのロジックを修正 ▼▼▼
             query_for_perplexity = query
             query_for_philipo = query
             attachment_for_philipo = attachment_data
 
             if attachment_data:
-                # まずジェミニに画像/PDFの説明を生成させる
                 summary = await ask_gemini(user_id, "この添付ファイルの内容を簡潔に説明してください。", attachment_data, attachment_mime_type)
                 query_for_perplexity = f"{query}\n\n[添付資料の概要: {summary}]"
-                # フィリポがPDFを読めない場合も、要約を渡す
                 if "image" not in attachment_mime_type:
                     query_for_philipo = query_for_perplexity
                     attachment_for_philipo = None
 
-            # 各AIへのタスクを作成
             philipo_task = ask_philipo(user_id, query_for_philipo, attachment_data=attachment_for_philipo, attachment_mime_type=attachment_mime_type)
             gemini_task = ask_gemini(user_id, query, attachment_data=attachment_data, attachment_mime_type=attachment_mime_type)
             perplexity_task = ask_perplexity(user_id, query_for_perplexity)
@@ -198,12 +193,23 @@ async def on_message(message):
             results = await asyncio.gather(philipo_task, gemini_task, perplexity_task, return_exceptions=True)
             philipo_reply, gemini_reply, perplexity_reply = results
             
-            if not isinstance(philipo_reply, Exception): await message.channel.send(f"🧤 **フィリポ** より:\n{philipo_reply}")
-            else: print(f"フィリポエラー: {philipo_reply}")
-            if not isinstance(gemini_reply, Exception): await message.channel.send(f"🎓 **ジェミニ先生** より:\n{gemini_reply}")
-            else: print(f"ジェミニエラー: {gemini_reply}")
-            if not isinstance(perplexity_reply, Exception): await message.channel.send(f"🔎 **パープレさん** より:\n{perplexity_reply}")
-            else: print(f"パープレエラー: {perplexity_reply}")
+            if not isinstance(philipo_reply, Exception): 
+                await message.channel.send(f"🧤 **フィリポ** より:\n{philipo_reply}")
+                await post_to_notion(user_name, query, philipo_reply, "フィリポ(みんな)")
+            else: 
+                print(f"フィリポエラー: {philipo_reply}")
+            
+            if not isinstance(gemini_reply, Exception): 
+                await message.channel.send(f"🎓 **ジェミニ先生** より:\n{gemini_reply}")
+                await post_to_notion(user_name, query, gemini_reply, "ジェミニ先生(みんな)")
+            else: 
+                print(f"ジェミニエラー: {gemini_reply}")
+
+            if not isinstance(perplexity_reply, Exception): 
+                await message.channel.send(f"🔎 **パープレさん** より:\n{perplexity_reply}")
+                await post_to_notion(user_name, query, perplexity_reply, "パープレさん(みんな)")
+            else: 
+                print(f"パープレエラー: {perplexity_reply}")
 
         elif content.startswith("!三連 "):
             query = content[len("!三連 "):]
@@ -224,12 +230,17 @@ async def on_message(message):
 
             philipo_reply = await ask_philipo(user_id, query_for_philipo, attachment_data=attachment_for_philipo, attachment_mime_type=attachment_mime_type)
             await message.channel.send(f"🧤 **フィリポ** より:\n{philipo_reply}")
+            await post_to_notion(user_name, query, philipo_reply, "フィリポ(三連)")
+
             await message.channel.send("🎓 ジェミニ先生に引き継ぎます…")
             gemini_reply = await ask_gemini(user_id, philipo_reply)
             await message.channel.send(f"🎓 **ジェミニ先生** より:\n{gemini_reply}")
+            await post_to_notion(user_name, philipo_reply, gemini_reply, "ジェミニ先生(三連)")
+
             await message.channel.send("🔎 パープレさんに情報確認を依頼します…")
             perplexity_reply = await ask_perplexity(user_id, gemini_reply)
             await message.channel.send(f"🔎 **パープレさん** より:\n{perplexity_reply}")
+            await post_to_notion(user_name, gemini_reply, perplexity_reply, "パープレさん(三連)")
 
         elif content.startswith("!逆三連 "):
             query = content[len("!逆三連 "):]
@@ -238,16 +249,21 @@ async def on_message(message):
                 await message.channel.send("🔎 画像を認識して、パープレさんに伝えます…")
                 image_description = await ask_gemini(user_id, "この添付ファイルの内容を簡潔に説明してください。", attachment_data, attachment_mime_type)
                 query_for_perplexity = f"{query}\n\n[添付資料の概要: {image_description}]"
+            
             await message.channel.send("🔎 パープレさんが先陣を切ります…")
             perplexity_reply = await ask_perplexity(user_id, query_for_perplexity)
             await message.channel.send(f"🔎 **パープレさん** より:\n{perplexity_reply}")
+            await post_to_notion(user_name, query, perplexity_reply, "パープレさん(逆三連)")
+
             await message.channel.send("🎓 ジェミニ先生に引き継ぎます…")
             gemini_reply = await ask_gemini(user_id, perplexity_reply)
             await message.channel.send(f"🎓 **ジェミニ先生** より:\n{gemini_reply}")
+            await post_to_notion(user_name, perplexity_reply, gemini_reply, "ジェミニ先生(逆三連)")
+
             await message.channel.send("🎩 フィリポが最終まとめを行います…")
             philipo_reply = await ask_philipo(user_id, gemini_reply)
             await message.channel.send(f"🎩 **フィリポ** より:\n{philipo_reply}")
-            await post_to_notion(user_name, query, philipo_reply, bot_name="逆三連(フィリポ)")
+            await post_to_notion(user_name, gemini_reply, philipo_reply, "フィリポ(逆三連)")
 
     finally:
         if message.author.id in processing_users:
