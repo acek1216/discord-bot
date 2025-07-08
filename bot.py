@@ -127,10 +127,10 @@ async def on_message(message):
     # --- 単独コマンド ---
     if content.startswith("!フィリポ "):
         query = content[len("!フィリポ "):]
-        waiting_message = "🎩 執事に伺わせますので、しばしお待ちくださいませ。"
         if attachment_data:
-            waiting_message = "🎩 執事が画像を拝見し、伺います。しばしお待ちくださいませ。"
-        await message.channel.send(waiting_message)
+            await message.channel.send("🎩 執事が画像を拝見し、伺います。しばしお待ちくださいませ。")
+        else:
+            await message.channel.send("🎩 執事に伺わせますので、しばしお待ちくださいませ。")
         
         reply = await ask_philipo(user_id, query, image_url=attachment_url)
         await message.channel.send(reply)
@@ -138,21 +138,21 @@ async def on_message(message):
 
     elif content.startswith("!ジェミニ "):
         query = content[len("!ジェミニ "):]
-        waiting_message = "🧑‍🏫 先生が考察中です。少々お待ちください。"
         if attachment_data:
-            waiting_message = "🧑‍🏫 先生が資料を拝見し、考察中です。少々お待ちください。"
-        await message.channel.send(waiting_message)
-        
+            await message.channel.send("🧑‍🏫 先生が資料を拝見し、考察中です。少々お待ちください。")
+        else:
+            await message.channel.send("🧑‍🏫 先生が考察中です。少々お待ちください。")
+
         reply = await ask_gemini(user_id, query, attachment_data=attachment_data, attachment_mime_type=attachment_mime_type)
         await message.channel.send(reply)
         await post_to_notion(user_name, query, reply, "ジェミニ先生")
 
     elif content.startswith("!パープレ "):
         query = content[len("!パープレ "):]
-        waiting_message = "🔎 パープレさんが検索中です…"
         if attachment_data:
-            waiting_message = "🔎 パープレさんは画像を直接見ることができません。テキストのみで回答します。"
-        await message.channel.send(waiting_message)
+            await message.channel.send("🔎 パープレさんは画像を直接見ることができません。テキストのみで回答します。")
+        else:
+            await message.channel.send("🔎 パープレさんが検索中です…")
         
         reply = await ask_perplexity(user_id, query)
         await message.channel.send(reply)
@@ -173,10 +173,10 @@ async def on_message(message):
 
     elif content.startswith("!三連 "):
         query = content[len("!三連 "):]
-        waiting_message = "🎩 執事に伺わせますので、しばしお待ちくださいませ。"
         if attachment_data:
-            waiting_message = "🎩 執事が画像を拝見し、伺います。"
-        await message.channel.send(waiting_message)
+            await message.channel.send("🎩 執事が画像を拝見し、伺います。")
+        else:
+            await message.channel.send("🎩 執事に伺わせますので、しばしお待ちくださいませ。")
         
         philipo_reply = await ask_philipo(user_id, query, image_url=attachment_url)
         await message.channel.send(f"🧤 **フィリポ** より:\n{philipo_reply}")
