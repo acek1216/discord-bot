@@ -5,31 +5,66 @@ import asyncio
 import requests
 import os
 from dotenv import load_dotenv
+import json
 
-# ✅ .env 読み込み
+# ✅ .env 読み込み（Renderでは自動的に環境変数使用）
 load_dotenv()
 
-# ✅ 各種キーを環境変数から取得
+# ✅ 各種キー取得
 DISCORD_TOKEN = os.getenv("DISCORD_BOT_TOKEN")
 openai_api_key = os.getenv("OPENAI_API_KEY")
 gemini_api_key = os.getenv("GEMINI_API_KEY")
 perplexity_api_key = os.getenv("PERPLEXITY_API_KEY")
+notion_api_key = os.getenv("NOTION_API_KEY")
+notion_page_id = os.getenv("NOTION_PAGE_ID")
 
 # ✅ 初期化
 openai_client = AsyncOpenAI(api_key=openai_api_key)
 genai.configure(api_key=gemini_api_key)
-gemini_model = genai.GenerativeModel("gemini-1.5-pro") 
+gemini_model = genai.GenerativeModel("gemini-1.5-pro")
 
 intents = discord.Intents.default()
 intents.message_content = True
 client = discord.Client(intents=intents)
 
-# ✅ セッションメモリ
+# ✅ メモリ管理
 philipo_memory = {}
 gemini_memory = {}
 perplexity_memory = {}
 
-# ✅ フィリポ
+# ✅ Notion投稿関数
+async def post_to_notion(user_name, question, answer):
+    notion_url = "https://api.notion.com/v1/blocks/" + notion_page_id + "/children"
+    headers = {
+        "Authorization": f"Bearer {notion_api_key}",
+        "Content-Type": "application/json",
+        "Notion-Version": "2022-06-28"
+    }
+    data = {
+        "children": [
+            {
+                "object": "block",
+                "type": "paragraph",
+                "paragraph": {
+                    "rich_text": [
+                        {"type": "text", "text": {"content": f"👤 {user_name}:\n{question}"}}
+                    ]
+                }
+            },
+            {
+                "object": "block",
+                "type": "paragraph",
+                "paragraph": {
+                    "rich_text": [
+                        {"type": "text", "text": {"content": f"🤖 フィリポ:\n{answer}"}}
+                    ]
+                }
+            }
+        ]
+    }
+    requests.patch(notion_url, headers=headers, json=data)
+
+# ✅ 各AIへの問い
 async def ask_philipo(user_id, prompt):
     history = philipo_memory.get(user_id, [])
     messages = [{"role": "system", "content": "あなたは執事フィリポです。礼儀正しく対応してください。"}] + history + [{"role": "user", "content": prompt}]
@@ -38,7 +73,6 @@ async def ask_philipo(user_id, prompt):
     philipo_memory[user_id] = history + [{"role": "user", "content": prompt}, {"role": "assistant", "content": reply}]
     return reply
 
-# ✅ ジェミニ
 async def ask_gemini(user_id, prompt):
     loop = asyncio.get_event_loop()
     history = gemini_memory.get(user_id, "")
@@ -48,7 +82,6 @@ async def ask_gemini(user_id, prompt):
     gemini_memory[user_id] = full_prompt + reply
     return reply
 
-# ✅ パープレ
 async def ask_perplexity(user_id, prompt):
     history = perplexity_memory.get(user_id, "")
     payload = {
@@ -68,12 +101,12 @@ async def ask_perplexity(user_id, prompt):
     perplexity_memory[user_id] = history + "\n" + prompt + "\n" + reply
     return reply
 
-# ✅ 起動ログ
+# ✅ 起動確認
 @client.event
 async def on_ready():
     print(f"✅ ログイン成功: {client.user}")
 
-# ✅ メイン処理
+# ✅ メイン応答処理
 @client.event
 async def on_message(message):
     if message.author.bot:
@@ -81,65 +114,26 @@ async def on_message(message):
 
     content = message.content
     user_id = str(message.author.id)
+    user_name = message.author.display_name
 
-    # ファイル処理（省略可）
-
-    # フィリポ
     if content.startswith("!フィリポ "):
         query = content[len("!フィリポ "):]
         await message.channel.send("🎩 フィリポに伺わせますので、しばしお待ちくださいませ。")
         reply = await ask_philipo(user_id, query)
         await message.channel.send(reply)
+        await post_to_notion(user_name, query, reply)
 
-    # ジェミニ
     elif content.startswith("!ジェミニ "):
         query = content[len("!ジェミニ "):]
         await message.channel.send("🎓 ジェミニ先生に尋ねてみますね。")
         reply = await ask_gemini(user_id, query)
         await message.channel.send(reply)
 
-    # パープレ
     elif content.startswith("!パープレ "):
         query = content[len("!パープレ "):]
         await message.channel.send("🔎 パープレさんが検索中です…")
         reply = await ask_perplexity(user_id, query)
         await message.channel.send(reply)
 
-    # みんなに
-    elif content.startswith("!みんなで "):
-        query = content[len("!みんなで "):]
-        await message.channel.send("🧠 みんなに質問を送ります…")
-
-        philipo_reply = await ask_philipo(user_id, query)
-        await message.channel.send(f"🧤 **フィリポ** より:\n{philipo_reply}")
-
-        gemini_reply = await ask_gemini(user_id, query)
-        await message.channel.send(f"🎓 **ジェミニ先生** より:\n{gemini_reply}")
-
-        perplexity_reply = await ask_perplexity(user_id, query)
-        await message.channel.send(f"🔎 **パープレさん** より:\n{perplexity_reply}")
-
-    # 三連モード（順番引き継ぎ風）
-    
-    elif content.startswith("!三連 "):
-        query = content[len("!三連 "):]
-        await message.channel.send("🎩 フィリポに伺わせますので、しばしお待ちくださいませ。")
-        philipo_reply = await ask_philipo(user_id, query)
-        await message.channel.send(f"🧤 **フィリポ** より:\n{philipo_reply}")
-
-        try:
-            await message.channel.send("🎓 ジェミニ先生に引き継ぎます…")
-            gemini_reply = await ask_gemini(user_id, philipo_reply)
-            await message.channel.send(f"🎓 **ジェミニ先生** より:\n{gemini_reply}")
-        except Exception as e:
-            await message.channel.send("⚠️ ジェミニ先生は現在ご多忙のようです。スキップします。")
-            gemini_reply = philipo_reply  # フィリポの返答を次に渡す
-
-        await message.channel.send("🔎 パープレさんに情報確認を依頼します…")
-        perplexity_reply = await ask_perplexity(user_id, gemini_reply)
-        await message.channel.send(f"🔎 **パープレさん** より:\n{perplexity_reply}")
-
-
-# ✅ 起動
+# ✅ 実行
 client.run(DISCORD_TOKEN)
-
