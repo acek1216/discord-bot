@@ -155,8 +155,17 @@ async def on_message(message):
                 else: await message.channel.send("🎩 執事に伺わせますので、しばしお待ちくださいませ。")
                 reply = await ask_philipo(user_id, query, attachment_data=attachment_data, attachment_mime_type=attachment_mime_type)
         
-        # (他のコマンドも同様の構造)
-        # ...
+        elif command_name == "!ジェミニ":
+            bot_name = "ジェミニ先生"
+            if attachment_data: await message.channel.send("🧑‍🏫 先生が資料を拝見し、考察中です。少々お待ちください。")
+            else: await message.channel.send("🧑‍🏫 先生が考察中です。少々お待ちください。")
+            reply = await ask_gemini(user_id, query, attachment_data=attachment_data, attachment_mime_type=attachment_mime_type)
+
+        elif command_name == "!パープレ":
+            bot_name = "パープレさん"
+            if attachment_data: await message.channel.send("🔎 パープレさんは画像を直接見ることができません。テキストのみで回答します。")
+            else: await message.channel.send("🔎 パープレさんが検索中です…")
+            reply = await ask_perplexity(user_id, query)
 
         # --- 応答とNotion記録 ---
         if reply and bot_name:
