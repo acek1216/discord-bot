@@ -15,10 +15,11 @@ import base64
 load_dotenv()
 DISCORD_TOKEN = os.getenv("DISCORD_BOT_TOKEN")
 openai_api_key = os.getenv("OPENAI_API_KEY")
-gemini_api_key = os.getenv("GEMINI_API_KEY") # PDF要約のために必要
+gemini_api_key = os.getenv("GEMINI_API_KEY")
 notion_api_key = os.getenv("NOTION_API_KEY")
-# ▼▼▼ 親ページのIDのみを使用します ▼▼▼
-NOTION_PAGE_ID = os.getenv("NOTION_PAGE_ID")
+# ▼▼▼ 必要なIDのみを読み込みます ▼▼▼
+NOTION_PHILIPO_PAGE_ID = os.getenv("NOTION_PHILIPO_PAGE_ID")
+ADMIN_USER_ID = str(os.getenv("ADMIN_USER_ID")) if os.getenv("ADMIN_USER_ID") else None
 
 # --- 各種クライアントの初期化 ---
 openai_client = AsyncOpenAI(api_key=openai_api_key)
@@ -43,7 +44,7 @@ processing_users = set()
 # --- Notion書き込み関数 ---
 def _sync_post_to_notion(page_id, blocks):
     if not page_id:
-        print("❌ [FATAL] NOTION_PAGE_ID is not set in environment variables. Cannot log to Notion.")
+        print("❌ [FATAL] Target Page ID is not set. Cannot log to Notion.")
         return
     try:
         print(f"✅ [DEBUG] Attempting to write to Notion Page ID: {page_id}")
@@ -73,7 +74,6 @@ async def ask_philipo(user_id, prompt, attachment_data=None, attachment_mime_typ
     return reply
 
 async def ask_gemini_for_summary(user_id, prompt, attachment_data=None, attachment_mime_type=None):
-    # PDF要約専用のシンプルな関数
     contents = [prompt]
     if attachment_data and attachment_mime_type:
         contents.append({'mime_type': attachment_mime_type, 'data': attachment_data})
@@ -83,8 +83,9 @@ async def ask_gemini_for_summary(user_id, prompt, attachment_data=None, attachme
 # --- Discordイベントハンドラ ---
 @client.event
 async def on_ready():
-    print("✅ ログイン成功 (フィリポ専用モード)")
-    print(f"✅ Notion記録先ページID: {NOTION_PAGE_ID}")
+    print("✅ ログイン成功 (フィリポ専用・管理者記録モード)")
+    print(f"✅ Admin User ID: {ADMIN_USER_ID}")
+    print(f"✅ Philipo's Notion Page ID: {NOTION_PHILIPO_PAGE_ID}")
 
 @client.event
 async def on_message(message):
@@ -96,12 +97,13 @@ async def on_message(message):
     processing_users.add(message.author.id)
     
     try:
-        content = message.content
-        user_id = str(message.author.id)
-        user_name = message.author.display_name
-
         # --- !フィリポ コマンドのみを処理 ---
-        if content.startswith("!フィリポ "):
+        if message.content.startswith("!フィリポ "):
+            print("\n--- !フィリポ command received ---")
+            
+            content = message.content
+            user_id = str(message.author.id)
+            user_name = message.author.display_name
             command_name = "!フィリポ"
             query = content[len(command_name):].strip()
             
@@ -125,15 +127,25 @@ async def on_message(message):
                 else: await message.channel.send("🎩 執事に伺わせますので、しばしお待ちくださいませ。")
                 reply = await ask_philipo(user_id, query, attachment_data=attachment_data, attachment_mime_type=attachment_mime_type)
             
-            # 応答とNotion記録
+            # 応答
             await message.channel.send(reply)
             
-            print(f"✅ [DEBUG] Preparing to log for 'フィリポ'.")
-            blocks = [
-                {"object": "block", "type": "paragraph", "paragraph": {"rich_text": [{"type": "text", "text": {"content": f"👤 {user_name}: {command_name} {query}"}}]}},
-                {"object": "block", "type": "paragraph", "paragraph": {"rich_text": [{"type": "text", "text": {"content": f"🤖 フィリポ: {reply}"}}]}}
-            ]
-            await log_to_notion(NOTION_PAGE_ID, blocks)
+            # Notion記録
+            is_admin = (user_id == ADMIN_USER_ID)
+            print(f"--- Admin Check for Notion Log ---")
+            print(f"Is Admin? -> {is_admin} (Comparing '{user_id}' with '{ADMIN_USER_ID}')")
+
+            if is_admin:
+                print(f"✅ Admin confirmed. Preparing to log for 'フィリポ'.")
+                blocks = [
+                    {"object": "block", "type": "paragraph", "paragraph": {"rich_text": [{"type": "text", "text": {"content": f"👤 {user_name}: {command_name} {query}"}}]}},
+                    {"object": "block", "type": "paragraph", "paragraph": {"rich_text": [{"type": "text", "text": {"content": f"🤖 フィリポ: {reply}"}}]}}
+                ]
+                await log_to_notion(NOTION_PHILIPO_PAGE_ID, blocks)
+            else:
+                print("ℹ️ [INFO] User is not admin. Skipping Notion log.")
+            
+            print("--- End of processing ---")
 
     finally:
         if message.author.id in processing_users:
