@@ -94,25 +94,16 @@ async def ask_gemini(user_id, prompt, attachment_data=None, attachment_mime_type
     gemini_memory[user_id] = current_history + [{"role": "ユーザー", "content": prompt}, {"role": "先生", "content": reply}]
     return reply
 
-def _sync_ask_perplexity(user_id, prompt):
-    history = perplexity_memory.get(user_id, [])
-    messages = [{"role": "system", "content": "あなたは探索神パープレです。情報収集と構造整理を得意とし、簡潔にお答えします。"}] + history + [{"role": "user", "content": prompt}]
-    payload = {"model": "sonar-pro", "messages": messages}
-    headers = {"Authorization": f"Bearer {perplexity_api_key}", "Content-Type": "application/json"}
-    response = requests.post("https://api.perplexity.ai/chat/completions", json=payload, headers=headers)
-    response.raise_for_status()
-    reply = response.json()["choices"][0]["message"]["content"]
-    perplexity_memory[user_id] = history + [{"role": "user", "content": prompt}, {"role": "assistant", "content": reply}]
-    return reply
-
-async def ask_perplexity(user_id, prompt):
-    loop = asyncio.get_event_loop()
-    return await loop.run_in_executor(None, _sync_ask_perplexity, user_id, prompt)
-
 # --- Discordイベントハンドラ ---
 @client.event
 async def on_ready():
     print("✅ ログイン成功")
+    print("\n--- Environment Variables Check at Startup ---")
+    print(f"ADMIN_USER_ID: {ADMIN_USER_ID}")
+    print(f"NOTION_PAGE_ID (Main): {NOTION_PAGE_ID}")
+    print(f"NOTION_PHILIPO_PAGE_ID: {NOTION_PHILIPO_PAGE_ID}")
+    print(f"NOTION_GEMINI_PAGE_ID: {NOTION_GEMINI_PAGE_ID}")
+    print("------------------------------------------\n")
 
 @client.event
 async def on_message(message):
@@ -140,13 +131,18 @@ async def on_message(message):
         
         reply = None
         bot_name = None
-        target_page_id = None # ★記録先を一旦リセット
+        target_page_id = None
         is_admin = (user_id == ADMIN_USER_ID)
+
+        print(f"\n--- New Request Received ---")
+        print(f"Command: {command_name}, User: {user_name} ({user_id})")
+        print(f"Is Admin? -> {is_admin}")
 
         # --- コマンド処理 ---
         if command_name == "!フィリポ":
             bot_name = "フィリポ"
-            target_page_id = NOTION_PHILIPO_PAGE_ID # ★フィリポの時だけ、記録先を指定
+            target_page_id = NOTION_PHILIPO_PAGE_ID
+            print(f"[DEBUG] Command matched. Target Page ID set to: {target_page_id}")
             
             if attachment_data and "image" not in attachment_mime_type:
                 await message.channel.send("🎩 執事がジェミニ先生に資料の要約を依頼しております…")
@@ -161,25 +157,34 @@ async def on_message(message):
         
         elif command_name == "!ジェミニ":
             bot_name = "ジェミニ先生"
-            target_page_id = NOTION_GEMINI_PAGE_ID # ★ジェミニの時だけ、記録先を指定
+            target_page_id = NOTION_GEMINI_PAGE_ID
+            print(f"[DEBUG] Command matched. Target Page ID set to: {target_page_id}")
             
             if attachment_data: await message.channel.send("🧑‍🏫 先生が資料を拝見し、考察中です。少々お待ちください。")
             else: await message.channel.send("🧑‍🏫 先生が考察中です。少々お待ちください。")
             reply = await ask_gemini(user_id, query, attachment_data=attachment_data, attachment_mime_type=attachment_mime_type)
         
-        # (他のコマンドは、このテストではNotionに記録されません)
-
         # --- 応答とNotion記録 ---
         if reply and bot_name:
             await message.channel.send(reply)
             
+            print("\n--- Notion Logging Check ---")
+            print(f"Bot Name: {bot_name}")
+            print(f"Is Admin? {is_admin}")
+            print(f"Final Target Page ID: {target_page_id}")
+
             if is_admin and target_page_id:
-                print(f"✅ [DEBUG] Admin confirmed. Preparing to log for '{bot_name}' to Page ID: {target_page_id}")
                 blocks = [
                     {"object": "block", "type": "paragraph", "paragraph": {"rich_text": [{"type": "text", "text": {"content": f"👤 {user_name}: {command_name} {query}"}}]}},
                     {"object": "block", "type": "paragraph", "paragraph": {"rich_text": [{"type": "text", "text": {"content": f"🤖 {bot_name}: {reply}"}}]}}
                 ]
                 await log_to_notion(target_page_id, blocks)
+            else:
+                if not is_admin:
+                    print("❌ [REASON] Skipping Notion log because user is not admin.")
+                if not target_page_id:
+                    print("❌ [REASON] Skipping Notion log because Target Page ID is None. Check the corresponding environment variable.")
+            print("--------------------------\n")
 
     finally:
         if message.author.id in processing_users:
