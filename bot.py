@@ -19,13 +19,10 @@ gemini_api_key = os.getenv("GEMINI_API_KEY")
 perplexity_api_key = os.getenv("PERPLEXITY_API_KEY")
 notion_api_key = os.getenv("NOTION_API_KEY")
 ADMIN_USER_ID = os.getenv("ADMIN_USER_ID")
-
-# ▼▼▼ 記録先のページIDを全て読み込みます ▼▼▼
-NOTION_MAIN_PAGE_ID = os.getenv("NOTION_PAGE_ID") # 「三神構造炉」のID
+NOTION_MAIN_PAGE_ID = os.getenv("NOTION_PAGE_ID")
 NOTION_PHILIPO_PAGE_ID = os.getenv("NOTION_PHILIPO_PAGE_ID")
-# NOTION_GEMINI_PAGE_ID = os.getenv("NOTION_GEMINI_PAGE_ID") # 後で設定
-# NOTION_PERPLEXITY_PAGE_ID = os.getenv("NOTION_PERPLEXITY_PAGE_ID") # 後で設定
-
+NOTION_GEMINI_PAGE_ID = os.getenv("NOTION_GEMINI_PAGE_ID")
+NOTION_PERPLEXITY_PAGE_ID = os.getenv("NOTION_PERPLEXITY_PAGE_ID")
 
 # --- 各種クライアントの初期化 ---
 openai_client = AsyncOpenAI(api_key=openai_api_key)
@@ -49,42 +46,69 @@ gemini_memory = {}
 perplexity_memory = {}
 processing_users = set()
 
-# --- Notion書き込み関数 (★ここを全面的に修正しました) ---
-def _sync_post_to_notion(page_id, blocks):
-    """Notionにブロックを書き込む同期的なコア処理"""
+# --- Notion書き込み関数 ---
+def _sync_post_to_notion(page_id, blocks, bot_name):
     if not page_id:
-        print("❌ Notionエラー: 書き込み先のページIDが指定されていません。")
+        print(f"❌ Notion Log Error for {bot_name}: Target Page ID is not set in environment variables.")
         return
     try:
         notion.blocks.children.append(block_id=page_id, children=blocks)
-        print(f"✅ Notionへの書き込み成功 (ページID: {page_id})")
+        print(f"✅ Notion Log Success for {bot_name} to Page ID: {page_id}")
     except Exception as e:
-        print(f"❌ Notionエラー: {e}")
+        print(f"❌ Notion API Error for {bot_name}: {e}")
 
-async def log_to_notion(page_id, blocks):
-    """Notionへの書き込みを非同期で安全に呼び出す"""
+async def log_to_notion(page_id, blocks, bot_name):
     loop = asyncio.get_event_loop()
-    await loop.run_in_executor(None, _sync_post_to_notion, page_id, blocks)
+    await loop.run_in_executor(None, _sync_post_to_notion, page_id, blocks, bot_name)
 
-async def log_trigger(user_name, query, command_name, page_id):
-    """コマンドの実行ログを記録する"""
-    blocks = [{
-        "object": "block", "type": "paragraph", "paragraph": {
-            "rich_text": [{"type": "text", "text": {"content": f"👤 {user_name} が「{command_name} {query}」を実行しました。"}}]
-        }
-    }]
-    await log_to_notion(page_id, blocks)
+async def log_trigger_and_response(user_id, user_name, query, command_name, reply, bot_name):
+    # ▼▼▼【デバッグ用】IDチェックのログを出力 ▼▼▼
+    print("\n--- Notion Logging Check ---")
+    print(f"Command: {command_name}, Bot: {bot_name}")
+    print(f"Message Author ID: {user_id}")
+    print(f"Admin ID from Env: {ADMIN_USER_ID}")
 
-async def log_response(answer, bot_name, page_id):
-    """AIの応答を記録する"""
-    if len(answer) > 1900:
-        answer = answer[:1900] + "... (文字数制限のため省略)"
-    blocks = [{
-        "object": "block", "type": "paragraph", "paragraph": {
-            "rich_text": [{"type": "text", "text": {"content": f"🤖 {bot_name}: {answer}"}}]
-        }
-    }]
-    await log_to_notion(page_id, blocks)
+    if user_id != ADMIN_USER_ID:
+        print("ID Mismatch. Skipping Notion log.")
+        print("--------------------------\n")
+        return
+
+    print("✅ Admin ID MATCH. Proceeding to log.")
+
+    # 応答を記録するページのIDを決定
+    response_page_id = NOTION_MAIN_PAGE_ID # デフォルト
+    if "フィリポ" in bot_name and NOTION_PHILIPO_PAGE_ID: response_page_id = NOTION_PHILIPO_PAGE_ID
+    elif ("ジェミニ" in bot_name or "先生" in bot_name) and NOTION_GEMINI_PAGE_ID: response_page_id = NOTION_GEMINI_PAGE_ID
+    elif "パープレ" in bot_name and NOTION_PERPLEXITY_PAGE_ID: response_page_id = NOTION_PERPLEXITY_PAGE_ID
+    
+    print(f"Target Response Page ID: {response_page_id}")
+
+    # 応答ブロックを作成
+    if len(reply) > 1900: reply = reply[:1900] + "... (truncated)"
+    response_blocks = [{"object": "block", "type": "paragraph", "paragraph": {"rich_text": [{"type": "text", "text": f"🤖 {bot_name}: {reply}"}]}}]
+    
+    # 応答を記録
+    await log_to_notion(response_page_id, response_blocks, bot_name)
+
+    # 実行ログを記録するページのIDを決定
+    trigger_page_id = response_page_id # デフォルトは応答と同じページ
+    if command_name in ["!みんなで", "!三連", "!逆三連"]:
+        trigger_page_id = NOTION_MAIN_PAGE_ID # 複合コマンドはメインページに記録
+    
+    print(f"Target Trigger Log Page ID: {trigger_page_id}")
+
+    # 実行ログブロックを作成
+    trigger_blocks = [{"object": "block", "type": "paragraph", "paragraph": {"rich_text": [{"type": "text", "text": f"👤 {user_name}: {command_name} {query}"}]}}]
+    
+    # 実行ログを記録
+    if trigger_page_id != response_page_id:
+        await log_to_notion(trigger_page_id, trigger_blocks, f"{command_name} Trigger")
+    else:
+        # 応答とトリガーが同じページの場合、まとめて書き込む
+        all_blocks = trigger_blocks + response_blocks
+        await log_to_notion(response_page_id, all_blocks, bot_name)
+
+    print("--------------------------\n")
 
 
 # --- 各AIモデル呼び出し関数 (変更なし) ---
@@ -134,7 +158,7 @@ async def ask_perplexity(user_id, prompt):
     loop = asyncio.get_event_loop()
     return await loop.run_in_executor(None, _sync_ask_perplexity, user_id, prompt)
 
-# --- Discordイベントハンドラ (★ここを全面的に修正しました) ---
+# --- Discordイベントハンドラ ---
 @client.event
 async def on_ready():
     print(f"✅ ログイン成功: {client.user}")
@@ -160,16 +184,11 @@ async def on_message(message):
             attachment_data = await attachment.read()
             attachment_mime_type = attachment.content_type
 
-        # --- コマンド分岐 ---
         command_name = content.split(' ')[0]
         query = content[len(command_name):].strip()
 
         # --- 単独コマンド ---
         if command_name == "!フィリポ":
-            if user_id == ADMIN_USER_ID:
-                await log_trigger(user_name, query, command_name, NOTION_PHILIPO_PAGE_ID)
-
-            # (応答メッセージとAI呼び出しのロジックは変更なし)
             query_for_philipo = query
             attachment_for_philipo = attachment_data
             if attachment_data and "image" not in attachment_mime_type:
@@ -179,62 +198,14 @@ async def on_message(message):
                 attachment_for_philipo = None
                 await message.channel.send("🎩 要約を元に、考察いたします。")
             else:
-                if attachment_data:
-                    await message.channel.send("🎩 執事が画像を拝見し、伺います。しばしお待ちくださいませ。")
-                else:
-                    await message.channel.send("🎩 執事に伺わせますので、しばしお待ちくださいませ。")
+                if attachment_data: await message.channel.send("🎩 執事が画像を拝見し、伺います。しばしお待ちくださいませ。")
+                else: await message.channel.send("🎩 執事に伺わせますので、しばしお待ちくださいませ。")
             
             reply = await ask_philipo(user_id, query_for_philipo, attachment_data=attachment_for_philipo, attachment_mime_type=attachment_mime_type)
             await message.channel.send(reply)
-            
-            if user_id == ADMIN_USER_ID:
-                await log_response(reply, "フィリポ", NOTION_PHILIPO_PAGE_ID)
+            await log_trigger_and_response(user_id, user_name, query, command_name, reply, "フィリポ")
         
-        # (ジェミニとパープレのコマンドは後で対応)
-
-        # --- 複合コマンド ---
-        elif command_name in ["!みんなで", "!三連", "!逆三連"]:
-            if user_id == ADMIN_USER_ID:
-                await log_trigger(user_name, query, command_name, NOTION_MAIN_PAGE_ID)
-
-            if command_name == "!みんなで":
-                await message.channel.send("🧠 みんなに質問を送ります…")
-                query_for_perplexity = query
-                query_for_philipo = query
-                attachment_for_philipo = attachment_data
-
-                if attachment_data:
-                    summary = await ask_gemini(user_id, "この添付ファイルの内容を簡潔に説明してください。", attachment_data, attachment_mime_type)
-                    query_for_perplexity = f"{query}\n\n[添付資料の概要: {summary}]"
-                    if "image" not in attachment_mime_type:
-                        query_for_philipo = query_for_perplexity
-                        attachment_for_philipo = None
-
-                philipo_task = ask_philipo(user_id, query_for_philipo, attachment_data=attachment_for_philipo, attachment_mime_type=attachment_mime_type)
-                gemini_task = ask_gemini(user_id, query, attachment_data=attachment_data, attachment_mime_type=attachment_mime_type)
-                perplexity_task = ask_perplexity(user_id, query_for_perplexity)
-                
-                results = await asyncio.gather(philipo_task, gemini_task, perplexity_task, return_exceptions=True)
-                philipo_reply, gemini_reply, perplexity_reply = results
-                
-                if not isinstance(philipo_reply, Exception): 
-                    await message.channel.send(f"🧤 **フィリポ** より:\n{philipo_reply}")
-                    if user_id == ADMIN_USER_ID: await log_response(philipo_reply, "フィリポ(みんな)", NOTION_PHILIPO_PAGE_ID)
-                
-                # (ジェミニとパープレの応答ログは後で対応)
-
-            elif command_name == "!三連":
-                if attachment_data and "image" not in attachment_mime_type:
-                    # (ロジックは省略)
-                    pass
-                else:
-                    # (ロジックは省略)
-                    pass
-                # (応答とログ記録のロジックは後で対応)
-
-            elif command_name == "!逆三連":
-                # (ロジックは後で対応)
-                pass
+        # (他のコマンドは後で対応)
 
     finally:
         if message.author.id in processing_users:
