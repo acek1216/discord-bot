@@ -92,6 +92,7 @@ async def on_message(message):
     if message.author.bot:
         return
 
+    # ▼▼▼ ユーザーIDでロックをかけるように修正 ▼▼▼
     if message.author.id in processing_users:
         return
     processing_users.add(message.author.id)
@@ -122,7 +123,7 @@ async def on_message(message):
             # 画像または添付なしの場合の処理
             else:
                 if attachment_data: await message.channel.send("🎩 執事が画像を拝見し、伺います。しばしお待ちくださいませ。")
-                else: await message.channel.send("🎩 執事に伺わせますので、しばしお待ちくださいませ。")
+                else: await message.channel.send("� 執事に伺わせますので、しばしお待ちくださいませ。")
                 reply = await ask_philipo(user_id, query, attachment_data=attachment_data, attachment_mime_type=attachment_mime_type)
             
             # 応答
@@ -147,8 +148,9 @@ async def on_message(message):
                 print("ℹ️ [INFO] User is not admin. Skipping Notion log.")
 
     finally:
+        # ▼▼▼ ユーザーIDでロックを外すように修正 ▼▼▼
         if message.author.id in processing_users:
-            processing_users.remove(message.id)
+            processing_users.remove(message.author.id)
 
 # --- 起動 ---
 client.run(DISCORD_TOKEN)
