@@ -18,7 +18,7 @@ openai_api_key = os.getenv("OPENAI_API_KEY")
 gemini_api_key = os.getenv("GEMINI_API_KEY")
 perplexity_api_key = os.getenv("PERPLEXITY_API_KEY")
 notion_api_key = os.getenv("NOTION_API_KEY")
-ADMIN_USER_ID = os.getenv("ADMIN_USER_ID")
+ADMIN_USER_ID = str(os.getenv("ADMIN_USER_ID")) if os.getenv("ADMIN_USER_ID") else None
 NOTION_MAIN_PAGE_ID = os.getenv("NOTION_PAGE_ID")
 NOTION_PHILIPO_PAGE_ID = os.getenv("NOTION_PHILIPO_PAGE_ID")
 NOTION_GEMINI_PAGE_ID = os.getenv("NOTION_GEMINI_PAGE_ID")
@@ -240,7 +240,7 @@ async def on_message(message):
                     if attachment_data: await message.channel.send("🎩 執事が画像を拝見し、伺います。")
                     else: await message.channel.send("🎩 執事に伺わせますので、しばしお待ちくださいませ。")
 
-                philipo_reply = await ask_philipo(user_id, query, attachment_data=attachment_data, attachment_mime_type=attachment_mime_type)
+                philipo_reply = await ask_philipo(user_id, query_for_philipo, attachment_data=attachment_for_philipo, attachment_mime_type=attachment_mime_type)
                 await message.channel.send(f"🧤 **フィリポ** より:\n{philipo_reply}")
                 if is_admin:
                     response_blocks = [{"object": "block", "type": "paragraph", "paragraph": {"rich_text": [{"type": "text", "text": {"content": f"🤖 フィリポ(三連): {philipo_reply}"}}]}}]
@@ -293,4 +293,3 @@ async def on_message(message):
 
 # --- 起動 ---
 client.run(DISCORD_TOKEN)
-
