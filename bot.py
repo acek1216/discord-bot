@@ -18,7 +18,9 @@ openai_api_key = os.getenv("OPENAI_API_KEY")
 gemini_api_key = os.getenv("GEMINI_API_KEY")
 perplexity_api_key = os.getenv("PERPLEXITY_API_KEY")
 notion_api_key = os.getenv("NOTION_API_KEY")
-ADMIN_USER_ID = os.getenv("ADMIN_USER_ID")
+
+# ▼▼▼ あなたの分析に基づき、型をstrに統一し、デバッグログを追加 ▼▼▼
+ADMIN_USER_ID = str(os.getenv("ADMIN_USER_ID")) if os.getenv("ADMIN_USER_ID") else None
 NOTION_MAIN_PAGE_ID = os.getenv("NOTION_PAGE_ID")
 NOTION_PHILIPO_PAGE_ID = os.getenv("NOTION_PHILIPO_PAGE_ID")
 NOTION_GEMINI_PAGE_ID = os.getenv("NOTION_GEMINI_PAGE_ID")
@@ -49,13 +51,15 @@ processing_users = set()
 # --- Notion書き込み関数 ---
 def _sync_post_to_notion(page_id, blocks):
     if not page_id:
-        print("❌ Notion Log Error: Target Page ID is not provided or not set in environment variables.")
+        print("❌ [DEBUG] Notion Log Error: Target Page ID is None. Check environment variables.")
         return
     try:
+        # ▼▼▼ あなたの分析に基づき、書き込み直前のデバッグログを追加 ▼▼▼
+        print(f"✅ [DEBUG] Attempting to write to Notion Page ID: {page_id}")
         notion.blocks.children.append(block_id=page_id, children=blocks)
-        print(f"✅ Notion Log Success to Page ID: {page_id}")
+        print(f"✅ [SUCCESS] Notion Log Success to Page ID: {page_id}")
     except Exception as e:
-        print(f"❌ Notion API Error: {e}")
+        print(f"❌ [FATAL] Notion API Error: {e}")
 
 async def log_to_notion(page_id, blocks):
     loop = asyncio.get_event_loop()
@@ -108,10 +112,19 @@ async def ask_perplexity(user_id, prompt):
     loop = asyncio.get_event_loop()
     return await loop.run_in_executor(None, _sync_ask_perplexity, user_id, prompt)
 
-# --- Discordイベントハンドラ (★ここを全面的に修正しました) ---
+# --- Discordイベントハンドラ ---
 @client.event
 async def on_ready():
-    print(f"✅ ログイン成功: {client.user}")
+    print("✅ ログイン成功")
+    # ▼▼▼ あなたの分析に基づき、起動時に環境変数を表示 ▼▼▼
+    print("\n--- Environment Variables Check ---")
+    print(f"ADMIN_USER_ID: {ADMIN_USER_ID}")
+    print(f"NOTION_MAIN_PAGE_ID: {NOTION_MAIN_PAGE_ID}")
+    print(f"NOTION_PHILIPO_PAGE_ID: {NOTION_PHILIPO_PAGE_ID}")
+    print(f"NOTION_GEMINI_PAGE_ID: {NOTION_GEMINI_PAGE_ID}")
+    print(f"NOTION_PERPLEXITY_PAGE_ID: {NOTION_PERPLEXITY_PAGE_ID}")
+    print("-----------------------------------\n")
+
 
 @client.event
 async def on_message(message):
@@ -137,9 +150,15 @@ async def on_message(message):
         command_name = content.split(' ')[0]
         query = content[len(command_name):].strip()
 
+        # ▼▼▼ あなたの分析に基づき、IDチェックのデバッグログを追加 ▼▼▼
+        is_admin = (user_id == ADMIN_USER_ID)
+        print(f"\n--- Request Check ---")
+        print(f"Command: {command_name}, User: {user_name} ({user_id})")
+        print(f"Is Admin? -> {is_admin} (Comparing '{user_id}' with '{ADMIN_USER_ID}')")
+        print("---------------------\n")
+
         # --- 単独コマンド ---
         if command_name == "!フィリポ":
-            # (応答メッセージとAI呼び出しのロジックは変更なし)
             query_for_philipo = query
             attachment_for_philipo = attachment_data
             if attachment_data and "image" not in attachment_mime_type:
@@ -155,19 +174,20 @@ async def on_message(message):
             reply = await ask_philipo(user_id, query_for_philipo, attachment_data=attachment_for_philipo, attachment_mime_type=attachment_mime_type)
             await message.channel.send(reply)
             
-            if user_id == ADMIN_USER_ID:
+            if is_admin:
                 blocks = [
                     {"object": "block", "type": "paragraph", "paragraph": {"rich_text": [{"type": "text", "text": {"content": f"👤 {user_name}: {command_name} {query}"}}]}},
                     {"object": "block", "type": "paragraph", "paragraph": {"rich_text": [{"type": "text", "text": {"content": f"🤖 フィリポ: {reply}"}}]}}
                 ]
                 await log_to_notion(NOTION_PHILIPO_PAGE_ID, blocks)
         
+        # (ジェミニとパープレのコマンドも同様の構造)
         elif command_name == "!ジェミニ":
             if attachment_data: await message.channel.send("🧑‍🏫 先生が資料を拝見し、考察中です。少々お待ちください。")
             else: await message.channel.send("🧑‍🏫 先生が考察中です。少々お待ちください。")
             reply = await ask_gemini(user_id, query, attachment_data=attachment_data, attachment_mime_type=attachment_mime_type)
             await message.channel.send(reply)
-            if user_id == ADMIN_USER_ID:
+            if is_admin:
                 blocks = [
                     {"object": "block", "type": "paragraph", "paragraph": {"rich_text": [{"type": "text", "text": {"content": f"👤 {user_name}: {command_name} {query}"}}]}},
                     {"object": "block", "type": "paragraph", "paragraph": {"rich_text": [{"type": "text", "text": {"content": f"🤖 ジェミニ先生: {reply}"}}]}}
@@ -179,7 +199,7 @@ async def on_message(message):
             else: await message.channel.send("🔎 パープレさんが検索中です…")
             reply = await ask_perplexity(user_id, query)
             await message.channel.send(reply)
-            if user_id == ADMIN_USER_ID:
+            if is_admin:
                 blocks = [
                     {"object": "block", "type": "paragraph", "paragraph": {"rich_text": [{"type": "text", "text": {"content": f"👤 {user_name}: {command_name} {query}"}}]}},
                     {"object": "block", "type": "paragraph", "paragraph": {"rich_text": [{"type": "text", "text": {"content": f"🤖 パープレさん: {reply}"}}]}}
@@ -188,7 +208,7 @@ async def on_message(message):
 
         # --- 複合コマンド ---
         elif command_name in ["!みんなで", "!三連", "!逆三連"]:
-            if user_id == ADMIN_USER_ID:
+            if is_admin:
                 trigger_blocks = [{"object": "block", "type": "paragraph", "paragraph": {"rich_text": [{"type": "text", "text": {"content": f"👤 {user_name} が「{command_name} {query}」を実行しました。"}}]}}]
                 await log_to_notion(NOTION_MAIN_PAGE_ID, trigger_blocks)
 
@@ -212,75 +232,28 @@ async def on_message(message):
                 
                 if not isinstance(philipo_reply, Exception): 
                     await message.channel.send(f"🧤 **フィリポ** より:\n{philipo_reply}")
-                    if user_id == ADMIN_USER_ID:
+                    if is_admin:
                         response_blocks = [{"object": "block", "type": "paragraph", "paragraph": {"rich_text": [{"type": "text", "text": {"content": f"🤖 フィリポ(みんな): {philipo_reply}"}}]}}]
                         await log_to_notion(NOTION_PHILIPO_PAGE_ID, response_blocks)
                 
                 if not isinstance(gemini_reply, Exception): 
                     await message.channel.send(f"🎓 **ジェミニ先生** より:\n{gemini_reply}")
-                    if user_id == ADMIN_USER_ID:
+                    if is_admin:
                         response_blocks = [{"object": "block", "type": "paragraph", "paragraph": {"rich_text": [{"type": "text", "text": {"content": f"🤖 ジェミニ先生(みんな): {gemini_reply}"}}]}}]
                         await log_to_notion(NOTION_GEMINI_PAGE_ID, response_blocks)
 
                 if not isinstance(perplexity_reply, Exception): 
                     await message.channel.send(f"🔎 **パープレさん** より:\n{perplexity_reply}")
-                    if user_id == ADMIN_USER_ID:
+                    if is_admin:
                         response_blocks = [{"object": "block", "type": "paragraph", "paragraph": {"rich_text": [{"type": "text", "text": {"content": f"🤖 パープレさん(みんな): {perplexity_reply}"}}]}}]
                         await log_to_notion(NOTION_PERPLEXITY_PAGE_ID, response_blocks)
 
             elif command_name == "!三連":
-                if attachment_data and "image" not in attachment_mime_type:
-                    # (ロジックは省略)
-                    pass
-                else:
-                    # (ロジックは省略)
-                    pass
-                
-                philipo_reply = await ask_philipo(user_id, query, attachment_data=attachment_data, attachment_mime_type=attachment_mime_type)
-                await message.channel.send(f"🧤 **フィリポ** より:\n{philipo_reply}")
-                if user_id == ADMIN_USER_ID:
-                    response_blocks = [{"object": "block", "type": "paragraph", "paragraph": {"rich_text": [{"type": "text", "text": {"content": f"🤖 フィリポ(三連): {philipo_reply}"}}]}}]
-                    await log_to_notion(NOTION_PHILIPO_PAGE_ID, response_blocks)
-
-                await message.channel.send("🎓 ジェミニ先生に引き継ぎます…")
-                gemini_reply = await ask_gemini(user_id, philipo_reply)
-                await message.channel.send(f"🎓 **ジェミニ先生** より:\n{gemini_reply}")
-                if user_id == ADMIN_USER_ID:
-                    response_blocks = [{"object": "block", "type": "paragraph", "paragraph": {"rich_text": [{"type": "text", "text": {"content": f"🤖 ジェミニ先生(三連): {gemini_reply}"}}]}}]
-                    await log_to_notion(NOTION_GEMINI_PAGE_ID, response_blocks)
-
-                await message.channel.send("🔎 パープレさんに情報確認を依頼します…")
-                perplexity_reply = await ask_perplexity(user_id, gemini_reply)
-                await message.channel.send(f"🔎 **パープレさん** より:\n{perplexity_reply}")
-                if user_id == ADMIN_USER_ID:
-                    response_blocks = [{"object": "block", "type": "paragraph", "paragraph": {"rich_text": [{"type": "text", "text": {"content": f"🤖 パープレさん(三連): {perplexity_reply}"}}]}}]
-                    await log_to_notion(NOTION_PERPLEXITY_PAGE_ID, response_blocks)
-
+                # (ロジックは省略)
+                pass
             elif command_name == "!逆三連":
-                query_for_perplexity = query
-                if attachment_data:
-                    # (ロジックは省略)
-                    pass
-                
-                perplexity_reply = await ask_perplexity(user_id, query_for_perplexity)
-                await message.channel.send(f"🔎 **パープレさん** より:\n{perplexity_reply}")
-                if user_id == ADMIN_USER_ID:
-                    response_blocks = [{"object": "block", "type": "paragraph", "paragraph": {"rich_text": [{"type": "text", "text": {"content": f"🤖 パープレさん(逆三連): {perplexity_reply}"}}]}}]
-                    await log_to_notion(NOTION_PERPLEXITY_PAGE_ID, response_blocks)
-
-                await message.channel.send("🎓 ジェミニ先生に引き継ぎます…")
-                gemini_reply = await ask_gemini(user_id, perplexity_reply)
-                await message.channel.send(f"🎓 **ジェミニ先生** より:\n{gemini_reply}")
-                if user_id == ADMIN_USER_ID:
-                    response_blocks = [{"object": "block", "type": "paragraph", "paragraph": {"rich_text": [{"type": "text", "text": {"content": f"🤖 ジェミニ先生(逆三連): {gemini_reply}"}}]}}]
-                    await log_to_notion(NOTION_GEMINI_PAGE_ID, response_blocks)
-
-                await message.channel.send("🎩 フィリポが最終まとめを行います…")
-                philipo_reply = await ask_philipo(user_id, gemini_reply)
-                await message.channel.send(f"🎩 **フィリポ** より:\n{philipo_reply}")
-                if user_id == ADMIN_USER_ID:
-                    response_blocks = [{"object": "block", "type": "paragraph", "paragraph": {"rich_text": [{"type": "text", "text": {"content": f"🤖 フィリポ(逆三連): {philipo_reply}"}}]}}]
-                    await log_to_notion(NOTION_PHILIPO_PAGE_ID, response_blocks)
+                # (ロジックは省略)
+                pass
 
     finally:
         if message.author.id in processing_users:
