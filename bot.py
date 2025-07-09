@@ -1,110 +1,154 @@
 import discord
+from openai import AsyncOpenAI
+import google.generativeai as genai
+from google.generativeai.types import HarmCategory, HarmBlockThreshold
 import asyncio
 import os
 from dotenv import load_dotenv
 from notion_client import Client
-from openai import AsyncOpenAI
+import requests # Perplexity用
+import io
+from PIL import Image
+import base64
 
 # --- 環境変数の読み込み ---
 load_dotenv()
 DISCORD_TOKEN = os.getenv("DISCORD_BOT_TOKEN")
-NOTION_API_KEY = os.getenv("NOTION_API_KEY")
+openai_api_key = os.getenv("OPENAI_API_KEY")
+gemini_api_key = os.getenv("GEMINI_API_KEY")
+notion_api_key = os.getenv("NOTION_API_KEY")
 NOTION_PAGE_ID = os.getenv("NOTION_PAGE_ID")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+# ▼▼▼ あなたのIDを環境変数から読み込み、文字列に変換します ▼▼▼
+ADMIN_USER_ID = str(os.getenv("ADMIN_USER_ID")) if os.getenv("ADMIN_USER_ID") else None
 
 # --- 各種クライアントの初期化 ---
+openai_client = AsyncOpenAI(api_key=openai_api_key)
+genai.configure(api_key=gemini_api_key)
+safety_settings = {
+    HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
+    HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
+    HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
+    HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
+}
+gemini_model = genai.GenerativeModel("gemini-1.5-pro", safety_settings=safety_settings)
+notion = Client(auth=notion_api_key)
+
 intents = discord.Intents.default()
 intents.message_content = True
 client = discord.Client(intents=intents)
-notion = Client(auth=NOTION_API_KEY)
-openai_client = AsyncOpenAI(api_key=OPENAI_API_KEY)
 
-# --- このボットが処理中かどうかを管理するセット ---
-processing_lock = set()
+# --- メモリ管理 ---
+philipo_memory = {}
+processing_users = set()
 
 # --- Notion書き込み関数 ---
 def _sync_post_to_notion(page_id, blocks):
-    """Notionにブロックを書き込む同期的なコア処理"""
-    # 書き込み先のページIDがあるか、徹底的にチェック
     if not page_id:
-        print("❌ [FATAL] Notion書き込み失敗: NOTION_PAGE_IDが環境変数に設定されていません。")
+        print("❌ [FATAL] NOTION_PAGE_ID is not set in environment variables. Cannot log to Notion.")
         return
-    
-    print(f"✅ [DEBUG] Notion書き込み準備完了。宛先ページID: {page_id}")
-    
     try:
+        print(f"✅ [DEBUG] Attempting to write to Notion Page ID: {page_id}")
         notion.blocks.children.append(block_id=page_id, children=blocks)
-        print(f"✅ [SUCCESS] Notionへの書き込みに成功しました。")
+        print(f"✅ [SUCCESS] Notion Log Success to Page ID: {page_id}")
     except Exception as e:
-        print(f"❌ [FATAL] Notion APIへのリクエストでエラーが発生しました: {e}")
+        print(f"❌ [FATAL] Notion API Error: {e}")
 
 async def log_to_notion(page_id, blocks):
-    """Notionへの書き込みを非同期で安全に呼び出す"""
     loop = asyncio.get_event_loop()
     await loop.run_in_executor(None, _sync_post_to_notion, page_id, blocks)
+
+# --- 各AIモデル呼び出し関数 ---
+async def ask_philipo(user_id, prompt, attachment_data=None, attachment_mime_type=None):
+    history = philipo_memory.get(user_id, [])
+    system_message = {"role": "system", "content": "あなたは執事フィリポです。礼儀正しく対応してください。"}
+    user_content = [{"type": "text", "text": prompt}]
+    if attachment_data and "image" in attachment_mime_type:
+        base64_image = base64.b64encode(attachment_data).decode('utf-8')
+        image_url_content = f"data:{attachment_mime_type};base64,{base64_image}"
+        user_content.append({"type": "image_url", "image_url": {"url": image_url_content}})
+    user_message = {"role": "user", "content": user_content}
+    messages = [system_message] + history + [user_message]
+    response = await openai_client.chat.completions.create(model="gpt-4o", messages=messages, max_tokens=2000)
+    reply = response.choices[0].message.content
+    philipo_memory[user_id] = history + [user_message, {"role": "assistant", "content": reply}]
+    return reply
+
+async def ask_gemini_for_summary(user_id, prompt, attachment_data=None, attachment_mime_type=None):
+    contents = [prompt]
+    if attachment_data and attachment_mime_type:
+        contents.append({'mime_type': attachment_mime_type, 'data': attachment_data})
+    response = await gemini_model.generate_content_async(contents)
+    return response.text
 
 # --- Discordイベントハンドラ ---
 @client.event
 async def on_ready():
-    print("--- ボット起動 ---")
-    print(f"✅ ログイン成功: {client.user}")
+    print("✅ ログイン成功 (管理者テストモード)")
     print(f"✅ Notion記録先ページID: {NOTION_PAGE_ID}")
-    print("--------------------")
+    print(f"✅ 管理者ID: {ADMIN_USER_ID}")
 
 @client.event
 async def on_message(message):
-    # ボット自身のメッセージは無視
     if message.author.bot:
         return
 
-    # 多重応答を防止するロック
-    if message.id in processing_lock:
+    if message.author.id in processing_users:
         return
-    processing_lock.add(message.id)
-
+    processing_users.add(message.author.id)
+    
     try:
-        # !フィリポ コマンドにのみ反応
+        # --- !フィリポ コマンドのみを処理 ---
         if message.content.startswith("!フィリポ"):
-            print("\n--- !フィリポ コマンド受信 ---")
-            
-            # ユーザー情報を取得
+            content = message.content
+            user_id = str(message.author.id)
             user_name = message.author.display_name
-            query = message.content[len("!フィリポ "):].strip()
+            command_name = "!フィリポ"
+            query = content[len(command_name):].strip()
             
-            # 応答メッセージを送信
-            await message.channel.send("🎩 執事に伺わせますので、しばしお待ちくださいませ。")
+            attachment_data = None
+            attachment_mime_type = None
+            if message.attachments:
+                attachment = message.attachments[0]
+                attachment_data = await attachment.read()
+                attachment_mime_type = attachment.content_type
+
+            # PDFが添付されていた場合の処理
+            if attachment_data and "image" not in attachment_mime_type:
+                await message.channel.send("🎩 執事がジェミニ先生に資料の要約を依頼しております…")
+                summary = await ask_gemini_for_summary(user_id, "この添付資料の内容を詳細に要約してください。", attachment_data, attachment_mime_type)
+                query_for_philipo = f"{query}\n\n[添付資料の要約:\n{summary}\n]"
+                await message.channel.send("🎩 要約を元に、考察いたします。")
+                reply = await ask_philipo(user_id, query_for_philipo, None, None)
+            # 画像または添付なしの場合の処理
+            else:
+                if attachment_data: await message.channel.send("🎩 執事が画像を拝見し、伺います。しばしお待ちくださいませ。")
+                else: await message.channel.send("🎩 執事に伺わせますので、しばしお待ちくださいませ。")
+                reply = await ask_philipo(user_id, query, attachment_data=attachment_data, attachment_mime_type=attachment_mime_type)
             
-            # OpenAIに質問を投げる
-            print("[DEBUG] OpenAIにリクエストを送信します...")
-            response = await openai_client.chat.completions.create(
-                model="gpt-4o",
-                messages=[
-                    {"role": "system", "content": "あなたは執事フィリポです。礼儀正しく対応してください。"},
-                    {"role": "user", "content": query}
-                ]
-            )
-            reply = response.choices[0].message.content
-            print("[DEBUG] OpenAIから応答を受信しました。")
-            
-            # Discordに応答を返す
+            # 応答
             await message.channel.send(reply)
             
-            # Notionに記録するためのブロックを作成
-            print("[DEBUG] Notionに記録するためのブロックを作成します...")
-            blocks_to_write = [
-                {"object": "block", "type": "paragraph", "paragraph": {"rich_text": [{"type": "text", "text": {"content": f"👤 {user_name}: !フィリポ {query}"}}]}},
-                {"object": "block", "type": "paragraph", "paragraph": {"rich_text": [{"type": "text", "text": {"content": f"🤖 フィリポ: {reply}"}}]}}
-            ]
-            
-            # Notionに書き込む
-            await log_to_notion(NOTION_PAGE_ID, blocks_to_write)
-            
-            print("--- 処理完了 ---\n")
+            # ▼▼▼ 管理者IDのチェック ▼▼▼
+            is_admin = (user_id == ADMIN_USER_ID)
+            print(f"\n--- Admin Check for Notion Log ---")
+            print(f"Message Author ID: '{user_id}' (type: {type(user_id)})")
+            print(f"Admin ID from Env: '{ADMIN_USER_ID}' (type: {type(ADMIN_USER_ID)})")
+            print(f"Is Admin? -> {is_admin}")
+            print("----------------------------------\n")
+
+            if is_admin:
+                print(f"✅ [DEBUG] Admin confirmed. Preparing to log for 'フィリポ'.")
+                blocks = [
+                    {"object": "block", "type": "paragraph", "paragraph": {"rich_text": [{"type": "text", "text": {"content": f"👤 {user_name}: {command_name} {query}"}}]}},
+                    {"object": "block", "type": "paragraph", "paragraph": {"rich_text": [{"type": "text", "text": {"content": f"🤖 フィリポ: {reply}"}}]}}
+                ]
+                await log_to_notion(NOTION_PAGE_ID, blocks)
+            else:
+                print("ℹ️ [INFO] User is not admin. Skipping Notion log.")
 
     finally:
-        # ロックを解除
-        processing_lock.remove(message.id)
+        if message.author.id in processing_users:
+            processing_users.remove(message.id)
 
 # --- 起動 ---
-print("🚀 ボットを起動します...")
 client.run(DISCORD_TOKEN)
