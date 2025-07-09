@@ -19,6 +19,9 @@ gemini_api_key = os.getenv("GEMINI_API_KEY")
 perplexity_api_key = os.getenv("PERPLEXITY_API_KEY")
 notion_api_key = os.getenv("NOTION_API_KEY")
 notion_page_id = os.getenv("NOTION_PAGE_ID")
+# ▼▼▼ あなたのIDを環境変数から読み込みます ▼▼▼
+ADMIN_USER_ID = os.getenv("ADMIN_USER_ID")
+
 
 # --- 各種クライアントの初期化 ---
 openai_client = AsyncOpenAI(api_key=openai_api_key)
@@ -42,11 +45,10 @@ gemini_memory = {}
 perplexity_memory = {}
 processing_users = set()
 
-# --- Notion書き込み関数 (★ここを修正しました) ---
+# --- Notion書き込み関数 ---
 def _sync_post_to_notion(user_name, question, answer, bot_name):
     """Notionに書き込む同期的なコア処理"""
     try:
-        # 2000文字以上の回答はNotionの制限に合わせて切り詰める
         if len(answer) > 1900:
             answer = answer[:1900] + "... (文字数制限のため省略)"
 
@@ -158,7 +160,9 @@ async def on_message(message):
             
             reply = await ask_philipo(user_id, query_for_philipo, attachment_data=attachment_for_philipo, attachment_mime_type=attachment_mime_type)
             await message.channel.send(reply)
-            await post_to_notion(user_name, query, reply, "フィリポ")
+            # ▼▼▼ あなたのIDと一致する場合のみNotionに記録 ▼▼▼
+            if user_id == ADMIN_USER_ID:
+                await post_to_notion(user_name, query, reply, "フィリポ")
 
         elif content.startswith("!ジェミニ "):
             query = content[len("!ジェミニ "):]
@@ -168,7 +172,9 @@ async def on_message(message):
                 await message.channel.send("🧑‍🏫 先生が考察中です。少々お待ちください。")
             reply = await ask_gemini(user_id, query, attachment_data=attachment_data, attachment_mime_type=attachment_mime_type)
             await message.channel.send(reply)
-            await post_to_notion(user_name, query, reply, "ジェミニ先生")
+            # ▼▼▼ あなたのIDと一致する場合のみNotionに記録 ▼▼▼
+            if user_id == ADMIN_USER_ID:
+                await post_to_notion(user_name, query, reply, "ジェミニ先生")
 
         elif content.startswith("!パープレ "):
             query = content[len("!パープレ "):]
@@ -178,7 +184,9 @@ async def on_message(message):
                 await message.channel.send("🔎 パープレさんが検索中です…")
             reply = await ask_perplexity(user_id, query)
             await message.channel.send(reply)
-            await post_to_notion(user_name, query, reply, "パープレさん")
+            # ▼▼▼ あなたのIDと一致する場合のみNotionに記録 ▼▼▼
+            if user_id == ADMIN_USER_ID:
+                await post_to_notion(user_name, query, reply, "パープレさん")
 
         # --- 複合コマンド ---
         elif content.startswith("!みんなで "):
@@ -205,19 +213,22 @@ async def on_message(message):
             
             if not isinstance(philipo_reply, Exception): 
                 await message.channel.send(f"🧤 **フィリポ** より:\n{philipo_reply}")
-                await post_to_notion(user_name, query, philipo_reply, "フィリポ(みんな)")
+                if user_id == ADMIN_USER_ID: # ▼▼▼ IDチェック ▼▼▼
+                    await post_to_notion(user_name, query, philipo_reply, "フィリポ(みんな)")
             else: 
                 print(f"フィリポエラー: {philipo_reply}")
             
             if not isinstance(gemini_reply, Exception): 
                 await message.channel.send(f"🎓 **ジェミニ先生** より:\n{gemini_reply}")
-                await post_to_notion(user_name, query, gemini_reply, "ジェミニ先生(みんな)")
+                if user_id == ADMIN_USER_ID: # ▼▼▼ IDチェック ▼▼▼
+                    await post_to_notion(user_name, query, gemini_reply, "ジェミニ先生(みんな)")
             else: 
                 print(f"ジェミニエラー: {gemini_reply}")
 
             if not isinstance(perplexity_reply, Exception): 
                 await message.channel.send(f"🔎 **パープレさん** より:\n{perplexity_reply}")
-                await post_to_notion(user_name, query, perplexity_reply, "パープレさん(みんな)")
+                if user_id == ADMIN_USER_ID: # ▼▼▼ IDチェック ▼▼▼
+                    await post_to_notion(user_name, query, perplexity_reply, "パープレさん(みんな)")
             else: 
                 print(f"パープレエラー: {perplexity_reply}")
 
@@ -240,17 +251,20 @@ async def on_message(message):
 
             philipo_reply = await ask_philipo(user_id, query_for_philipo, attachment_data=attachment_for_philipo, attachment_mime_type=attachment_mime_type)
             await message.channel.send(f"🧤 **フィリポ** より:\n{philipo_reply}")
-            await post_to_notion(user_name, query, philipo_reply, "フィリポ(三連)")
+            if user_id == ADMIN_USER_ID: # ▼▼▼ IDチェック ▼▼▼
+                await post_to_notion(user_name, query, philipo_reply, "フィリポ(三連)")
 
             await message.channel.send("🎓 ジェミニ先生に引き継ぎます…")
             gemini_reply = await ask_gemini(user_id, philipo_reply)
             await message.channel.send(f"🎓 **ジェミニ先生** より:\n{gemini_reply}")
-            await post_to_notion(user_name, philipo_reply, gemini_reply, "ジェミニ先生(三連)")
+            if user_id == ADMIN_USER_ID: # ▼▼▼ IDチェック ▼▼▼
+                await post_to_notion(user_name, philipo_reply, gemini_reply, "ジェミニ先生(三連)")
 
             await message.channel.send("🔎 パープレさんに情報確認を依頼します…")
             perplexity_reply = await ask_perplexity(user_id, gemini_reply)
             await message.channel.send(f"🔎 **パープレさん** より:\n{perplexity_reply}")
-            await post_to_notion(user_name, gemini_reply, perplexity_reply, "パープレさん(三連)")
+            if user_id == ADMIN_USER_ID: # ▼▼▼ IDチェック ▼▼▼
+                await post_to_notion(user_name, gemini_reply, perplexity_reply, "パープレさん(三連)")
 
         elif content.startswith("!逆三連 "):
             query = content[len("!逆三連 "):]
@@ -263,17 +277,20 @@ async def on_message(message):
             await message.channel.send("🔎 パープレさんが先陣を切ります…")
             perplexity_reply = await ask_perplexity(user_id, query_for_perplexity)
             await message.channel.send(f"🔎 **パープレさん** より:\n{perplexity_reply}")
-            await post_to_notion(user_name, query, perplexity_reply, "パープレさん(逆三連)")
+            if user_id == ADMIN_USER_ID: # ▼▼▼ IDチェック ▼▼▼
+                await post_to_notion(user_name, query, perplexity_reply, "パープレさん(逆三連)")
 
             await message.channel.send("🎓 ジェミニ先生に引き継ぎます…")
             gemini_reply = await ask_gemini(user_id, perplexity_reply)
             await message.channel.send(f"🎓 **ジェミニ先生** より:\n{gemini_reply}")
-            await post_to_notion(user_name, perplexity_reply, gemini_reply, "ジェミニ先生(逆三連)")
+            if user_id == ADMIN_USER_ID: # ▼▼▼ IDチェック ▼▼▼
+                await post_to_notion(user_name, perplexity_reply, gemini_reply, "ジェミニ先生(逆三連)")
 
             await message.channel.send("🎩 フィリポが最終まとめを行います…")
             philipo_reply = await ask_philipo(user_id, gemini_reply)
             await message.channel.send(f"🎩 **フィリポ** より:\n{philipo_reply}")
-            await post_to_notion(user_name, gemini_reply, philipo_reply, "フィリポ(逆三連)")
+            if user_id == ADMIN_USER_ID: # ▼▼▼ IDチェック ▼▼▼
+                await post_to_notion(user_name, gemini_reply, philipo_reply, "フィリポ(逆三連)")
 
     finally:
         if message.author.id in processing_users:
