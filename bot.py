@@ -88,7 +88,7 @@ async def log_response(answer, bot_name, page_id):
 async def ask_kreios(user_id, prompt, attachment_data=None, attachment_mime_type=None, system_prompt=None):
     history = kreios_memory.get(user_id, [])
     final_system_prompt = system_prompt or "あなたは論理を司る神クレイオスです。冷静かつ構造的に答えてください。"
-    use_history = "監査官" not in final_system_prompt
+    use_history = "監査官" not in final_system_prompt and "肯定論者" not in final_system_prompt
 
     user_content = [{"type": "text", "text": prompt}]
     if attachment_data and "image" in attachment_mime_type:
@@ -110,7 +110,7 @@ async def ask_kreios(user_id, prompt, attachment_data=None, attachment_mime_type
 async def ask_nousos(user_id, prompt, attachment_data=None, attachment_mime_type=None, system_prompt=None):
     history = nousos_memory.get(user_id, [])
     final_system_prompt = system_prompt or "あなたは知性を司る神ヌーソスです。万物の根源を見通し、哲学的かつ探求的に答えてください。"
-    use_history = "分析官" not in final_system_prompt and "最終的に統合する" not in final_system_prompt
+    use_history = "分析官" not in final_system_prompt and "最終的に統合する" not in final_system_prompt and "統合者" not in final_system_prompt
 
     contents = [final_system_prompt]
     if use_history:
@@ -134,7 +134,7 @@ async def ask_nousos(user_id, prompt, attachment_data=None, attachment_mime_type
 def _sync_ask_rekus(user_id, prompt, system_prompt=None):
     history = rekus_memory.get(user_id, [])
     final_system_prompt = system_prompt or "あなたは記録を司る神レキュスです。事実に基づいた情報を収集・整理し、簡潔に答えてください。"
-    use_history = "検証官" not in final_system_prompt
+    use_history = "検証官" not in final_system_prompt and "否定論者" not in final_system_prompt
     
     messages = [{"role": "system", "content": final_system_prompt}]
     if use_history:
@@ -181,6 +181,7 @@ async def on_message(message):
         command_name = content.split(' ')[0]
         query = content[len(command_name):].strip()
 
+        # ... (他のコマンドは変更なし) ...
         if command_name == "!クレイオス":
             if user_id == ADMIN_USER_ID: await log_trigger(user_name, query, command_name, NOTION_KREIOS_PAGE_ID)
             query_for_kreios = query
@@ -286,18 +287,55 @@ async def on_message(message):
             
             await send_long_message(message.channel, f"✨ **ヌーソス (最終結論)** より:\n{final_summary}")
             
-            # --- ★★★ ここからNotionへの書き込みブロック ★★★ ---
             if user_id == ADMIN_USER_ID:
-                # クレイオスの中間分析を記録
-                if not isinstance(kreios_crit_reply, Exception):
-                    await log_response(kreios_crit_reply, "クレイオス (クリティカル監査)", NOTION_KREIOS_PAGE_ID)
-                # レキュスの中間分析を記録
-                if not isinstance(rekus_crit_reply, Exception):
-                    await log_response(rekus_crit_reply, "レキュス (クリティカル検証)", NOTION_REKUS_PAGE_ID)
-                # ヌーソスの最終結論を記録
+                if not isinstance(kreios_crit_reply, Exception): await log_response(kreios_crit_reply, "クレイオス (クリティカル監査)", NOTION_KREIOS_PAGE_ID)
+                if not isinstance(rekus_crit_reply, Exception): await log_response(rekus_crit_reply, "レキュス (クリティカル検証)", NOTION_REKUS_PAGE_ID)
                 await log_response(final_summary, "ヌーソス (最終結論)", NOTION_MAIN_PAGE_ID)
-                
                 await message.channel.send("✅ 中間分析と最終結論をNotionに記録しました。")
+        
+        # --- ★★★ !ロジカル コマンド (添付ファイル対応) ★★★ ---
+        elif command_name == "!ロジカル":
+            await message.channel.send("⚔️ 三神による弁証法的対話を開始します…")
+            if user_id == ADMIN_USER_ID: await log_trigger(user_name, query, command_name, NOTION_MAIN_PAGE_ID)
+
+            # 添付ファイルの処理
+            theme = query
+            if attachment_data:
+                await message.channel.send("⏳ 添付ファイルをヌーソスが読み解いています…")
+                summary = await ask_nousos(user_id, "この添付ファイルの内容を、弁証法的対話の論点として簡潔に要約してください。", attachment_data, attachment_mime_type)
+                theme = f"{query}\n\n[添付資料の論点要約]:\n{summary}"
+                await message.channel.send("✅ 論点を把握しました。")
+
+            thesis_prompt = f"あなたはこのテーマの「肯定論者」です。テーマに対して、その導入や推進を支持する最も強力な論拠を、構造的に提示してください。テーマ：{theme}"
+            antithesis_prompt = f"あなたはこのテーマの「否定論者」です。テーマに対して、その導入や推進に反対する最も強力な反論を、客観的な事実やデータに基づいて提示してください。テーマ：{theme}"
+            
+            await message.channel.send(f"⏳ クレイオス(肯定)とレキュス(否定)が議論を構築中…")
+            thesis_task = ask_kreios(user_id, thesis_prompt, system_prompt="あなたは弁証法における「肯定(テーゼ)」を担う者です。")
+            antithesis_task = ask_rekus(user_id, antithesis_prompt, system_prompt="あなたは弁証法における「否定(アンチテーゼ)」を担う者です。")
+            
+            results = await asyncio.gather(thesis_task, antithesis_task, return_exceptions=True)
+            thesis_reply, antithesis_reply = results
+
+            if not isinstance(thesis_reply, Exception): await send_long_message(message.channel, f"🏛️ **クレイオス (肯定論)**:\n{thesis_reply}")
+            if not isinstance(antithesis_reply, Exception): await send_long_message(message.channel, f"🔎 **レキュス (否定論)**:\n{antithesis_reply}")
+
+            await message.channel.send("⏳ 上記の対立意見を元に、ヌーソスがより高次の結論を導きます…")
+            
+            synthesis_material = (f"あなたは弁証法における「統合(ジンテーゼ)」を担う統合者ヌーソスです。以下の対立する二つの意見を踏まえ、両者の議論を発展させ、より高次の結論、第三の道、あるいは条件付きの解決策などを提示してください。\n\n"
+                                  f"--- [肯定論 / テーゼ] ---\n{thesis_reply if not isinstance(thesis_reply, Exception) else 'エラー'}\n\n"
+                                  f"--- [否定論 / アンチテーゼ] ---\n{antithesis_reply if not isinstance(antithesis_reply, Exception) else 'エラー'}\n\n"
+                                  f"--- [指示] ---\n"
+                                  f"上記すべてを統合し、最終的な結論を作成してください。")
+            
+            synthesis_summary = await ask_nousos(user_id, synthesis_material, system_prompt="あなたは弁証法における「統合(ジンテーゼ)」を担う統合者ヌーソスです。")
+            
+            await send_long_message(message.channel, f"✨ **ヌーソス (統合結論)**:\n{synthesis_summary}")
+            
+            if user_id == ADMIN_USER_ID:
+                if not isinstance(thesis_reply, Exception): await log_response(thesis_reply, "クレイオス (肯定論)", NOTION_KREIOS_PAGE_ID)
+                if not isinstance(antithesis_reply, Exception): await log_response(antithesis_reply, "レキュス (否定論)", NOTION_REKUS_PAGE_ID)
+                await log_response(synthesis_summary, "ヌーソス (統合結論)", NOTION_MAIN_PAGE_ID)
+                await message.channel.send("✅ 弁証法的対話の全プロセスをNotionに記録しました。")
 
     finally:
         if message.author.id in processing_users:
