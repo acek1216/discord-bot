@@ -49,16 +49,14 @@ nousos_memory = {}
 rekus_memory = {}
 processing_users = set()
 
-# --- ★★★ 新しいヘルパー関数 ★★★ ---
+# --- ヘルパー関数 ---
 async def send_long_message(channel, text):
     """Discordの文字数制限を考慮して長いメッセージを分割送信する"""
     if len(text) <= 2000:
         await channel.send(text)
     else:
-        # 2000文字ごとに分割して送信
         for i in range(0, len(text), 2000):
             await channel.send(text[i:i+2000])
-
 
 # --- Notion書き込み関数 ---
 def _sync_post_to_notion(page_id, blocks):
@@ -102,7 +100,7 @@ async def ask_kreios(user_id, prompt, attachment_data=None, attachment_mime_type
         messages.extend(history)
     messages.append({"role": "user", "content": user_content})
     
-    response = await openai_client.chat.completions.create(model="gpt-4o", messages=messages, max_tokens=3000) # トークン上限を少し増やす
+    response = await openai_client.chat.completions.create(model="gpt-4o", messages=messages, max_tokens=3000)
     reply = response.choices[0].message.content
     
     if use_history:
@@ -143,7 +141,7 @@ def _sync_ask_rekus(user_id, prompt, system_prompt=None):
         messages.extend(history)
     messages.append({"role": "user", "content": prompt})
         
-    payload = {"model": "sonar-pro", "messages": messages, "max_tokens": 3000} # トークン上限を少し増やす
+    payload = {"model": "sonar-pro", "messages": messages, "max_tokens": 3000}
     headers = {"Authorization": f"Bearer {perplexity_api_key}", "Content-Type": "application/json"}
     
     try:
@@ -288,9 +286,18 @@ async def on_message(message):
             
             await send_long_message(message.channel, f"✨ **ヌーソス (最終結論)** より:\n{final_summary}")
             
+            # --- ★★★ ここからNotionへの書き込みブロック ★★★ ---
             if user_id == ADMIN_USER_ID:
+                # クレイオスの中間分析を記録
+                if not isinstance(kreios_crit_reply, Exception):
+                    await log_response(kreios_crit_reply, "クレイオス (クリティカル監査)", NOTION_KREIOS_PAGE_ID)
+                # レキュスの中間分析を記録
+                if not isinstance(rekus_crit_reply, Exception):
+                    await log_response(rekus_crit_reply, "レキュス (クリティカル検証)", NOTION_REKUS_PAGE_ID)
+                # ヌーソスの最終結論を記録
                 await log_response(final_summary, "ヌーソス (最終結論)", NOTION_MAIN_PAGE_ID)
-                await message.channel.send("✅ 最終結論を構造炉（Notion）に記録しました。")
+                
+                await message.channel.send("✅ 中間分析と最終結論をNotionに記録しました。")
 
     finally:
         if message.author.id in processing_users:
