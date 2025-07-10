@@ -49,6 +49,17 @@ nousos_memory = {}
 rekus_memory = {}
 processing_users = set()
 
+# --- ★★★ 新しいヘルパー関数 ★★★ ---
+async def send_long_message(channel, text):
+    """Discordの文字数制限を考慮して長いメッセージを分割送信する"""
+    if len(text) <= 2000:
+        await channel.send(text)
+    else:
+        # 2000文字ごとに分割して送信
+        for i in range(0, len(text), 2000):
+            await channel.send(text[i:i+2000])
+
+
 # --- Notion書き込み関数 ---
 def _sync_post_to_notion(page_id, blocks):
     if not page_id:
@@ -75,7 +86,7 @@ async def log_response(answer, bot_name, page_id):
         blocks.append({"object": "block", "type": "paragraph", "paragraph": {"rich_text": [{"type": "text", "text": {"content": chunk}}]}})
     await log_to_notion(page_id, blocks)
 
-# --- 各AIモデル呼び出し関数 (ロジックを標準化) ---
+# --- 各AIモデル呼び出し関数 ---
 async def ask_kreios(user_id, prompt, attachment_data=None, attachment_mime_type=None, system_prompt=None):
     history = kreios_memory.get(user_id, [])
     final_system_prompt = system_prompt or "あなたは論理を司る神クレイオスです。冷静かつ構造的に答えてください。"
@@ -91,7 +102,7 @@ async def ask_kreios(user_id, prompt, attachment_data=None, attachment_mime_type
         messages.extend(history)
     messages.append({"role": "user", "content": user_content})
     
-    response = await openai_client.chat.completions.create(model="gpt-4o", messages=messages, max_tokens=2000)
+    response = await openai_client.chat.completions.create(model="gpt-4o", messages=messages, max_tokens=3000) # トークン上限を少し増やす
     reply = response.choices[0].message.content
     
     if use_history:
@@ -132,7 +143,7 @@ def _sync_ask_rekus(user_id, prompt, system_prompt=None):
         messages.extend(history)
     messages.append({"role": "user", "content": prompt})
         
-    payload = {"model": "sonar-pro", "messages": messages}
+    payload = {"model": "sonar-pro", "messages": messages, "max_tokens": 3000} # トークン上限を少し増やす
     headers = {"Authorization": f"Bearer {perplexity_api_key}", "Content-Type": "application/json"}
     
     try:
@@ -183,14 +194,14 @@ async def on_message(message):
             else:
                 await message.channel.send("🏛️ クレイオスに伺います。")
                 reply = await ask_kreios(user_id, query_for_kreios, attachment_data=attachment_data, attachment_mime_type=attachment_mime_type)
-            await message.channel.send(reply)
+            await send_long_message(message.channel, reply)
             if user_id == ADMIN_USER_ID: await log_response(reply, "クレイオス", NOTION_KREIOS_PAGE_ID)
         
         elif command_name == "!ヌーソス":
             if user_id == ADMIN_USER_ID: await log_trigger(user_name, query, command_name, NOTION_NOUSOS_PAGE_ID)
             await message.channel.send("🎓 ヌーソスに問いかけています…")
             reply = await ask_nousos(user_id, query, attachment_data=attachment_data, attachment_mime_type=attachment_mime_type)
-            await message.channel.send(reply)
+            await send_long_message(message.channel, reply)
             if user_id == ADMIN_USER_ID: await log_response(reply, "ヌーソス", NOTION_NOUSOS_PAGE_ID)
 
         elif command_name == "!レキュス":
@@ -203,7 +214,7 @@ async def on_message(message):
             else:
                 await message.channel.send("🔎 レキュスが情報を探索します…")
             reply = await ask_rekus(user_id, query_for_rekus)
-            await message.channel.send(reply)
+            await send_long_message(message.channel, reply)
             if user_id == ADMIN_USER_ID: await log_response(reply, "レキュス", NOTION_REKUS_PAGE_ID)
 
         elif command_name in ["!みんなで", "!三連", "!逆三連"]:
@@ -225,11 +236,10 @@ async def on_message(message):
             results = await asyncio.gather(kreios_task, nousos_task, rekus_task, return_exceptions=True)
             kreios_reply, nousos_reply, rekus_reply = results
 
-            if not isinstance(kreios_reply, Exception): await message.channel.send(f"🏛️ **クレイオス** より:\n{kreios_reply}")
-            if not isinstance(nousos_reply, Exception): await message.channel.send(f"🎓 **ヌーソス** より:\n{nousos_reply}")
-            if not isinstance(rekus_reply, Exception): await message.channel.send(f"🔎 **レキュス** より:\n{rekus_reply}")
+            if not isinstance(kreios_reply, Exception): await send_long_message(message.channel, f"🏛️ **クレイオス** より:\n{kreios_reply}")
+            if not isinstance(nousos_reply, Exception): await send_long_message(message.channel, f"🎓 **ヌーソス** より:\n{nousos_reply}")
+            if not isinstance(rekus_reply, Exception): await send_long_message(message.channel, f"🔎 **レキュス** より:\n{rekus_reply}")
             
-            # Notionへの書き込みはそれぞれの単独コマンドと同様に個別ページへ
             if user_id == ADMIN_USER_ID:
                 if not isinstance(kreios_reply, Exception): await log_response(kreios_reply, "クレイオス(みんな)", NOTION_KREIOS_PAGE_ID)
                 if not isinstance(nousos_reply, Exception): await log_response(nousos_reply, "ヌーソス(みんな)", NOTION_NOUSOS_PAGE_ID)
@@ -261,8 +271,8 @@ async def on_message(message):
             results = await asyncio.gather(kreios_crit_task, rekus_crit_task, return_exceptions=True)
             kreios_crit_reply, rekus_crit_reply = results
 
-            if not isinstance(kreios_crit_reply, Exception): await message.channel.send(f"🏛️ **クレイオス (論理監査)** より:\n{kreios_crit_reply}")
-            if not isinstance(rekus_crit_reply, Exception): await message.channel.send(f"🔎 **レキュス (事実検証)** より:\n{rekus_crit_reply}")
+            if not isinstance(kreios_crit_reply, Exception): await send_long_message(message.channel, f"🏛️ **クレイオス (論理監査)** より:\n{kreios_crit_reply}")
+            if not isinstance(rekus_crit_reply, Exception): await send_long_message(message.channel, f"🔎 **レキュス (事実検証)** より:\n{rekus_crit_reply}")
 
             await message.channel.send("⏳ 上記の分析と初回意見を元に、ヌーソスが最終結論を統合します…")
             
@@ -276,7 +286,7 @@ async def on_message(message):
             
             final_summary = await ask_nousos(user_id, nousos_final_material, system_prompt="あなたは三神の議論を最終的に統合する知性の神ヌーソスです。")
             
-            await message.channel.send(f"✨ **ヌーソス (最終結論)** より:\n{final_summary}")
+            await send_long_message(message.channel, f"✨ **ヌーソス (最終結論)** より:\n{final_summary}")
             
             if user_id == ADMIN_USER_ID:
                 await log_response(final_summary, "ヌーソス (最終結論)", NOTION_MAIN_PAGE_ID)
