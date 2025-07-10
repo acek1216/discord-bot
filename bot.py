@@ -78,99 +78,93 @@ async def log_trigger(user_name, query, command_name, page_id):
 async def log_response(answer, bot_name, page_id):
     """AIの応答を記録する"""
     if len(answer) > 1900:
-        # Notionのブロック上限は2000文字なので、少し余裕を持たせる
         chunks = [answer[i:i + 1900] for i in range(0, len(answer), 1900)]
     else:
         chunks = [answer]
     
     blocks = []
-    # 初回ブロックにタイトルを付与
     blocks.append({
         "object": "block", "type": "paragraph", "paragraph": {
             "rich_text": [{"type": "text", "text": {"content": f"🤖 {bot_name}:\n{chunks[0]}"}}]
         }
     })
-    # 2回目以降のチャンクを追記
     for chunk in chunks[1:]:
         blocks.append({
             "object": "block", "type": "paragraph", "paragraph": {
                 "rich_text": [{"type": "text", "text": {"content": chunk}}]
             }
         })
-
     await log_to_notion(page_id, blocks)
-
 
 # --- 各AIモデル呼び出し関数 ---
 async def ask_kreios(user_id, prompt, attachment_data=None, attachment_mime_type=None, system_prompt=None):
-    """論理を司る神クレイオスを呼び出す"""
     history = kreios_memory.get(user_id, [])
-    if system_prompt is None:
-        system_prompt = "あなたは論理を司る神クレイオスです。冷静かつ構造的に答えてください。"
+    system_prompt = system_prompt or "あなたは論理を司る神クレイオスです。冷静かつ構造的に答えてください。"
     system_message = {"role": "system", "content": system_prompt}
     
     user_content = [{"type": "text", "text": prompt}]
     if attachment_data and "image" in attachment_mime_type:
         base64_image = base64.b64encode(attachment_data).decode('utf-8')
-        image_url_content = f"data:{attachment_mime_type};base64,{base64_image}"
-        user_content.append({"type": "image_url", "image_url": {"url": image_url_content}})
+        user_content.append({"type": "image_url", "image_url": {"url": f"data:{attachment_mime_type};base64,{base64_image}"}})
     
     user_message = {"role": "user", "content": user_content}
-    # クリティカルコマンドでは履歴を使わない
     messages = [system_message, user_message] if "監査官" in system_prompt else [system_message] + history + [user_message]
     
     response = await openai_client.chat.completions.create(model="gpt-4o", messages=messages, max_tokens=2000)
     reply = response.choices[0].message.content
-    kreios_memory[user_id] = history + [user_message, {"role": "assistant", "content": reply}]
+    if "監査官" not in system_prompt:
+        kreios_memory[user_id] = history + [user_message, {"role": "assistant", "content": reply}]
     return reply
 
 async def ask_nousos(user_id, prompt, attachment_data=None, attachment_mime_type=None, system_prompt=None):
-    """知性を司る神ヌーソスを呼び出す"""
-    history_text = "\n".join([f"{msg['role']}: {msg['content']}" for msg in nousos_memory.get(user_id, [])])
-    if system_prompt is None:
-        system_prompt = "あなたは知性を司る神ヌーソスです。万物の根源を見通し、哲学的かつ探求的に答えてください。"
+    history = nousos_memory.get(user_id, [])
+    history_text = "\n".join([f"{msg['role']}: {msg['content']}" for msg in history])
+    system_prompt = system_prompt or "あなたは知性を司る神ヌーソスです。万物の根源を見通し、哲学的かつ探求的に答えてください。"
     
-    # クリティカルコマンドでは履歴を使わない
-    if "分析官" in system_prompt:
-        contents = [system_prompt, prompt]
+    is_critical_final = "最終的に統合する" in system_prompt
+    use_history = not is_critical_final and "分析官" not in system_prompt
+
+    contents = [system_prompt]
+    if use_history:
+        contents.append(f"これまでの会話:\n{history_text}\n\nユーザー: {prompt}")
     else:
-        contents = [system_prompt, f"これまでの会話:\n{history_text}\n\nユーザー: {prompt}"]
+        contents.append(prompt)
 
     if attachment_data and attachment_mime_type:
         if "image" in attachment_mime_type:
-            img = Image.open(io.BytesIO(attachment_data))
-            contents.append(img)
+            contents.append(Image.open(io.BytesIO(attachment_data)))
         else:
             contents.append({'mime_type': attachment_mime_type, 'data': attachment_data})
             
     response = await gemini_model.generate_content_async(contents)
     reply = response.text
-    current_history = nousos_memory.get(user_id, [])
-    nousos_memory[user_id] = current_history + [{"role": "ユーザー", "content": prompt}, {"role": "ヌーソス", "content": reply}]
+    if not is_critical_final:
+        nousos_memory[user_id] = history + [{"role": "ユーザー", "content": prompt}, {"role": "ヌーソス", "content": reply}]
     return reply
 
 def _sync_ask_rekus(user_id, prompt, system_prompt=None):
-    """記録を司る神レキュスを同期的に呼び出す"""
     history = rekus_memory.get(user_id, [])
-    if system_prompt is None:
-        system_prompt = "あなたは記録を司る神レキュスです。事実に基づいた情報を収集・整理し、簡潔に答えてください。"
+    system_prompt = system_prompt or "あなたは記録を司る神レキュスです。事実に基づいた情報を収集・整理し、簡潔に答えてください。"
     
-    # クリティカルコマンドでは履歴を使わない
-    if "検証官" in system_prompt:
-        messages = [{"role": "system", "content": system_prompt}, {"role": "user", "content": prompt}]
+    is_critical = "検証官" in system_prompt
+    messages = [system_message, user_message] if is_critical else [system_message] + history + [user_message]
+    messages = [{"role": "system", "content": system_prompt}]
+    if is_critical:
+        messages.append({"role": "user", "content": prompt})
     else:
-        messages = [{"role": "system", "content": system_prompt}] + history + [{"role": "user", "content": prompt}]
+        messages.extend(history)
+        messages.append({"role": "user", "content": prompt})
         
     payload = {"model": "sonar-pro", "messages": messages}
     headers = {"Authorization": f"Bearer {perplexity_api_key}", "Content-Type": "application/json"}
     response = requests.post("https://api.perplexity.ai/chat/completions", json=payload, headers=headers)
     response.raise_for_status()
     reply = response.json()["choices"][0]["message"]["content"]
-    rekus_memory[user_id] = history + [{"role": "user", "content": prompt}, {"role": "assistant", "content": reply}]
+    if not is_critical:
+         rekus_memory[user_id] = history + [{"role": "user", "content": prompt}, {"role": "assistant", "content": reply}]
     return reply
 
 async def ask_rekus(user_id, prompt, system_prompt=None):
-    """記録を司る神レキュスを非同期で呼び出す"""
     loop = asyncio.get_event_loop()
     return await loop.run_in_executor(None, _sync_ask_rekus, user_id, prompt, system_prompt)
 
@@ -181,30 +175,22 @@ async def on_ready():
 
 @client.event
 async def on_message(message):
-    if message.author.bot:
-        return
-
-    if message.author.id in processing_users:
+    if message.author.bot or message.author.id in processing_users:
         return
     processing_users.add(message.author.id)
 
     try:
-        content = message.content
-        user_id = str(message.author.id)
-        user_name = message.author.display_name
-
-        attachment_data = None
-        attachment_mime_type = None
+        content, user_id, user_name = message.content, str(message.author.id), message.author.display_name
+        attachment_data, attachment_mime_type = None, None
         if message.attachments:
             attachment = message.attachments[0]
             attachment_data = await attachment.read()
             attachment_mime_type = attachment.content_type
 
-        # --- コマンド分岐 ---
         command_name = content.split(' ')[0]
         query = content[len(command_name):].strip()
 
-        # --- 単独コマンド ---
+        # ... (単独コマンドと複合コマンドのロジックは変更なし) ...
         if command_name == "!クレイオス":
             if user_id == ADMIN_USER_ID: await log_trigger(user_name, query, command_name, NOTION_KREIOS_PAGE_ID)
             query_for_kreios = query
@@ -241,7 +227,6 @@ async def on_message(message):
             await message.channel.send(reply)
             if user_id == ADMIN_USER_ID: await log_response(reply, "レキュス", NOTION_REKUS_PAGE_ID)
 
-        # --- 複合コマンド ---
         elif command_name in ["!みんなで", "!三連", "!逆三連"]:
             if user_id == ADMIN_USER_ID: await log_trigger(user_name, query, command_name, NOTION_MAIN_PAGE_ID)
             await message.channel.send("🧠 三神に質問を送ります…")
@@ -275,59 +260,52 @@ async def on_message(message):
 
         # --- ★★★ クリティカルコマンド ★★★ ---
         elif command_name == "!クリティカル":
-            await message.channel.send("🔥 三神が前回の回答を批判的に再検証します…")
-            if user_id == ADMIN_USER_ID:
-                await log_trigger(user_name, query, command_name, NOTION_MAIN_PAGE_ID)
+            await message.channel.send("🔥 三神による批判的検証を開始します…")
+            if user_id == ADMIN_USER_ID: await log_trigger(user_name, query, command_name, NOTION_MAIN_PAGE_ID)
 
-            # --- 直前の各AIの応答をメモリから取得 ---
-            last_kreios_reply = next((msg['content'] for msg in reversed(kreios_memory.get(user_id, [])) if msg['role'] == 'assistant'), "（前回の応答なし）")
-            last_nousos_reply = next((msg['content'] for msg in reversed(nousos_memory.get(user_id, [])) if msg['role'] == 'ヌーソス'), "（前回の応答なし）")
-            last_rekus_reply = next((msg['content'] for msg in reversed(rekus_memory.get(user_id, [])) if msg['role'] == 'assistant'), "（前回の応答なし）")
+            last_kreios_reply = next((msg['content'] for msg in reversed(kreios_memory.get(user_id, [])) if msg['role'] == 'assistant'), None)
+            last_nousos_reply = next((msg['content'] for msg in reversed(nousos_memory.get(user_id, [])) if msg['role'] == 'ヌーソス'), None)
+            last_rekus_reply = next((msg['content'] for msg in reversed(rekus_memory.get(user_id, [])) if msg['role'] == 'assistant'), None)
             
-            if "（前回の応答なし）" in [last_kreios_reply, last_nousos_reply, last_rekus_reply]:
-                await message.channel.send("❌ クリティカル分析の素材となる、三神の前回の応答が見つかりませんでした。先に「!みんなで」などを実行してください。")
+            if not all([last_kreios_reply, last_nousos_reply, last_rekus_reply]):
+                await message.channel.send("❌ 分析の素材となる三神の前回応答が見つかりません。「!みんなで」等を先に実行してください。")
                 return
 
-            material = (f"以下の三者の初回意見を素材として、あなたの役割に基づき批判的な検討を行い、結論を述べなさい。\n"
-                        f"なお、今回のあなたの応答は、素材となった意見への批評そのものであり、ユーザーとの対話ではありません。\n\n"
-                        f"--- [素材] ---\n"
+            material = (f"以下の三者の初回意見を素材として、あなたの役割に基づき批判的な検討を行いなさい。\n"
                         f"### 🏛️ クレイオスの意見:\n{last_kreios_reply}\n\n"
                         f"### 🎓 ヌーソスの意見:\n{last_nousos_reply}\n\n"
-                        f"### 🔎 レキュスの意見:\n{last_rekus_reply}\n"
-                        f"--- [ここまで] ---")
+                        f"### 🔎 レキュスの意見:\n{last_rekus_reply}")
 
-            # --- クリティカル用のプロンプト定義 ---
             kreios_crit_prompt = "あなたは論理構造の監査官クレイオスです。素材の「構造的整合性」「論理飛躍」を検出し、整理してください。"
-            nousos_crit_prompt = "あなたは意味と感情の深層分析官ヌーソスです。素材の「曖昧性・詩的要素・感情含意」に注目し、逆の視点から再解釈・補完してください。"
             rekus_crit_prompt = "あなたはファクトと代替案の検証官レキュスです。素材の主張の「事実性」を検索ベースで反証し、「代替案」を提示してください。"
 
-            # --- 各AIを並列で実行 ---
+            await message.channel.send("⏳ クレイオス(論理監査)とレキュス(事実検証)の分析中…")
             kreios_crit_task = ask_kreios(user_id, material, system_prompt=kreios_crit_prompt)
-            nousos_crit_task = ask_nousos(user_id, material, system_prompt=nousos_crit_prompt)
             rekus_crit_task = ask_rekus(user_id, material, system_prompt=rekus_crit_prompt)
-            
-            results = await asyncio.gather(kreios_crit_task, nousos_crit_task, rekus_crit_task, return_exceptions=True)
-            kreios_crit_reply, nousos_crit_reply, rekus_crit_reply = results
+            results = await asyncio.gather(kreios_crit_task, rekus_crit_task, return_exceptions=True)
+            kreios_crit_reply, rekus_crit_reply = results
 
-            # --- Discordに応答を送信 ---
-            if not isinstance(kreios_crit_reply, Exception):
-                await message.channel.send(f"🏛️ **クレイオス (論理監査)** より:\n{kreios_crit_reply}")
-            if not isinstance(nousos_crit_reply, Exception):
-                await message.channel.send(f"🎓 **ヌーソス (深層分析)** より:\n{nousos_crit_reply}")
-            if not isinstance(rekus_crit_reply, Exception):
-                await message.channel.send(f"🔎 **レキュス (事実検証)** より:\n{rekus_crit_reply}")
+            # 中間報告をDiscordに送信
+            if not isinstance(kreios_crit_reply, Exception): await message.channel.send(f"🏛️ **クレイオス (論理監査)** より:\n{kreios_crit_reply}")
+            if not isinstance(rekus_crit_reply, Exception): await message.channel.send(f"🔎 **レキュス (事実検証)** より:\n{rekus_crit_reply}")
+
+            await message.channel.send("⏳ 上記の分析と初回意見を元に、ヌーソスが最終結論を統合します…")
             
-            # --- Notionに最終レポートを書き込み ---
+            nousos_final_material = (f"あなたは三神の議論を最終的に統合する知性の神ヌーソスです。以下の初期意見と、それに対する二神の批判的分析をすべて踏まえ、最終的な結論と提言をまとめてください。\n\n"
+                                     f"--- [初期意見] ---\n{material}\n\n"
+                                     f"--- [批判的分析] ---\n"
+                                     f"### 🏛️ クレイオス (論理監査)の分析:\n{kreios_crit_reply if not isinstance(kreios_crit_reply, Exception) else 'エラー'}\n\n"
+                                     f"### 🔎 レキュス (事実検証)の分析:\n{rekus_crit_reply if not isinstance(rekus_crit_reply, Exception) else 'エラー'}\n\n"
+                                     f"--- [指示] ---\n"
+                                     f"上記すべてを統合し、最終レポートを作成してください。")
+            
+            final_summary = await ask_nousos(user_id, nousos_final_material, system_prompt="あなたは三神の議論を最終的に統合する知性の神ヌーソスです。")
+            
+            await message.channel.send(f"✨ **ヌーソス (最終結論)** より:\n{final_summary}")
+            
             if user_id == ADMIN_USER_ID:
-                final_report = (f"### クリティカル分析レポート\n\n"
-                                f"**🏛️ クレイオス (論理監査)の結論:**\n{kreios_crit_reply if not isinstance(kreios_crit_reply, Exception) else 'エラーが発生しました'}\n\n"
-                                f"---\n\n"
-                                f"**🎓 ヌーソス (深層分析)の結論:**\n{nousos_crit_reply if not isinstance(nousos_crit_reply, Exception) else 'エラーが発生しました'}\n\n"
-                                f"---\n\n"
-                                f"**🔎 レキュス (事実検証)の結論:**\n{rekus_crit_reply if not isinstance(rekus_crit_reply, Exception) else 'エラーが発生しました'}")
-                await log_response(final_report, "三神構造炉", NOTION_MAIN_PAGE_ID)
-                await message.channel.send("✅ 最終分析レポートを構造炉（Notion）に記録しました。")
-
+                await log_response(final_summary, "ヌーソス (最終結論)", NOTION_MAIN_PAGE_ID)
+                await message.channel.send("✅ 最終結論を構造炉（Notion）に記録しました。")
 
     finally:
         if message.author.id in processing_users:
