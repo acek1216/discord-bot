@@ -100,17 +100,21 @@ async def ask_kreios(user_id, prompt, attachment_data=None, attachment_mime_type
         messages.extend(history)
     messages.append({"role": "user", "content": user_content})
     
-    response = await openai_client.chat.completions.create(model="gpt-4o", messages=messages, max_tokens=3000)
-    reply = response.choices[0].message.content
-    
-    if use_history:
-        kreios_memory[user_id] = history + [{"role": "user", "content": user_content}, {"role": "assistant", "content": reply}]
-    return reply
+    try:
+        response = await openai_client.chat.completions.create(model="gpt-4o", messages=messages, max_tokens=3000)
+        reply = response.choices[0].message.content
+        if use_history:
+            kreios_memory[user_id] = history + [{"role": "user", "content": user_content}, {"role": "assistant", "content": reply}]
+        return reply
+    except Exception as e:
+        print(f"❌ Kreios API Error: {e}")
+        return f"クレイオスの呼び出し中にエラーが発生しました: {e}"
 
 async def ask_nousos(user_id, prompt, attachment_data=None, attachment_mime_type=None, system_prompt=None):
+    """ヌーソス呼び出し関数 ★★★ここにエラー処理を追加★★★"""
     history = nousos_memory.get(user_id, [])
     final_system_prompt = system_prompt or "あなたは知性を司る神ヌーソスです。万物の根源を見通し、哲学的かつ探求的に答えてください。"
-    use_history = "分析官" not in final_system_prompt and "最終的に統合する" not in final_system_prompt and "統合者" not in final_system_prompt
+    use_history = "分析官" not in final_system_prompt and "最終的に統合する" not in final_system_prompt and "統合者" not in final_system_prompt and "スライド作成" not in final_system_prompt
 
     contents = [final_system_prompt]
     if use_history:
@@ -124,12 +128,17 @@ async def ask_nousos(user_id, prompt, attachment_data=None, attachment_mime_type
             contents.append(Image.open(io.BytesIO(attachment_data)))
         else:
             contents.append({'mime_type': attachment_mime_type, 'data': attachment_data})
-            
-    response = await gemini_model.generate_content_async(contents)
-    reply = response.text
-    if use_history:
-        nousos_memory[user_id] = history + [{"role": "ユーザー", "content": prompt}, {"role": "ヌーソス", "content": reply}]
-    return reply
+    
+    try:
+        response = await gemini_model.generate_content_async(contents)
+        reply = response.text
+        if use_history:
+            nousos_memory[user_id] = history + [{"role": "ユーザー", "content": prompt}, {"role": "ヌーソス", "content": reply}]
+        return reply
+    except Exception as e:
+        print(f"❌ Nousos API Error: {e}")
+        return f"ヌーソスの呼び出し中にエラーが発生しました: {e}"
+
 
 def _sync_ask_rekus(user_id, prompt, system_prompt=None):
     history = rekus_memory.get(user_id, [])
@@ -292,13 +301,11 @@ async def on_message(message):
                 if not isinstance(rekus_crit_reply, Exception): await log_response(rekus_crit_reply, "レキュス (クリティカル検証)", NOTION_REKUS_PAGE_ID)
                 await log_response(final_summary, "ヌーソス (最終結論)", NOTION_MAIN_PAGE_ID)
                 await message.channel.send("✅ 中間分析と最終結論をNotionに記録しました。")
-        
-        # --- ★★★ !ロジカル コマンド (添付ファイル対応) ★★★ ---
+
         elif command_name == "!ロジカル":
             await message.channel.send("⚔️ 三神による弁証法的対話を開始します…")
             if user_id == ADMIN_USER_ID: await log_trigger(user_name, query, command_name, NOTION_MAIN_PAGE_ID)
 
-            # 添付ファイルの処理
             theme = query
             if attachment_data:
                 await message.channel.send("⏳ 添付ファイルをヌーソスが読み解いています…")
@@ -336,6 +343,37 @@ async def on_message(message):
                 if not isinstance(antithesis_reply, Exception): await log_response(antithesis_reply, "レキュス (否定論)", NOTION_REKUS_PAGE_ID)
                 await log_response(synthesis_summary, "ヌーソス (統合結論)", NOTION_MAIN_PAGE_ID)
                 await message.channel.send("✅ 弁証法的対話の全プロセスをNotionに記録しました。")
+        
+        elif command_name == "!スライド":
+            await message.channel.send("📝 三神の意見を元に、スライド骨子案を作成します…")
+            if user_id == ADMIN_USER_ID: await log_trigger(user_name, query, command_name, NOTION_MAIN_PAGE_ID)
+
+            last_kreios_reply = next((msg['content'] for msg in reversed(kreios_memory.get(user_id, [])) if msg['role'] == 'assistant'), None)
+            last_nousos_reply = next((msg['content'] for msg in reversed(nousos_memory.get(user_id, [])) if msg['role'] == 'ヌーソス'), None)
+            last_rekus_reply = next((msg['content'] for msg in reversed(rekus_memory.get(user_id, [])) if msg['role'] == 'assistant'), None)
+            
+            if not all([last_kreios_reply, last_nousos_reply, last_rekus_reply]):
+                await message.channel.send("❌ スライド作成の素材となる三神の前回応答が見つかりません。「!みんなで」等を先に実行してください。")
+                return
+
+            slide_material = (f"あなたはプレゼンテーションの構成作家です。以下の三者の異なる視点からの意見を統合し、聞き手の心を動かす魅力的なプレゼンテーション用スライドの骨子案を作成してください。\n\n"
+                              f"--- [意見1: クレイオス（論理・構造）] ---\n{last_kreios_reply}\n\n"
+                              f"--- [意見2: ヌーソス（哲学・本質）] ---\n{last_nousos_reply}\n\n"
+                              f"--- [意見3: レキュス（事実・具体例）] ---\n{last_rekus_reply}\n\n"
+                              f"--- [指示] ---\n"
+                              f"上記の内容を元に、以下の形式でスライド骨子案を提案してください。\n"
+                              f"・タイトル\n"
+                              f"・スライド1: [タイトル] - [内容]\n"
+                              f"・スライド2: [タイトル] - [内容]\n"
+                              f"・...")
+            
+            slide_draft = await ask_nousos(user_id, slide_material, system_prompt="あなたは統合神ヌーソスです。三神の意見を統合し、スライドを作成してください。")
+            
+            await send_long_message(message.channel, f"✨ **ヌーソス (スライド骨子案)**:\n{slide_draft}")
+
+            if user_id == ADMIN_USER_ID:
+                await log_response(slide_draft, "ヌーソス (スライド作成)", NOTION_MAIN_PAGE_ID)
+                await message.channel.send("✅ スライド骨子案を構造炉（Notion）に記録しました。")
 
     finally:
         if message.author.id in processing_users:
