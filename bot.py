@@ -104,14 +104,16 @@ async def ask_kreios(user_id, prompt, attachment_data=None, attachment_mime_type
         response = await openai_client.chat.completions.create(model="gpt-4o", messages=messages, max_tokens=3000)
         reply = response.choices[0].message.content
         if use_history:
-            kreios_memory[user_id] = history + [{"role": "user", "content": user_content}, {"role": "assistant", "content": reply}]
+            new_history = history + [{"role": "user", "content": user_content}, {"role": "assistant", "content": reply}]
+            if len(new_history) > 10:
+                new_history = new_history[-10:]
+            kreios_memory[user_id] = new_history
         return reply
     except Exception as e:
         print(f"❌ Kreios API Error: {e}")
         return f"クレイオスの呼び出し中にエラーが発生しました: {e}"
 
 async def ask_nousos(user_id, prompt, attachment_data=None, attachment_mime_type=None, system_prompt=None):
-    """ヌーソス呼び出し関数 ★★★ここにエラー処理を追加★★★"""
     history = nousos_memory.get(user_id, [])
     final_system_prompt = system_prompt or "あなたは知性を司る神ヌーソスです。万物の根源を見通し、哲学的かつ探求的に答えてください。"
     use_history = "分析官" not in final_system_prompt and "最終的に統合する" not in final_system_prompt and "統合者" not in final_system_prompt and "スライド作成" not in final_system_prompt
@@ -128,17 +130,19 @@ async def ask_nousos(user_id, prompt, attachment_data=None, attachment_mime_type
             contents.append(Image.open(io.BytesIO(attachment_data)))
         else:
             contents.append({'mime_type': attachment_mime_type, 'data': attachment_data})
-    
+            
     try:
         response = await gemini_model.generate_content_async(contents)
         reply = response.text
         if use_history:
-            nousos_memory[user_id] = history + [{"role": "ユーザー", "content": prompt}, {"role": "ヌーソス", "content": reply}]
+            new_history = history + [{"role": "ユーザー", "content": prompt}, {"role": "ヌーソス", "content": reply}]
+            if len(new_history) > 10:
+                new_history = new_history[-10:]
+            nousos_memory[user_id] = new_history
         return reply
     except Exception as e:
         print(f"❌ Nousos API Error: {e}")
         return f"ヌーソスの呼び出し中にエラーが発生しました: {e}"
-
 
 def _sync_ask_rekus(user_id, prompt, system_prompt=None):
     history = rekus_memory.get(user_id, [])
@@ -158,7 +162,10 @@ def _sync_ask_rekus(user_id, prompt, system_prompt=None):
         response.raise_for_status()
         reply = response.json()["choices"][0]["message"]["content"]
         if use_history:
-             rekus_memory[user_id] = history + [{"role": "user", "content": prompt}, {"role": "assistant", "content": reply}]
+            new_history = history + [{"role": "user", "content": prompt}, {"role": "assistant", "content": reply}]
+            if len(new_history) > 10:
+                new_history = new_history[-10:]
+            rekus_memory[user_id] = new_history
         return reply
     except requests.exceptions.RequestException as e:
         print(f"❌ Rekus API Error: {e}")
@@ -190,7 +197,13 @@ async def on_message(message):
         command_name = content.split(' ')[0]
         query = content[len(command_name):].strip()
 
-        # ... (他のコマンドは変更なし) ...
+        if command_name == "!リセット":
+            if user_id in kreios_memory: del kreios_memory[user_id]
+            if user_id in nousos_memory: del nousos_memory[user_id]
+            if user_id in rekus_memory: del rekus_memory[user_id]
+            await message.channel.send("✅ あなたの会話履歴をリセットしました。")
+            return
+
         if command_name == "!クレイオス":
             if user_id == ADMIN_USER_ID: await log_trigger(user_name, query, command_name, NOTION_KREIOS_PAGE_ID)
             query_for_kreios = query
@@ -301,6 +314,11 @@ async def on_message(message):
                 if not isinstance(rekus_crit_reply, Exception): await log_response(rekus_crit_reply, "レキュス (クリティカル検証)", NOTION_REKUS_PAGE_ID)
                 await log_response(final_summary, "ヌーソス (最終結論)", NOTION_MAIN_PAGE_ID)
                 await message.channel.send("✅ 中間分析と最終結論をNotionに記録しました。")
+            
+            if user_id in kreios_memory: del kreios_memory[user_id]
+            if user_id in nousos_memory: del nousos_memory[user_id]
+            if user_id in rekus_memory: del rekus_memory[user_id]
+            await message.channel.send("🧹 ここまでの会話履歴はリセットされました。")
 
         elif command_name == "!ロジカル":
             await message.channel.send("⚔️ 三神による弁証法的対話を開始します…")
@@ -343,6 +361,11 @@ async def on_message(message):
                 if not isinstance(antithesis_reply, Exception): await log_response(antithesis_reply, "レキュス (否定論)", NOTION_REKUS_PAGE_ID)
                 await log_response(synthesis_summary, "ヌーソス (統合結論)", NOTION_MAIN_PAGE_ID)
                 await message.channel.send("✅ 弁証法的対話の全プロセスをNotionに記録しました。")
+            
+            if user_id in kreios_memory: del kreios_memory[user_id]
+            if user_id in nousos_memory: del nousos_memory[user_id]
+            if user_id in rekus_memory: del rekus_memory[user_id]
+            await message.channel.send("🧹 ここまでの会話履歴はリセットされました。")
         
         elif command_name == "!スライド":
             await message.channel.send("📝 三神の意見を元に、スライド骨子案を作成します…")
@@ -374,6 +397,11 @@ async def on_message(message):
             if user_id == ADMIN_USER_ID:
                 await log_response(slide_draft, "ヌーソス (スライド作成)", NOTION_MAIN_PAGE_ID)
                 await message.channel.send("✅ スライド骨子案を構造炉（Notion）に記録しました。")
+            
+            if user_id in kreios_memory: del kreios_memory[user_id]
+            if user_id in nousos_memory: del nousos_memory[user_id]
+            if user_id in rekus_memory: del rekus_memory[user_id]
+            await message.channel.send("🧹 ここまでの会話履歴はリセットされました。")
 
     finally:
         if message.author.id in processing_users:
