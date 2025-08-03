@@ -7,7 +7,7 @@ from mistralai.models.chat_completion import ChatMessage
 import asyncio
 import os
 from dotenv import load_dotenv
-from notion_client import Client # ← 不足していたこの行を追加しました
+from notion_client import Client
 import requests # Rekus用
 import io
 from PIL import Image
@@ -329,7 +329,7 @@ async def on_message(message):
             await message.channel.send(f"⏳ 執事(肯定), 探索王(否定), 女神(法と倫理)が議論を構築中…")
             thesis_task = ask_kreios(user_id, thesis_prompt, system_prompt="あなたは議論における「肯定(テーゼ)」を担う者です。")
             antithesis_task = ask_rekus(user_id, antithesis_prompt, system_prompt="あなたは議論における「否定(アンチテーゼ)」を担う者です。")
-            legal_task = ask_nousos(user_id, legal_prompt, system_prompt="あなたはこのテーマに関する「法的・倫理的論拠」を専門に担当する者です。")
+            legal_task = await ask_nousos(user_id, legal_prompt, system_prompt="あなたはこのテーマに関する「法的・倫理的論拠」を専門に担当する者です。")
             
             results = await asyncio.gather(thesis_task, antithesis_task, legal_task, return_exceptions=True)
             thesis_reply, antithesis_reply, legal_reply = results
@@ -359,16 +359,17 @@ async def on_message(message):
             if user_id in rekus_memory: del rekus_memory[user_id]
             await message.channel.send("🧹 ここまでの会話履歴はリセットされました。")
 
+        # ▼▼▼ !収束コマンドの添付ファイル読み解き役をシヴィラに変更しました ▼▼▼
         elif content.startswith("!収束"):
             query = content.replace("!収束", "").strip()
             if user_id == ADMIN_USER_ID: await log_trigger(user_name, query, "!収束", NOTION_MAIN_PAGE_ID)
 
             final_query = query
             if attachment_data:
-                await message.channel.send("⏳ 添付ファイルをヌーソスが読み解いています…")
-                summary = await ask_nousos(user_id, "この添付ファイルの内容を、議論の素材として簡潔に要約してください。", attachment_data, attachment_mime_type)
-                final_query = f"{query}\n\n[添付資料の要約]:\n{summary}"
-                await message.channel.send("✅ 論点を把握しました。")
+                await message.channel.send("💠 添付ファイルをシヴィラが分析しています…")
+                summary = await ask_sibylla(user_id, "この添付ファイルの内容を、議論の素材として詳細に要約してください。", attachment_data=attachment_data, attachment_mime_type=attachment_mime_type)
+                final_query = f"{query}\n\n[シヴィラによる添付資料の要約]:\n{summary}"
+                await message.channel.send("✅ 議題の分析が完了しました。")
 
             await message.channel.send("🔺 執事、女神、探索王に照会中…")
 
@@ -505,4 +506,3 @@ async def on_message(message):
 
 # --- 起動 ---
 client.run(DISCORD_TOKEN)
-
