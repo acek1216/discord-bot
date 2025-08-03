@@ -5,4 +5,5 @@ python-dotenv
 requests
 notion-client
 Pillow
-mistralai
+mistralai==0.4.2
+
