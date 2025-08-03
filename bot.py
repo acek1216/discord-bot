@@ -19,7 +19,6 @@ gemini_api_key = os.getenv("GEMINI_API_KEY")
 perplexity_api_key = os.getenv("PERPLEXITY_API_KEY")
 notion_api_key = os.getenv("NOTION_API_KEY")
 ADMIN_USER_ID = os.getenv("ADMIN_USER_ID")
-OPENAI_GPT4_TURBO_API_KEY = os.getenv("OPENAI_GPT4_TURBO_API_KEY", openai_api_key)
 
 # ▼▼▼ 記録先のページIDを全て読み込みます ▼▼▼
 NOTION_MAIN_PAGE_ID = os.getenv("NOTION_PAGE_ID") 
@@ -30,7 +29,6 @@ NOTION_REKUS_PAGE_ID = os.getenv("NOTION_REKUS_PAGE_ID")
 
 # --- 各種クライアントの初期化 ---
 openai_client = AsyncOpenAI(api_key=openai_api_key)
-gpt4_turbo_client = AsyncOpenAI(api_key=OPENAI_GPT4_TURBO_API_KEY)
 genai.configure(api_key=gemini_api_key)
 safety_settings = {
     HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
@@ -167,14 +165,14 @@ async def ask_gpt(user_id, prompt):
         {"role": "user", "content": prompt}
     ]
     try:
-        response = await gpt4_turbo_client.chat.completions.create(
-            model="gpt-4-turbo",
+        response = await openai_client.chat.completions.create(
+            model="gpt-4",
             messages=messages,
             max_tokens=3000
         )
         return response.choices[0].message.content
     except Exception as e:
-        print(f"❌ GPT-4 Turbo API Error: {e}")
+        print(f"❌ GPT-4 API Error: {e}")
         return f"GPT(統合)の呼び出し中にエラーが発生しました: {e}"
 
 async def ask_sibylla(user_id, prompt, system_prompt=None):
