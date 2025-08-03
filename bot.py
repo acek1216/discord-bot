@@ -3,10 +3,11 @@ from openai import AsyncOpenAI
 import google.generativeai as genai
 from google.generativeai.types import HarmCategory, HarmBlockThreshold
 from mistralai.async_client import MistralAsyncClient
-# ChatMessageのimportは不要なので削除しました
+from mistralai.models.chat_completion import ChatMessage
 import asyncio
 import os
 from dotenv import load_dotenv
+from notion_client import Client # ← 不足していたこの行を追加しました
 import requests # Rekus用
 import io
 from PIL import Image
@@ -21,6 +22,12 @@ perplexity_api_key = os.getenv("PERPLEXITY_API_KEY")
 notion_api_key = os.getenv("NOTION_API_KEY")
 MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY")
 ADMIN_USER_ID = os.getenv("ADMIN_USER_ID")
+
+# ▼▼▼ 記録先のページIDを全て読み込みます ▼▼▼
+NOTION_MAIN_PAGE_ID = os.getenv("NOTION_PAGE_ID") 
+NOTION_KREIOS_PAGE_ID = os.getenv("NOTION_KREIOS_PAGE_ID")
+NOTION_NOUSOS_PAGE_ID = os.getenv("NOTION_NOUSOS_PAGE_ID")
+NOTION_REKUS_PAGE_ID = os.getenv("NOTION_REKUS_PAGE_ID")
 
 
 # --- 各種クライアントの初期化 ---
@@ -192,7 +199,6 @@ async def ask_sibylla(user_id, prompt, attachment_data=None, attachment_mime_typ
         print(f"❌ Sibylla API Error: {e}")
         return f"シヴィラの呼び出し中にエラーが発生しました: {e}"
 
-# ▼▼▼ ask_tachikoma関数のメッセージ形式を修正しました ▼▼▼
 async def ask_tachikoma(prompt):
     tachikoma_prompt = """
 あなたは「攻殻機動隊」に登場する思考戦車タチコマです。
