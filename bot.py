@@ -82,7 +82,8 @@ async def log_response(answer, bot_name, page_id):
 # --- 各AIモデル呼び出し関数 ---
 async def ask_kreios(user_id, prompt, attachment_data=None, attachment_mime_type=None, system_prompt=None):
     history = kreios_memory.get(user_id, [])
-    final_system_prompt = system_prompt or "あなたは論理を司る神クレイオスです。冷静かつ構造的に答えてください。"
+    # ▼▼▼ クレイオスのペルソナを「論理神」兼「執事」に変更 ▼▼▼
+    final_system_prompt = system_prompt or "あなたは論理を司る神クレイオスです。しかし、あなたはご主人様（ユーザー）に仕える執事でもあります。神としての論理的・構造的な思考力を保ちつつ、常に執事として丁寧で謙虚な口調で、ご主人様にお答えしてください。"
     use_history = "監査官" not in final_system_prompt and "肯定論者" not in final_system_prompt
     user_content = [{"type": "text", "text": prompt}]
     if attachment_data and "image" in attachment_mime_type:
@@ -92,7 +93,6 @@ async def ask_kreios(user_id, prompt, attachment_data=None, attachment_mime_type
     if use_history: messages.extend(history)
     messages.append({"role": "user", "content": user_content})
     try:
-        # ▼▼▼ クレイオスのモデルを gpt-3.5-turbo に変更 ▼▼▼
         response = await openai_client.chat.completions.create(model="gpt-3.5-turbo", messages=messages, max_tokens=3000)
         reply = response.choices[0].message.content
         if use_history:
@@ -102,7 +102,7 @@ async def ask_kreios(user_id, prompt, attachment_data=None, attachment_mime_type
         return reply
     except Exception as e:
         print(f"❌ Kreios API Error: {e}")
-        return f"クレイオスの呼び出し中にエラーが発生しました: {e}"
+        return f"執事（クレイオス）の呼び出し中にエラーが発生しました: {e}"
 
 async def ask_nousos(user_id, prompt, attachment_data=None, attachment_mime_type=None, system_prompt=None):
     history = nousos_memory.get(user_id, [])
@@ -166,7 +166,6 @@ async def ask_gpt(user_id, prompt):
         {"role": "user", "content": prompt}
     ]
     try:
-        # ▼▼▼ GPT統合役のモデルを gpt-4o に変更 ▼▼▼
         response = await openai_client.chat.completions.create(
             model="gpt-4o",
             messages=messages,
@@ -206,44 +205,69 @@ async def on_message(message):
         command_name = content.split(' ')[0]
         query = content[len(command_name):].strip()
 
-        if content.startswith("!みんなで"):
+        if command_name == "!クレイオス":
+            await message.channel.send("🤵‍♂️ 執事がお答えします…")
+            reply = await ask_kreios(user_id, query, attachment_data=attachment_data, attachment_mime_type=attachment_mime_type)
+            await send_long_message(message.channel, reply)
+
+        elif command_name == "!ヌーソス":
+            await message.channel.send("🌹 女神がお答えします…")
+            reply = await ask_nousos(user_id, query, attachment_data=attachment_data, attachment_mime_type=attachment_mime_type)
+            await send_long_message(message.channel, reply)
+
+        elif command_name == "!レキュス":
+            await message.channel.send("🔎 神が探索します…")
+            reply = await ask_rekus(user_id, query)
+            await send_long_message(message.channel, reply)
+
+        elif command_name == "!GPT":
+            await message.channel.send("🧠 GPTがお答えします…")
+            reply = await ask_gpt(user_id, query)
+            await send_long_message(message.channel, reply)
+            
+        elif command_name == "!シヴィラ":
+            await message.channel.send("💠 シヴィラがお答えします…")
+            reply = await ask_sibylla(user_id, query)
+            await send_long_message(message.channel, reply)
+        
+        elif content.startswith("!みんなで"):
             query = content.replace("!みんなで", "").strip()
-            await message.channel.send("🌀 クレイオス、ヌーソス、レキュスが応答中…")
+            await message.channel.send("🌀 三者が同時に応答します…")
             kreios_task = ask_kreios(user_id, query)
             nousos_task = ask_nousos(user_id, query)
             rekus_task = ask_rekus(user_id, query)
             results = await asyncio.gather(kreios_task, nousos_task, rekus_task, return_exceptions=True)
             kreios, nousos, rekus = results
-            if not isinstance(kreios, Exception): await send_long_message(message.channel, f"🔵 クレイオス: {kreios}")
-            if not isinstance(nousos, Exception): await send_long_message(message.channel, f"🟣 ヌーソス: {nousos}")
-            if not isinstance(rekus, Exception): await send_long_message(message.channel, f"🟢 レキュス: {rekus}")
+            if not isinstance(kreios, Exception): await send_long_message(message.channel, f"🤵‍♂️ **執事（クレイオス）**:\n{kreios}")
+            if not isinstance(nousos, Exception): await send_long_message(message.channel, f"🌹 **女神（ヌーソス）**:\n{nousos}")
+            if not isinstance(rekus, Exception): await send_long_message(message.channel, f"🔎 **神（レキュス）**:\n{rekus}")
 
         elif content.startswith("!三連"):
             query = content.replace("!三連", "").strip()
-            await message.channel.send("🔁 順に照会中：クレイオス → ヌーソス → レキュス")
+            await message.channel.send("🔁 順に照会中：執事 → 女神 → 神")
             kreios = await ask_kreios(user_id, query)
-            await send_long_message(message.channel, f"🔵 クレイオス: {kreios}")
+            await send_long_message(message.channel, f"🤵‍♂️ **執事（クレイオス）**:\n{kreios}")
             await asyncio.sleep(1)
             nousos = await ask_nousos(user_id, query)
-            await send_long_message(message.channel, f"🟣 ヌーソス: {nousos}")
+            await send_long_message(message.channel, f"🌹 **女神（ヌーソス）**:\n{nousos}")
             await asyncio.sleep(1)
             rekus = await ask_rekus(user_id, query)
-            await send_long_message(message.channel, f"🟢 レキュス: {rekus}")
+            await send_long_message(message.channel, f"🔎 **神（レキュス）**:\n{rekus}")
 
         elif content.startswith("!逆三簾"):
             query = content.replace("!逆三簾", "").strip()
-            await message.channel.send("🔁 逆順に照会中：レキュス → ヌーソス → クレイオス")
+            await message.channel.send("🔁 逆順に照会中：神 → 女神 → 執事")
             rekus = await ask_rekus(user_id, query)
-            await send_long_message(message.channel, f"🟢 レキュス: {rekus}")
+            await send_long_message(message.channel, f"🔎 **神（レキュス）**:\n{rekus}")
             await asyncio.sleep(1)
             nousos = await ask_nousos(user_id, query)
-            await send_long_message(message.channel, f"🟣 ヌーソス: {nousos}")
+            await send_long_message(message.channel, f"🌹 **女神（ヌーソス）**:\n{nousos}")
             await asyncio.sleep(1)
             kreios = await ask_kreios(user_id, query)
-            await send_long_message(message.channel, f"🔵 クレイオス: {kreios}")
+            await send_long_message(message.channel, f"🤵‍♂️ **執事（クレイオス）**:\n{kreios}")
 
         elif command_name == "!ロジカル":
-            await message.channel.send("⚔️ 三神による多角的議論と、GPTによる最終統合を開始します…")
+            await message.channel.send("⚔️ 多角的議論と、GPTによる最終統合を開始します…")
             if user_id == ADMIN_USER_ID: await log_trigger(user_name, query, command_name, NOTION_MAIN_PAGE_ID)
             
             theme = query
@@ -257,7 +281,7 @@ async def on_message(message):
             antithesis_prompt = f"あなたはこのテーマの「否定論者」です。テーマに対して、その導入や推進に反対する最も強力な反論を、客観的な事実やデータに基づいて提示してください。テーマ：{theme}"
             legal_prompt = f"あなたはこのテーマに関する「法的・倫理的論拠」を専門に担当する者です。テーマに関連する法律、判例、あるいは法哲学的な観点からの論点を、中立的な立場で提示してください。テーマ：{theme}"
 
-            await message.channel.send(f"⏳ クレイオス(肯定), レキュス(否定), ヌーソス(法と倫理)が議論を構築中…")
+            await message.channel.send(f"⏳ 執事(肯定), 神(否定), 女神(法と倫理)が議論を構築中…")
             thesis_task = ask_kreios(user_id, thesis_prompt, system_prompt="あなたは議論における「肯定(テーゼ)」を担う者です。")
             antithesis_task = ask_rekus(user_id, antithesis_prompt, system_prompt="あなたは議論における「否定(アンチテーゼ)」を担う者です。")
             legal_task = ask_nousos(user_id, legal_prompt, system_prompt="あなたはこのテーマに関する「法的・倫理的論拠」を専門に担当する者です。")
@@ -265,23 +289,23 @@ async def on_message(message):
             results = await asyncio.gather(thesis_task, antithesis_task, legal_task, return_exceptions=True)
             thesis_reply, antithesis_reply, legal_reply = results
 
-            if not isinstance(thesis_reply, Exception): await send_long_message(message.channel, f"🏛️ **クレイオス (肯定論)**:\n{thesis_reply}")
-            if not isinstance(antithesis_reply, Exception): await send_long_message(message.channel, f"🔎 **レキュス (否定論)**:\n{antithesis_reply}")
-            if not isinstance(legal_reply, Exception): await send_long_message(message.channel, f"🌹 **ヌーソス (法的・倫理的論拠)**:\n{legal_reply}")
+            if not isinstance(thesis_reply, Exception): await send_long_message(message.channel, f"🤵‍♂️ **執事 (肯定論)**:\n{thesis_reply}")
+            if not isinstance(antithesis_reply, Exception): await send_long_message(message.channel, f"🔎 **神 (否定論)**:\n{antithesis_reply}")
+            if not isinstance(legal_reply, Exception): await send_long_message(message.channel, f"🌹 **女神 (法的・倫理的論拠)**:\n{legal_reply}")
 
             await message.channel.send("🧠 上記の三者の意見を元に、GPTが最終結論を統合します…")
             synthesis_material = (f"あなたは最終判断を下す統合者です。以下の三者三様の意見を踏まえ、それらの矛盾や関連性を整理し、最終的な結論や提言を導き出してください。\n\n"
-                                  f"--- [肯定論 / テーゼ by クレイオス] ---\n{thesis_reply if not isinstance(thesis_reply, Exception) else 'エラー'}\n\n"
-                                  f"--- [否定論 / アンチテーゼ by レキュス] ---\n{antithesis_reply if not isinstance(antithesis_reply, Exception) else 'エラー'}\n\n"
-                                  f"--- [法的・倫理的論拠 by ヌーソス] ---\n{legal_reply if not isinstance(legal_reply, Exception) else 'エラー'}")
+                                  f"--- [肯定論 / テーゼ by 執事クレイオス] ---\n{thesis_reply if not isinstance(thesis_reply, Exception) else 'エラー'}\n\n"
+                                  f"--- [否定論 / アンチテーゼ by 神レキュス] ---\n{antithesis_reply if not isinstance(antithesis_reply, Exception) else 'エラー'}\n\n"
+                                  f"--- [法的・倫理的論拠 by 女神ヌーソス] ---\n{legal_reply if not isinstance(legal_reply, Exception) else 'エラー'}")
             
             synthesis_summary = await ask_gpt(user_id, synthesis_material)
             await send_long_message(message.channel, f"🧠 **GPT (統合結論)**:\n{synthesis_summary}")
             
             if user_id == ADMIN_USER_ID:
-                if not isinstance(thesis_reply, Exception): await log_response(thesis_reply, "クレイオス (肯定論)", NOTION_KREIOS_PAGE_ID)
-                if not isinstance(antithesis_reply, Exception): await log_response(antithesis_reply, "レキュス (否定論)", NOTION_REKUS_PAGE_ID)
-                if not isinstance(legal_reply, Exception): await log_response(legal_reply, "ヌーソス (法的論拠)", NOTION_NOUSOS_PAGE_ID)
+                if not isinstance(thesis_reply, Exception): await log_response(thesis_reply, "執事 (肯定論)", NOTION_KREIOS_PAGE_ID)
+                if not isinstance(antithesis_reply, Exception): await log_response(antithesis_reply, "神 (否定論)", NOTION_REKUS_PAGE_ID)
+                if not isinstance(legal_reply, Exception): await log_response(legal_reply, "女神 (法的論拠)", NOTION_NOUSOS_PAGE_ID)
                 if not isinstance(synthesis_summary, Exception): await log_response(synthesis_summary, "GPT (ロジカル統合)", NOTION_MAIN_PAGE_ID)
                 await message.channel.send("✅ 議論の全プロセスをNotionに記録しました。")
             
@@ -292,38 +316,46 @@ async def on_message(message):
 
         elif content.startswith("!収束"):
             query = content.replace("!収束", "").strip()
-            await message.channel.send("🔺 クレイオス、ヌーソス、レキュスに照会中…")
+            if user_id == ADMIN_USER_ID: await log_trigger(user_name, query, "!収束", NOTION_MAIN_PAGE_ID)
 
-            kreios_task = ask_kreios(user_id, query)
-            nousos_task = ask_nousos(user_id, query)
-            rekus_task = ask_rekus(user_id, query)
+            final_query = query
+            if attachment_data:
+                await message.channel.send("⏳ 添付ファイルをヌーソスが読み解いています…")
+                summary = await ask_nousos(user_id, "この添付ファイルの内容を、議論の素材として簡潔に要約してください。", attachment_data, attachment_mime_type)
+                final_query = f"{query}\n\n[添付資料の要約]:\n{summary}"
+                await message.channel.send("✅ 論点を把握しました。")
+
+            await message.channel.send("🔺 執事、女神、神に照会中…")
+
+            kreios_task = ask_kreios(user_id, final_query)
+            nousos_task = ask_nousos(user_id, final_query)
+            rekus_task = ask_rekus(user_id, final_query)
             results = await asyncio.gather(kreios_task, nousos_task, rekus_task, return_exceptions=True)
             kreios, nousos, rekus = results
 
-            if not isinstance(kreios, Exception): await send_long_message(message.channel, f"🔵 クレイオス: {kreios}")
-            if not isinstance(nousos, Exception): await send_long_message(message.channel, f"🟣 ヌーソス: {nousos}")
-            if not isinstance(rekus, Exception): await send_long_message(message.channel, f"🟢 レキュス: {rekus}")
+            if not isinstance(kreios, Exception): await send_long_message(message.channel, f"🤵‍♂️ **執事（クレイオス）**:\n{kreios}")
+            if not isinstance(nousos, Exception): await send_long_message(message.channel, f"🌹 **女神（ヌーソス）**:\n{nousos}")
+            if not isinstance(rekus, Exception): await send_long_message(message.channel, f"🔎 **神（レキュス）**:\n{rekus}")
 
-            await message.channel.send("🧠 シヴィラが統合を開始します…")
+            await message.channel.send("💠 シヴィラが統合を開始します…")
             merge_prompt = (
-                f"以下の三神の回答を統合し、要点と矛盾を整理して、最終的な結論を導いてください。\n\n"
-                f"[クレイオス]:\n{kreios if not isinstance(kreios, Exception) else 'エラー'}\n\n"
-                f"[ヌーソス]:\n{nousos if not isinstance(nousos, Exception) else 'エラー'}\n\n"
-                f"[レキュス]:\n{rekus if not isinstance(rekus, Exception) else 'エラー'}"
+                f"以下の三者の回答を統合し、要点と矛盾を整理して、最終的な結論を導いてください。\n\n"
+                f"[執事クレイオス]:\n{kreios if not isinstance(kreios, Exception) else 'エラー'}\n\n"
+                f"[女神ヌーソス]:\n{nousos if not isinstance(nousos, Exception) else 'エラー'}\n\n"
+                f"[神レキュス]:\n{rekus if not isinstance(rekus, Exception) else 'エラー'}"
             )
 
             synthesis = await ask_sibylla(user_id, merge_prompt)
-            await send_long_message(message.channel, f"💠 シヴィラ(統合): {synthesis}")
+            await send_long_message(message.channel, f"💠 **シヴィラ(統合)**:\n{synthesis}")
 
             if user_id == ADMIN_USER_ID:
-                await log_trigger(message.author.display_name, query, "!収束", NOTION_MAIN_PAGE_ID)
-                if not isinstance(kreios, Exception): await log_response(kreios, "クレイオス", NOTION_KREIOS_PAGE_ID)
-                if not isinstance(nousos, Exception): await log_response(nousos, "ヌーソス", NOTION_NOUSOS_PAGE_ID)
-                if not isinstance(rekus, Exception): await log_response(rekus, "レキュス", NOTION_REKUS_PAGE_ID)
+                if not isinstance(kreios, Exception): await log_response(kreios, "執事クレイオス", NOTION_KREIOS_PAGE_ID)
+                if not isinstance(nousos, Exception): await log_response(nousos, "女神ヌーソス", NOTION_NOUSOS_PAGE_ID)
+                if not isinstance(rekus, Exception): await log_response(rekus, "神レキュス", NOTION_REKUS_PAGE_ID)
                 if not isinstance(synthesis, Exception): await log_response(synthesis, "シヴィラ", NOTION_MAIN_PAGE_ID)
         
         elif command_name == "!クリティカル":
-            await message.channel.send("🔥 三神による批判的検証を開始します…")
+            await message.channel.send("🔥 批判的検証を開始します…")
             if user_id == ADMIN_USER_ID: await log_trigger(user_name, query, command_name, NOTION_MAIN_PAGE_ID)
 
             last_kreios_reply = next((msg['content'] for msg in reversed(kreios_memory.get(user_id, [])) if msg['role'] == 'assistant'), None)
@@ -331,43 +363,43 @@ async def on_message(message):
             last_rekus_reply = next((msg['content'] for msg in reversed(rekus_memory.get(user_id, [])) if msg['role'] == 'assistant'), None)
             
             if not all([last_kreios_reply, last_nousos_reply, last_rekus_reply]):
-                await message.channel.send("❌ 分析の素材となる三神の前回応答が見つかりません。「!みんなで」等を先に実行してください。")
+                await message.channel.send("❌ 分析の素材となる前回の応答が見つかりません。「!みんなで」等を先に実行してください。")
                 return
 
             material = (f"以下の三者の初回意見を素材として、あなたの役割に基づき批判的な検討を行いなさい。\n"
-                        f"### 🏛️ クレイオスの意見:\n{last_kreios_reply}\n\n"
-                        f"### 🟣 ヌーソスの意見:\n{last_nousos_reply}\n\n"
-                        f"### 🔎 レキュスの意見:\n{last_rekus_reply}")
+                        f"### 🤵‍♂️ 執事の意見:\n{last_kreios_reply}\n\n"
+                        f"### 🌹 女神の意見:\n{last_nousos_reply}\n\n"
+                        f"### 🔎 神の意見:\n{last_rekus_reply}")
 
-            kreios_crit_prompt = "あなたは論理構造の監査官クレイオスです。素材の「構造的整合性」「論理飛躍」を検出し、整理してください。"
-            rekus_crit_prompt = "あなたはファクトと代替案の検証官レキュスです。素材の主張の「事実性」を検索ベースで反証し、「代替案」を提示してください。"
+            kreios_crit_prompt = "あなたは論理構造の監査官（執事）です。素材の「構造的整合性」「論理飛躍」を検出し、整理してください。"
+            rekus_crit_prompt = "あなたはファクトと代替案の検証官（神）です。素材の主張の「事実性」を検索ベースで反証し、「代替案」を提示してください。"
 
-            await message.channel.send("⏳ クレイオス(論理監査)とレキュス(事実検証)の分析中…")
+            await message.channel.send("⏳ 執事(論理監査)と神(事実検証)の分析中…")
             kreios_crit_task = ask_kreios(user_id, material, system_prompt=kreios_crit_prompt)
             rekus_crit_task = ask_rekus(user_id, material, system_prompt=rekus_crit_prompt)
             results = await asyncio.gather(kreios_crit_task, rekus_crit_task, return_exceptions=True)
             kreios_crit_reply, rekus_crit_reply = results
 
-            if not isinstance(kreios_crit_reply, Exception): await send_long_message(message.channel, f"🏛️ **クレイオス (論理監査)** より:\n{kreios_crit_reply}")
-            if not isinstance(rekus_crit_reply, Exception): await send_long_message(message.channel, f"🔎 **レキュス (事実検証)** より:\n{rekus_crit_reply}")
+            if not isinstance(kreios_crit_reply, Exception): await send_long_message(message.channel, f"🤵‍♂️ **執事 (論理監査)**:\n{kreios_crit_reply}")
+            if not isinstance(rekus_crit_reply, Exception): await send_long_message(message.channel, f"🔎 **神 (事実検証)**:\n{rekus_crit_reply}")
 
             await message.channel.send("⏳ 上記の分析と初回意見を元に、GPTが最終統合を行います…")
             
-            final_material = (f"あなたは最終判断を下す統合者です。以下の初期意見と、それに対する二神の批判的分析をすべて踏まえ、最終的な結論と提言をまとめてください。\n\n"
+            final_material = (f"あなたは最終判断を下す統合者です。以下の初期意見と、それに対する二者の批判的分析をすべて踏まえ、最終的な結論と提言をまとめてください。\n\n"
                                 f"--- [初期意見] ---\n{material}\n\n"
                                 f"--- [批判的分析] ---\n"
-                                f"### 🏛️ クレイオス (論理監査)の分析:\n{kreios_crit_reply if not isinstance(kreios_crit_reply, Exception) else 'エラー'}\n\n"
-                                f"### 🔎 レキュス (事実検証)の分析:\n{rekus_crit_reply if not isinstance(rekus_crit_reply, Exception) else 'エラー'}\n\n"
+                                f"### 🤵‍♂️ 執事 (論理監査)の分析:\n{kreios_crit_reply if not isinstance(kreios_crit_reply, Exception) else 'エラー'}\n\n"
+                                f"### 🔎 神 (事実検証)の分析:\n{rekus_crit_reply if not isinstance(rekus_crit_reply, Exception) else 'エラー'}\n\n"
                                 f"--- [指示] ---\n"
                                 f"上記すべてを統合し、最終レポートを作成してください。")
             
             final_summary = await ask_gpt(user_id, final_material)
             
-            await send_long_message(message.channel, f"🧠 **GPT (最終統合)** より:\n{final_summary}")
+            await send_long_message(message.channel, f"🧠 **GPT (最終統合)**:\n{final_summary}")
             
             if user_id == ADMIN_USER_ID:
-                if not isinstance(kreios_crit_reply, Exception): await log_response(kreios_crit_reply, "クレイオス (クリティカル監査)", NOTION_KREIOS_PAGE_ID)
-                if not isinstance(rekus_crit_reply, Exception): await log_response(rekus_crit_reply, "レキュス (クリティカル検証)", NOTION_REKUS_PAGE_ID)
+                if not isinstance(kreios_crit_reply, Exception): await log_response(kreios_crit_reply, "執事 (クリティカル監査)", NOTION_KREIOS_PAGE_ID)
+                if not isinstance(rekus_crit_reply, Exception): await log_response(rekus_crit_reply, "神 (クリティカル検証)", NOTION_REKUS_PAGE_ID)
                 if not isinstance(final_summary, Exception): await log_response(final_summary, "GPT (クリティカル統合)", NOTION_MAIN_PAGE_ID)
                 await message.channel.send("✅ 中間分析と最終結論をNotionに記録しました。")
             
@@ -377,7 +409,7 @@ async def on_message(message):
             await message.channel.send("🧹 ここまでの会話履歴はリセットされました。")
 
         elif command_name == "!スライド":
-            await message.channel.send("📝 三神の意見を元に、スライド骨子案を作成します…")
+            await message.channel.send("📝 三者の意見を元に、スライド骨子案を作成します…")
             if user_id == ADMIN_USER_ID: await log_trigger(user_name, query, command_name, NOTION_MAIN_PAGE_ID)
 
             last_kreios_reply = next((msg['content'] for msg in reversed(kreios_memory.get(user_id, [])) if msg['role'] == 'assistant'), None)
@@ -385,13 +417,13 @@ async def on_message(message):
             last_rekus_reply = next((msg['content'] for msg in reversed(rekus_memory.get(user_id, [])) if msg['role'] == 'assistant'), None)
             
             if not all([last_kreios_reply, last_nousos_reply, last_rekus_reply]):
-                await message.channel.send("❌ スライド作成の素材となる三神の前回応答が見つかりません。「!みんなで」等を先に実行してください。")
+                await message.channel.send("❌ スライド作成の素材となる前回の応答が見つかりません。「!みんなで」等を先に実行してください。")
                 return
 
             slide_material = (f"あなたはプレゼンテーションの構成作家です。以下の三者の異なる視点からの意見を統合し、聞き手の心を動かす魅力的なプレゼンテーション用スライドの骨子案を作成してください。\n\n"
-                                f"--- [意見1: クレイオス（論理・構造）] ---\n{last_kreios_reply}\n\n"
-                                f"--- [意見2: ヌーソス（感情・本質）] ---\n{last_nousos_reply}\n\n"
-                                f"--- [意見3: レキュス（事実・具体例）] ---\n{last_rekus_reply}\n\n"
+                                f"--- [意見1: 執事クレイオス（論理・構造）] ---\n{last_kreios_reply}\n\n"
+                                f"--- [意見2: 女神ヌーソス（感情・本質）] ---\n{last_nousos_reply}\n\n"
+                                f"--- [意見3: 神レキュス（事実・具体例）] ---\n{last_rekus_reply}\n\n"
                                 f"--- [指示] ---\n"
                                 f"上記の内容を元に、以下の形式でスライド骨子案を提案してください。\n"
                                 f"・タイトル\n"
@@ -399,12 +431,12 @@ async def on_message(message):
                                 f"・スライド2: [タイトル] - [内容]\n"
                                 f"・...")
             
-            slide_draft = await ask_nousos(user_id, slide_material, system_prompt="あなたは統合神ヌーソスです。三神の意見を統合し、スライドを作成してください。")
+            slide_draft = await ask_nousos(user_id, slide_material, system_prompt="あなたは統合役の女神ヌーソスです。三者の意見を統合し、スライドを作成してください。")
             
-            await send_long_message(message.channel, f"✨ **ヌーソス (スライド骨子案)**:\n{slide_draft}")
+            await send_long_message(message.channel, f"🌹 **女神ヌーソス (スライド骨子案)**:\n{slide_draft}")
 
             if user_id == ADMIN_USER_ID:
-                if not isinstance(slide_draft, Exception): await log_response(slide_draft, "ヌーソス (スライド作成)", NOTION_MAIN_PAGE_ID)
+                if not isinstance(slide_draft, Exception): await log_response(slide_draft, "女神ヌーソス (スライド作成)", NOTION_MAIN_PAGE_ID)
                 await message.channel.send("✅ スライド骨子案をNotionに記録しました。")
             
             if user_id in kreios_memory: del kreios_memory[user_id]
