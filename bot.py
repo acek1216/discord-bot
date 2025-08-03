@@ -92,7 +92,8 @@ async def ask_kreios(user_id, prompt, attachment_data=None, attachment_mime_type
     if use_history: messages.extend(history)
     messages.append({"role": "user", "content": user_content})
     try:
-        response = await openai_client.chat.completions.create(model="gpt-4o", messages=messages, max_tokens=3000)
+        # ▼▼▼ クレイオスのモデルを gpt-3.5-turbo に変更 ▼▼▼
+        response = await openai_client.chat.completions.create(model="gpt-3.5-turbo", messages=messages, max_tokens=3000)
         reply = response.choices[0].message.content
         if use_history:
             new_history = history + [{"role": "user", "content": user_content}, {"role": "assistant", "content": reply}]
@@ -165,14 +166,15 @@ async def ask_gpt(user_id, prompt):
         {"role": "user", "content": prompt}
     ]
     try:
+        # ▼▼▼ GPT統合役のモデルを gpt-4o に変更 ▼▼▼
         response = await openai_client.chat.completions.create(
-            model="gpt-4",
+            model="gpt-4o",
             messages=messages,
             max_tokens=3000
         )
         return response.choices[0].message.content
     except Exception as e:
-        print(f"❌ GPT-4 API Error: {e}")
+        print(f"❌ GPT-4o API Error: {e}")
         return f"GPT(統合)の呼び出し中にエラーが発生しました: {e}"
 
 async def ask_sibylla(user_id, prompt, system_prompt=None):
