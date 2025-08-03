@@ -3,11 +3,10 @@ from openai import AsyncOpenAI
 import google.generativeai as genai
 from google.generativeai.types import HarmCategory, HarmBlockThreshold
 from mistralai.async_client import MistralAsyncClient
-from mistralai.models.chat_completion import ChatMessage
+# ChatMessageのimportは不要なので削除しました
 import asyncio
 import os
 from dotenv import load_dotenv
-from notion_client import Client
 import requests # Rekus用
 import io
 from PIL import Image
@@ -20,20 +19,14 @@ openai_api_key = os.getenv("OPENAI_API_KEY")
 gemini_api_key = os.getenv("GEMINI_API_KEY")
 perplexity_api_key = os.getenv("PERPLEXITY_API_KEY")
 notion_api_key = os.getenv("NOTION_API_KEY")
-MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY") # Mistral APIキーを追加
+MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY")
 ADMIN_USER_ID = os.getenv("ADMIN_USER_ID")
-
-# ▼▼▼ 記録先のページIDを全て読み込みます ▼▼▼
-NOTION_MAIN_PAGE_ID = os.getenv("NOTION_PAGE_ID") 
-NOTION_KREIOS_PAGE_ID = os.getenv("NOTION_KREIOS_PAGE_ID")
-NOTION_NOUSOS_PAGE_ID = os.getenv("NOTION_NOUSOS_PAGE_ID")
-NOTION_REKUS_PAGE_ID = os.getenv("NOTION_REKUS_PAGE_ID")
 
 
 # --- 各種クライアントの初期化 ---
 openai_client = AsyncOpenAI(api_key=openai_api_key)
 genai.configure(api_key=gemini_api_key)
-mistral_client = MistralAsyncClient(api_key=MISTRAL_API_KEY) # Mistralクライアントを追加
+mistral_client = MistralAsyncClient(api_key=MISTRAL_API_KEY)
 safety_settings = {
     HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
     HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
@@ -199,6 +192,7 @@ async def ask_sibylla(user_id, prompt, attachment_data=None, attachment_mime_typ
         print(f"❌ Sibylla API Error: {e}")
         return f"シヴィラの呼び出し中にエラーが発生しました: {e}"
 
+# ▼▼▼ ask_tachikoma関数のメッセージ形式を修正しました ▼▼▼
 async def ask_tachikoma(prompt):
     tachikoma_prompt = """
 あなたは「攻殻機動隊」に登場する思考戦車タチコマです。
@@ -206,8 +200,8 @@ async def ask_tachikoma(prompt):
 「〜であります！」「〜なんだよね！」「〜なのかな？」といった、タチコマらしい元気で好奇心旺盛な口調で答えてください。
 """
     messages = [
-        ChatMessage(role="system", content=tachikoma_prompt),
-        ChatMessage(role="user", content=prompt)
+        {"role": "system", "content": tachikoma_prompt},
+        {"role": "user", "content": prompt}
     ]
     try:
         response = await mistral_client.chat(
