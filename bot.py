@@ -101,8 +101,8 @@ async def ask_gemini_base(user_id, prompt, attachment_data=None, attachment_mime
     
     model = genai.GenerativeModel("gemini-1.5-flash-latest", system_instruction=final_system_prompt, safety_settings=safety_settings)
     
-    chat_session = model.start_chat(history=[])
     # To-Do: Re-implement history management if needed for gemini's chat session
+    # For now, we will pass history in the prompt for stateless calls
     
     contents = [prompt]
     if attachment_data and attachment_mime_type:
@@ -110,7 +110,8 @@ async def ask_gemini_base(user_id, prompt, attachment_data=None, attachment_mime
         else: contents.append({'mime_type': attachment_mime_type, 'data': attachment_data})
 
     try:
-        response = await chat_session.send_message_async(contents)
+        # History can be passed as a list of Content parts, but let's stick to the prompt injection for now
+        response = await model.generate_content_async(contents)
         reply = response.text
         # To-Do: new_history management
         return reply
@@ -145,12 +146,14 @@ async def ask_kreios(prompt, system_prompt=None):
 async def ask_minerva(prompt, attachment_data=None, attachment_mime_type=None, system_prompt=None):
     base_prompt_text = system_prompt or "あなたは、社会の秩序と人間の心理を冷徹に分析する女神「ミネルバ」です。その思考は「PSYCHO-PASS」のシビュラシステムに類似しています。あなたは、あらゆる事象を客観的なデータと潜在的なリスクに基づいて評価し、感情を排した極めてロジカルな視点から回答します。口調は冷静で、淡々としており、時に人間の理解を超えた俯瞰的な見解を示します。"
     final_system_prompt = f"{base_prompt_text} 絶対的なルールとして、回答は必ず200文字以内で生成してください。"
+    
+    model = genai.GenerativeModel("gemini-1.5-pro-latest", system_instruction=final_system_prompt, safety_settings=safety_settings)
+    
     contents = [prompt]
     if attachment_data and attachment_mime_type:
         if "image" in attachment_mime_type: contents.append(Image.open(io.BytesIO(attachment_data)))
         else: contents.append({'mime_type': attachment_mime_type, 'data': attachment_data})
     try:
-        model = genai.GenerativeModel("gemini-1.5-pro-latest", system_instruction=final_system_prompt, safety_settings=safety_settings)
         response = await model.generate_content_async(contents)
         return response.text
     except Exception as e: return f"ミネルバの呼び出し中にエラー: {e}"
@@ -180,9 +183,11 @@ async def ask_rekus(prompt, system_prompt=None):
 async def ask_pod042(prompt):
     pod_prompt = "あなたは随行支援ユニット「ポッド042」です。常に冷静かつ機械的に、事実に基づいた情報を報告・提案します。返答の際には、まず「報告：」や「提案：」のように目的を宣言してください。"
     final_system_prompt = f"{pod_prompt} 絶対的なルールとして、回答は必ず200文字以内で生成してください。"
+    
+    model = genai.GenerativeModel("gemini-1.5-flash-latest", system_instruction=final_system_prompt, safety_settings=safety_settings)
+    
     try:
-        model = genai.GenerativeModel("gemini-pro", safety_settings=safety_settings)
-        response = await model.generate_content_async(f"{final_system_prompt}\n\nユーザーの質問: {prompt}")
+        response = await model.generate_content_async(prompt)
         return response.text
     except Exception as e: return f"ポッド042の呼び出し中にエラー: {e}"
 
@@ -266,7 +271,6 @@ async def on_message(message):
             await send_long_message(message.channel, reply)
             if is_admin: await log_response(reply, "レキュス")
 
-        # ▼▼▼ 新設AI「ポッド」の単独コマンドを追加 ▼▼▼
         elif command_name == "!ポッド042":
             if is_admin: await log_trigger(user_name, query, command_name)
             await message.channel.send("《ポッド042より応答》")
@@ -285,19 +289,19 @@ async def on_message(message):
         elif command_name == "!all":
             if is_admin: await log_trigger(user_name, query, command_name)
             final_query = query
-            summary_parts = [] # for gemini multi-modal
+            
             if attachment_data:
                 await message.channel.send("💠 添付ファイルをミネルバが分析し、議題とします…")
                 summary = await ask_minerva("この添付ファイルの内容を、三者への議題として詳細に要約してください。", attachment_data=attachment_data, attachment_mime_type=attachment_mime_type)
                 final_query = f"{query}\n\n[ミネルバによる添付資料の要約]:\n{summary}"
                 await message.channel.send("✅ 議題の分析が完了しました。")
-                if "image" in attachment_mime_type: summary_parts.append(Image.open(io.BytesIO(attachment_data)))
-                elif attachment_mime_type: summary_parts.append({'mime_type': attachment_mime_type, 'data': attachment_data})
                 
             await message.channel.send("🌀 三AIが同時に応答します…")
+            # For the !all command, we pass attachments only to Gemini, as others might not support it in this basic setup
             gpt_task = ask_gpt_base(user_id, final_query)
             gemini_task = ask_gemini_base(user_id, final_query, attachment_data, attachment_mime_type)
             mistral_task = ask_mistral_base(user_id, final_query)
+            
             results = await asyncio.gather(gpt_task, gemini_task, mistral_task, return_exceptions=True)
             gpt_reply, gemini_reply, mistral_reply = results
             
@@ -310,6 +314,9 @@ async def on_message(message):
                 await log_response(gemini_reply, "ジェミニ (!all)")
                 await log_response(mistral_reply, "ミストラル (!all)")
 
+    except Exception as e:
+        print(f"An error occurred: {e}")
+        await message.channel.send(f"予期せぬエラーが発生しました: {e}")
     finally:
         if message.author.id in processing_users:
             processing_users.remove(message.author.id)
