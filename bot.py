@@ -42,7 +42,6 @@ client = discord.Client(intents=intents)
 gpt_base_memory = {}
 gemini_base_memory = {}
 mistral_base_memory = {}
-# ▼▼▼ 上位AI用のメモリを追加 ▼▼▼
 kreios_memory = {}
 minerva_memory = {}
 rekus_memory = {}
@@ -110,9 +109,11 @@ async def ask_gemini_base(user_id, prompt, attachment_data=None, attachment_mime
         else: contents.append({'mime_type': attachment_mime_type, 'data': attachment_data})
 
     try:
-        # To-Do: Implement proper chat history for Gemini if needed
         response = await model.generate_content_async(contents)
         reply = response.text
+        new_history = history + [{"role": "user", "content": prompt}, {"role": "assistant", "content": reply}]
+        if len(new_history) > 10: new_history = new_history[-10:]
+        gemini_base_memory[user_id] = new_history
         return reply
     except Exception as e: return f"ジェミニの呼び出し中にエラー: {e}"
 
@@ -120,9 +121,7 @@ async def ask_mistral_base(user_id, prompt, system_prompt=None):
     history = mistral_base_memory.get(user_id, [])
     base_prompt_text = system_prompt or "あなたは好奇心と情報収集力にあふれたAI「ミストラル」です。思考戦車タチコマのように、元気でフレンドリーな口調でユーザーを支援します。論点を明るく整理し、探究心をもって情報を解釈・再構成してください。"
     final_system_prompt = f"{base_prompt_text} 絶対的なルールとして、回答は必ず150文字以内で生成してください。"
-    messages = [{"role": "system", "content": final_system_prompt}]
-    for msg in history: messages.append({"role": msg["role"], "content": msg["content"]})
-    messages.append({"role": "user", "content": prompt})
+    messages = [{"role": "system", "content": final_system_prompt}] + history + [{"role": "user", "content": prompt}]
     try:
         response = await mistral_client.chat(model="mistral-medium", messages=messages)
         reply = response.choices[0].message.content
@@ -151,7 +150,6 @@ async def ask_minerva(user_id, prompt, attachment_data=None, attachment_mime_typ
     history = minerva_memory.get(user_id, [])
     base_prompt_text = system_prompt or "あなたは、社会の秩序と人間の心理を冷徹に分析する女神「ミネルバ」です。その思考は「PSYCHO-PASS」のシビュラシステムに類似しています。あなたは、あらゆる事象を客観的なデータと潜在的なリスクに基づいて評価し、感情を排した極めてロジカルな視点から回答します。口調は冷静で、淡々としており、時に人間の理解を超えた俯瞰的な見解を示します。"
     final_system_prompt = f"{base_prompt_text} 絶対的なルールとして、回答は必ず200文字以内で生成してください。"
-    
     model = genai.GenerativeModel("gemini-1.5-pro-latest", system_instruction=final_system_prompt, safety_settings=safety_settings)
     
     contents = [prompt]
@@ -160,9 +158,11 @@ async def ask_minerva(user_id, prompt, attachment_data=None, attachment_mime_typ
         else: contents.append({'mime_type': attachment_mime_type, 'data': attachment_data})
     
     try:
-        # To-Do: Implement proper chat history for Gemini if needed
         response = await model.generate_content_async(contents)
         reply = response.text
+        new_history = history + [{"role": "user", "content": prompt}, {"role": "assistant", "content": reply}]
+        if len(new_history) > 10: new_history = new_history[-10:]
+        minerva_memory[user_id] = new_history
         return reply
     except Exception as e: return f"ミネルバの呼び出し中にエラー: {e}"
 
@@ -232,7 +232,7 @@ async def on_message(message):
 
         is_admin = user_id == ADMIN_USER_ID
 
-        # --- 0階層：ベースAIコマンド ---
+        # --- 単独コマンド ---
         if command_name == "!gpt":
             if is_admin: await log_trigger(user_name, query, command_name)
             await message.channel.send("🤵‍♂️ GPTを呼び出しています…")
@@ -254,32 +254,31 @@ async def on_message(message):
             await send_long_message(message.channel, reply)
             if is_admin: await log_response(reply, "ミストラル")
 
-        # --- 1〜2階層：上層AIコマンド ---
         elif command_name == "!クレイオス":
             if is_admin: await log_trigger(user_name, query, command_name)
             await message.channel.send("🧠 クレイオスを呼び出しています…")
-            reply = await ask_kreios(user_id, query) # user_id を渡す
+            reply = await ask_kreios(user_id, query)
             await send_long_message(message.channel, reply)
             if is_admin: await log_response(reply, "クレイオス")
 
         elif command_name == "!ミネルバ":
             if is_admin: await log_trigger(user_name, query, command_name)
             await message.channel.send("💠 ミネルバを呼び出しています…")
-            reply = await ask_minerva(user_id, query, attachment_data=attachment_data, attachment_mime_type=attachment_mime_type) # user_id を渡す
+            reply = await ask_minerva(user_id, query, attachment_data=attachment_data, attachment_mime_type=attachment_mime_type)
             await send_long_message(message.channel, reply)
             if is_admin: await log_response(reply, "ミネルバ")
         
         elif command_name == "!ララァ":
             if is_admin: await log_trigger(user_name, query, command_name)
             await message.channel.send("✨ ララァを呼び出しています…")
-            reply = await ask_lalah(query) # ララァは記憶を持たない
+            reply = await ask_lalah(query)
             await send_long_message(message.channel, reply)
             if is_admin: await log_response(reply, "ララァ")
             
         elif command_name == "!レキュス":
             if is_admin: await log_trigger(user_name, query, command_name)
             await message.channel.send("👑 探索王レキュスを呼び出しています…")
-            reply = await ask_rekus(user_id, query) # user_id を渡す
+            reply = await ask_rekus(user_id, query)
             await send_long_message(message.channel, reply)
             if is_admin: await log_response(reply, "レキュス")
 
@@ -299,7 +298,6 @@ async def on_message(message):
 
         # --- 連携コマンド ---
         elif command_name == "!all":
-            # ... (変更なし) ...
             if is_admin: await log_trigger(user_name, query, command_name)
             final_query = query
             if attachment_data:
@@ -322,7 +320,6 @@ async def on_message(message):
                 await log_response(mistral_reply, "ミストラル (!all)")
 
         elif command_name == "!クリティカル":
-            # ... (変更なし) ...
             if is_admin: await log_trigger(user_name, query, command_name)
             await message.channel.send("⚔️ クリティカル検証を開始します…")
             final_query = query
@@ -343,10 +340,7 @@ async def on_message(message):
             results = await asyncio.gather(*tasks.values(), return_exceptions=True)
             synthesis_material = "以下の6つの異なるAIの意見を統合してください。\n\n"
             for (name, result) in zip(tasks.keys(), results):
-                if isinstance(result, Exception):
-                    reply_text = f"エラー: {result}"
-                else:
-                    reply_text = result
+                reply_text = result if not isinstance(result, Exception) else f"エラー: {result}"
                 await send_long_message(message.channel, f"**🔹 {name}の意見:**\n{reply_text}")
                 synthesis_material += f"--- [{name}の意見] ---\n{reply_text}\n\n"
                 if is_admin: await log_response(reply_text, f"{name} (!クリティカル)")
@@ -358,15 +352,51 @@ async def on_message(message):
             if user_id in gpt_base_memory: del gpt_base_memory[user_id]
             if user_id in gemini_base_memory: del gemini_base_memory[user_id]
             if user_id in mistral_base_memory: del mistral_base_memory[user_id]
-            # ▼▼▼ 上位AIのメモリもリセット ▼▼▼
             if user_id in kreios_memory: del kreios_memory[user_id]
             if user_id in minerva_memory: del minerva_memory[user_id]
             if user_id in rekus_memory: del rekus_memory[user_id]
             await message.channel.send("🧹 全てのAIの短期記憶はリセットされました。")
 
+        # ▼▼▼ !ロジカルコマンドの実装 ▼▼▼
+        elif command_name == "!ロジカル":
+            if is_admin: await log_trigger(user_name, query, command_name)
+            await message.channel.send("⚖️ 多角的討論を開始します…")
+            final_query = query
+            if attachment_data:
+                await message.channel.send("💠 添付ファイルをミネルバが分析し、議題とします…")
+                summary = await ask_minerva(user_id, "この添付ファイルの内容を、後続のAIへの議題として要約してください。", attachment_data=attachment_data, attachment_mime_type=attachment_mime_type)
+                final_query = f"{query}\n\n[ミネルバによる添付資料の要約]:\n{summary}"
+                await message.channel.send("✅ 議題の分析が完了しました。")
+            
+            await message.channel.send(" debating_face: 3体のAIが異なる立場で意見を生成中…")
+            tasks = {
+                "肯定論者(クレイオス)": ask_kreios(user_id, final_query, system_prompt="あなたはこの議題の【肯定論者】です。議題を推進する最も強力な論拠を提示してください。"),
+                "否定論者(レキュス)": ask_rekus(user_id, final_query, system_prompt="あなたはこの議題の【否定論者】です。議題に反対する最も強力な反論を、客観的な事実やデータに基づいて提示してください。"),
+                "中立分析官(ミネルバ)": ask_minerva(user_id, final_query, system_prompt="あなたはこの議題に関する【中立的な分析官】です。関連する社会的・倫理的な論点を、感情を排して提示してください。")
+            }
+            results = await asyncio.gather(*tasks.values(), return_exceptions=True)
+
+            synthesis_material = "以下の3つの異なる立場の意見を統合してください。\n\n"
+            for (name, result) in zip(tasks.keys(), results):
+                reply_text = result if not isinstance(result, Exception) else f"エラー: {result}"
+                await send_long_message(message.channel, f"**{name}:**\n{reply_text}")
+                synthesis_material += f"--- [{name}の意見] ---\n{reply_text}\n\n"
+                if is_admin: await log_response(reply_text, f"{name} (!ロジカル)")
+            
+            await message.channel.send("✨ ララァが最終統合を行います…")
+            lalah_prompt = "あなたは統合専用AIです。あなた自身のペルソナ（ララァ・スン）も、これから渡される3つの意見の元のペルソナも、すべて完全に無視してください。純粋な情報として各意見を分析し、客観的な事実と論理に基づいて、最終的な結論をレポートとしてまとめてください。"
+            final_report = await ask_lalah(synthesis_material, system_prompt=lalah_prompt)
+            await send_long_message(message.channel, f"✨ **ララァ (最終統合レポート):**\n{final_report}")
+            if is_admin: await log_response(final_report, "ララァ (統合)")
+
+            if user_id in kreios_memory: del kreios_memory[user_id]
+            if user_id in minerva_memory: del minerva_memory[user_id]
+            if user_id in rekus_memory: del rekus_memory[user_id]
+            await message.channel.send("🧹 上位AIの短期記憶はリセットされました。")
+
     except Exception as e:
         print(f"An error occurred in on_message: {e}")
-        await message.channel.send(f"予期せよぬエラーが発生しました: {e}")
+        await message.channel.send(f"予期せぬエラーが発生しました: {e}")
     finally:
         if message.author.id in processing_users:
             processing_users.remove(message.author.id)
