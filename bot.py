@@ -101,19 +101,15 @@ async def ask_gemini_base(user_id, prompt, attachment_data=None, attachment_mime
     
     model = genai.GenerativeModel("gemini-1.5-flash-latest", system_instruction=final_system_prompt, safety_settings=safety_settings)
     
-    # To-Do: Re-implement history management if needed for gemini's chat session
-    # For now, we will pass history in the prompt for stateless calls
-    
     contents = [prompt]
     if attachment_data and attachment_mime_type:
         if "image" in attachment_mime_type: contents.append(Image.open(io.BytesIO(attachment_data)))
         else: contents.append({'mime_type': attachment_mime_type, 'data': attachment_data})
 
     try:
-        # History can be passed as a list of Content parts, but let's stick to the prompt injection for now
         response = await model.generate_content_async(contents)
         reply = response.text
-        # To-Do: new_history management
+        # To-Do: new_history management for this function if stateful chat is needed
         return reply
     except Exception as e: return f"ジェミニの呼び出し中にエラー: {e}"
 
@@ -183,9 +179,7 @@ async def ask_rekus(prompt, system_prompt=None):
 async def ask_pod042(prompt):
     pod_prompt = "あなたは随行支援ユニット「ポッド042」です。常に冷静かつ機械的に、事実に基づいた情報を報告・提案します。返答の際には、まず「報告：」や「提案：」のように目的を宣言してください。"
     final_system_prompt = f"{pod_prompt} 絶対的なルールとして、回答は必ず200文字以内で生成してください。"
-    
     model = genai.GenerativeModel("gemini-1.5-flash-latest", system_instruction=final_system_prompt, safety_settings=safety_settings)
-    
     try:
         response = await model.generate_content_async(prompt)
         return response.text
@@ -297,7 +291,6 @@ async def on_message(message):
                 await message.channel.send("✅ 議題の分析が完了しました。")
                 
             await message.channel.send("🌀 三AIが同時に応答します…")
-            # For the !all command, we pass attachments only to Gemini, as others might not support it in this basic setup
             gpt_task = ask_gpt_base(user_id, final_query)
             gemini_task = ask_gemini_base(user_id, final_query, attachment_data, attachment_mime_type)
             mistral_task = ask_mistral_base(user_id, final_query)
@@ -314,8 +307,59 @@ async def on_message(message):
                 await log_response(gemini_reply, "ジェミニ (!all)")
                 await log_response(mistral_reply, "ミストラル (!all)")
 
+        # ▼▼▼ !クリティカルコマンドの実装 ▼▼▼
+        elif command_name == "!クリティカル":
+            if is_admin: await log_trigger(user_name, query, command_name)
+            await message.channel.send("⚔️ クリティカル検証を開始します…")
+            
+            final_query = query
+            # 1. 添付ファイル処理
+            if attachment_data:
+                await message.channel.send("💠 添付ファイルをミネルバが分析し、議題とします…")
+                summary = await ask_minerva("この添付ファイルの内容を、後続のAIへの議題として詳細に要約してください。", attachment_data=attachment_data, attachment_mime_type=attachment_mime_type)
+                final_query = f"{query}\n\n[ミネルバによる添付資料の要約]:\n{summary}"
+                await message.channel.send("✅ 議題の分析が完了しました。")
+            
+            # 2. 6体のAIを並列呼び出し
+            await message.channel.send("🔬 6体のAIが初期意見を生成中…")
+            tasks = {
+                "GPT": ask_gpt_base(user_id, final_query),
+                "ジェミニ": ask_gemini_base(user_id, final_query, attachment_data, attachment_mime_type),
+                "ミストラル": ask_mistral_base(user_id, final_query),
+                "クレイオス": ask_kreios(final_query),
+                "ミネルバ": ask_minerva(final_query),
+                "レキュス": ask_rekus(final_query)
+            }
+            results = await asyncio.gather(*tasks.values(), return_exceptions=True)
+            
+            # 3. 6体の回答を表示 & 統合用プロンプト作成
+            synthesis_material = "以下の6つの異なるAIの意見を統合してください。\n\n"
+            for (name, result) in zip(tasks.keys(), results):
+                if isinstance(result, Exception):
+                    reply_text = f"エラー: {result}"
+                else:
+                    reply_text = result
+                
+                await send_long_message(message.channel, f"**🔹 {name}の意見:**\n{reply_text}")
+                synthesis_material += f"--- [{name}の意見] ---\n{reply_text}\n\n"
+                # Notionへのロギング
+                if is_admin: await log_response(reply_text, f"{name} (!クリティカル)")
+
+            # 4. ララァによる最終統合
+            await message.channel.send("✨ ララァが最終統合を行います…")
+            lalah_prompt = "あなたは統合専用AIです。あなた自身のペルソナ（ララァ・スン）も、これから渡される6つの意見の元のペルソナも、すべて完全に無視してください。純粋な情報として各意見を分析し、客観的な事実と論理に基づいて、最終的な結論をレポートとしてまとめてください。"
+            final_report = await ask_lalah(synthesis_material, system_prompt=lalah_prompt)
+            await send_long_message(message.channel, f"✨ **ララァ (最終統合レポート):**\n{final_report}")
+            if is_admin: await log_response(final_report, "ララァ (統合)")
+            
+            # 5. ベースAIのメモリをリセット
+            if user_id in gpt_base_memory: del gpt_base_memory[user_id]
+            if user_id in gemini_base_memory: del gemini_base_memory[user_id]
+            if user_id in mistral_base_memory: del mistral_base_memory[user_id]
+            await message.channel.send("🧹 ベースAIの会話履歴はリセットされました。")
+
     except Exception as e:
-        print(f"An error occurred: {e}")
+        print(f"An error occurred in on_message: {e}")
         await message.channel.send(f"予期せぬエラーが発生しました: {e}")
     finally:
         if message.author.id in processing_users:
