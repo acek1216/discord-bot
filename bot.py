@@ -34,6 +34,10 @@ safety_settings = {
     HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
     HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
 }
+# ▼▼▼ 不足していたDiscordクライアントの定義をここに追加しました ▼▼▼
+intents = discord.Intents.default()
+intents.message_content = True
+client = discord.Client(intents=intents)
 
 # --- メモリ管理 ---
 gpt_base_memory = {}
@@ -182,6 +186,7 @@ async def ask_rekus(prompt, system_prompt=None):
         return response.json()["choices"][0]["message"]["content"]
     except requests.exceptions.RequestException as e: return f"探索王（レキュス）の呼び出し中にエラー: {e}"
 
+
 # --- Discordイベントハンドラ ---
 @client.event
 async def on_ready(): print(f"✅ ログイン成功: {client.user}")
@@ -275,7 +280,6 @@ async def on_message(message):
                 await log_response(mistral_reply, "ミストラル (!all)")
 
         elif command_name == "!三連":
-            # (このコマンドはログが多くなりすぎるので、トリガーのみ記録)
             if user_id == ADMIN_USER_ID: await log_trigger(user_name, query, command_name)
             await message.channel.send("🔁 順に照会中：GPT → ジェミニ → ミストラル")
             gpt_reply = await ask_gpt_base(user_id, query)
@@ -352,7 +356,7 @@ async def on_message(message):
             await message.channel.send(f"⏳ クレイオス(肯定), レキュス(否定), ミネルバ(法的視点)が議論を構築中…")
             thesis_task = ask_kreios(thesis_prompt, system_prompt="あなたは議論における「肯定(テーゼ)」を担う者です。")
             antithesis_task = ask_rekus(antithesis_prompt, system_prompt="あなたは議論における「否定(アンチテーゼ)」を担う者です。")
-            legal_task = ask_minerva(legal_prompt, system_prompt="あなたはこのテーマに関する「法的・倫理的論拠」を専門に担当する者です。")
+            legal_task = ask_minerva(legal_prompt, system_prompt="あなたはこのテーマに関する「法的・倫リ的論拠」を専門に担当する者です。")
             results = await asyncio.gather(thesis_task, antithesis_task, legal_task, return_exceptions=True)
             thesis_reply, antithesis_reply, legal_reply = results
             if not isinstance(thesis_reply, Exception): await send_long_message(message.channel, f"🧠 **クレイオス (肯定論)**:\n{thesis_reply}")
