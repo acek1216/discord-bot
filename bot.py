@@ -2,7 +2,6 @@ import discord
 from openai import AsyncOpenAI
 import google.generativeai as genai
 from google.generativeai.types import HarmCategory, HarmBlockThreshold
-from mistralai.async_client import MistralAsyncClient
 import asyncio
 import os
 from dotenv import load_dotenv
@@ -15,17 +14,23 @@ DISCORD_TOKEN = os.getenv("DISCORD_BOT_TOKEN")
 openai_api_key = os.getenv("OPENAI_API_KEY")
 gemini_api_key = os.getenv("GEMINI_API_KEY")
 perplexity_api_key = os.getenv("PERPLEXITY_API_KEY")
-MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY")
 notion_api_key = os.getenv("NOTION_API_KEY")
 ADMIN_USER_ID = os.getenv("ADMIN_USER_ID")
 NOTION_MAIN_PAGE_ID = os.getenv("NOTION_PAGE_ID") 
 
-# ▼▼▼ スレッドIDとNotionページIDの対応表 ▼▼▼
-NOTION_PAGE_MAP = {
-    "1402291882943582268": "246736f376aa801e8414cfab980bfca8",
-    # 他のスレッドとページのペアをここに追加できます
-    # "スレッドID": "NotionページID",
-}
+# ▼▼▼ Renderの環境変数から対応表を読み込み、辞書を作成 ▼▼▼
+NOTION_PAGE_MAP_STRING = os.getenv("NOTION_PAGE_MAP_STRING", "")
+NOTION_PAGE_MAP = {}
+if NOTION_PAGE_MAP_STRING:
+    try:
+        pairs = NOTION_PAGE_MAP_STRING.split(',')
+        for pair in pairs:
+            if ':' in pair:
+                thread_id, page_id = pair.split(':', 1)
+                NOTION_PAGE_MAP[thread_id.strip()] = page_id.strip()
+    except Exception as e:
+        print(f"⚠️ NOTION_PAGE_MAP_STRINGの解析に失敗しました: {e}")
+        print(f"⚠️ 入力された文字列: {NOTION_PAGE_MAP_STRING}")
 
 # --- 各種クライアントの初期化 ---
 openai_client = AsyncOpenAI(api_key=openai_api_key)
@@ -137,7 +142,9 @@ async def ask_rekus_final_answerer(prompt):
 
 # --- Discordイベントハンドラ ---
 @client.event
-async def on_ready(): print(f"✅ ログイン成功: {client.user}")
+async def on_ready(): 
+    print(f"✅ ログイン成功: {client.user}")
+    print(f"📖 Notion対応表が読み込まれました: {NOTION_PAGE_MAP}")
 
 @client.event
 async def on_message(message):
@@ -154,9 +161,12 @@ async def on_message(message):
         query = content[len(command_name):].strip()
         is_admin = user_id == ADMIN_USER_ID
         
-        # ▼▼▼ スレッドIDに基づいてNotionページIDを決定 ▼▼▼
         thread_id = str(message.channel.id)
         target_notion_page_id = NOTION_PAGE_MAP.get(thread_id, NOTION_MAIN_PAGE_ID)
+
+        if not target_notion_page_id:
+            await message.channel.send("❌ このスレッドに対応するNotionページが設定されていません。")
+            return
 
         if is_admin:
             log_blocks = [{"object": "block", "type": "paragraph", "paragraph": {"rich_text": [{"type": "text", "text": {"content": f"👤 {user_name} が「{command_name} {query}」を実行しました。"}}]}}]
@@ -164,7 +174,6 @@ async def on_message(message):
 
         await message.channel.send(f"🧠 Notionページを読み込んでいます…")
         
-        # ステップ0: Notionから全文取得
         notion_text = await get_notion_page_text(target_notion_page_id)
         if notion_text.startswith("ERROR:"):
             print(f"Notion Error Details: {notion_text}")
@@ -176,7 +185,6 @@ async def on_message(message):
 
         await message.channel.send(f"📄 ステップ1/3: 全文読み込み完了。ミネルバが内容を分割して要約します…")
 
-        # ステップ1: チャンク毎の要約 by ミネルバ
         chunk_size = 8000
         text_chunks = [notion_text[i:i + chunk_size] for i in range(0, len(notion_text), chunk_size)]
         
@@ -197,7 +205,6 @@ async def on_message(message):
 
         await message.channel.send("✅ ステップ2/3: 全チャンクの要約完了。gpt-4oが統合・分析します…")
         
-        # ステップ2: 全体の要約 by gpt-4o
         combined_summaries = "\n\n---\n\n".join(chunk_summaries)
         integration_prompt = f"以下の複数の要約は、一つのNotionページを分割して要約したものです。これらの要約全体を元に、ユーザーの質問に答えるための最終的な参考情報を2000文字以内で統合・分析してください。\n\n【ユーザーの質問】\n{query}\n\n【各部分の要約】\n{combined_summaries}"
         final_context = await ask_gpt4o_final_summarizer(integration_prompt)
@@ -208,7 +215,6 @@ async def on_message(message):
 
         await message.channel.send("✅ ステップ3/3: コンテキスト生成完了。レキュスが最終回答を生成します…")
         
-        # ステップ3: 最終的な回答 by レキュス
         final_prompt = f"以下の【参考情報】を元に、【ユーザーの質問】に回答してください。\n\n【ユーザーの質問】\n{query}\n\n【参考情報】\n{final_context}"
         final_reply = await ask_rekus_final_answerer(final_prompt)
         
@@ -229,3 +235,4 @@ async def on_message(message):
 
 # --- 起動 ---
 client.run(DISCORD_TOKEN)
+
