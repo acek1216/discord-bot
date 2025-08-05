@@ -2,6 +2,7 @@ import discord
 from openai import AsyncOpenAI
 import google.generativeai as genai
 from google.generativeai.types import HarmCategory, HarmBlockThreshold
+from mistralai.async_client import MistralAsyncClient
 import asyncio
 import os
 from dotenv import load_dotenv
@@ -14,9 +15,17 @@ DISCORD_TOKEN = os.getenv("DISCORD_BOT_TOKEN")
 openai_api_key = os.getenv("OPENAI_API_KEY")
 gemini_api_key = os.getenv("GEMINI_API_KEY")
 perplexity_api_key = os.getenv("PERPLEXITY_API_KEY")
+MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY")
 notion_api_key = os.getenv("NOTION_API_KEY")
 ADMIN_USER_ID = os.getenv("ADMIN_USER_ID")
 NOTION_MAIN_PAGE_ID = os.getenv("NOTION_PAGE_ID") 
+
+# ▼▼▼ スレッドIDとNotionページIDの対応表 ▼▼▼
+NOTION_PAGE_MAP = {
+    "1402291882943582268": "246736f376aa801e8414cfab980bfca8",
+    # 他のスレッドとページのペアをここに追加できます
+    # "スレッドID": "NotionページID",
+}
 
 # --- 各種クライアントの初期化 ---
 openai_client = AsyncOpenAI(api_key=openai_api_key)
@@ -53,7 +62,7 @@ def _sync_get_notion_page_text(page_id):
             response = notion.blocks.children.list(
                 block_id=page_id,
                 start_cursor=next_cursor,
-                page_size=100 # 1回のリクエストで取得する最大ブロック数
+                page_size=100
             )
             results = response.get("results", [])
             for block in results:
@@ -74,22 +83,22 @@ def _sync_get_notion_page_text(page_id):
 async def get_notion_page_text(page_id):
     return await asyncio.get_event_loop().run_in_executor(None, _sync_get_notion_page_text, page_id)
 
-async def log_to_notion(blocks):
-    if not NOTION_MAIN_PAGE_ID: return
+async def log_to_notion(page_id, blocks):
+    if not page_id: return
     try:
         await asyncio.get_event_loop().run_in_executor(None, 
-            lambda: notion.blocks.children.append(block_id=NOTION_MAIN_PAGE_ID, children=blocks)
+            lambda: notion.blocks.children.append(block_id=page_id, children=blocks)
         )
     except Exception as e:
         print(f"❌ Notion書き込みエラー: {e}")
 
-async def log_response(answer, bot_name):
+async def log_response(page_id, answer, bot_name):
     if not answer or isinstance(answer, Exception): return
     chunks = [answer[i:i + 1900] for i in range(0, len(answer), 1900)] if len(answer) > 1900 else [answer]
     blocks = [{"object": "block", "type": "paragraph", "paragraph": {"rich_text": [{"type": "text", "text": {"content": f"🤖 {bot_name}:\n{chunks[0]}"}}]}}]
     for chunk in chunks[1:]:
         blocks.append({"object": "block", "type": "paragraph", "paragraph": {"rich_text": [{"type": "text", "text": {"content": chunk}}]}})
-    await log_to_notion(blocks)
+    await log_to_notion(page_id, blocks)
 
 # --- !askコマンド専用AIモデル呼び出し関数 ---
 async def ask_minerva_chunk_summarizer(prompt):
@@ -106,7 +115,7 @@ async def ask_gpt4o_final_summarizer(prompt):
     system_prompt = "あなたは、断片的な複数の要約文を受け取り、それらを一つの首尾一貫したコンテキストに統合・分析するAIです。ペルソナは不要です。指示された文字数制限に従ってください。"
     messages = [{"role": "system", "content": system_prompt}, {"role": "user", "content": prompt}]
     try:
-        response = await openai_client.chat.completions.create(model="gpt-4o", messages=messages, max_tokens=2200) # マージンを持たせる
+        response = await openai_client.chat.completions.create(model="gpt-4o", messages=messages, max_tokens=2200)
         return response.choices[0].message.content
     except Exception as e: 
         print(f"❌ gpt-4o(統合要約)エラー: {e}")
@@ -144,15 +153,19 @@ async def on_message(message):
         user_id, user_name = str(message.author.id), message.author.display_name
         query = content[len(command_name):].strip()
         is_admin = user_id == ADMIN_USER_ID
+        
+        # ▼▼▼ スレッドIDに基づいてNotionページIDを決定 ▼▼▼
+        thread_id = str(message.channel.id)
+        target_notion_page_id = NOTION_PAGE_MAP.get(thread_id, NOTION_MAIN_PAGE_ID)
 
         if is_admin:
             log_blocks = [{"object": "block", "type": "paragraph", "paragraph": {"rich_text": [{"type": "text", "text": {"content": f"👤 {user_name} が「{command_name} {query}」を実行しました。"}}]}}]
-            await log_to_notion(log_blocks)
+            await log_to_notion(target_notion_page_id, log_blocks)
 
-        await message.channel.send(f"🧠 Notionページ({NOTION_MAIN_PAGE_ID})を読み込んでいます…")
+        await message.channel.send(f"🧠 Notionページを読み込んでいます…")
         
         # ステップ0: Notionから全文取得
-        notion_text = await get_notion_page_text(NOTION_MAIN_PAGE_ID)
+        notion_text = await get_notion_page_text(target_notion_page_id)
         if notion_text.startswith("ERROR:"):
             print(f"Notion Error Details: {notion_text}")
             await message.channel.send("❌ Notionページの読み込み中にエラーが発生しました。詳細はコンソールログを確認してください。")
@@ -176,7 +189,7 @@ async def on_message(message):
                 await message.channel.send(f"⚠️ チャンク {i+1} の要約中にエラーが発生しました。スキップします。")
                 continue
             chunk_summaries.append(chunk_summary)
-            await asyncio.sleep(3) # レート制限対策
+            await asyncio.sleep(3)
 
         if not chunk_summaries:
             await message.channel.send("❌ Notionページの内容を要約できませんでした。")
@@ -202,8 +215,8 @@ async def on_message(message):
         await send_long_message(message.channel, f"**🤖 最終回答 (by レキュス):**\n{final_reply}")
         
         if is_admin: 
-            await log_response(final_context, "gpt-4o (統合コンテキスト)")
-            await log_response(final_reply, "レキュス (最終回答)")
+            await log_response(target_notion_page_id, final_context, "gpt-4o (統合コンテキスト)")
+            await log_response(target_notion_page_id, final_reply, "レキュス (最終回答)")
 
     except Exception as e:
         print(f"An error occurred in on_message: {e}")
