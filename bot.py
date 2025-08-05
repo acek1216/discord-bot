@@ -138,7 +138,8 @@ async def ask_kreios(user_id, prompt, system_prompt=None):
     final_system_prompt = f"{base_prompt_text} 絶対的なルールとして、回答は必ず200文字以内で生成してください。"
     messages = [{"role": "system", "content": final_system_prompt}] + history + [{"role": "user", "content": prompt}]
     try:
-        response = await openai_client.chat.completions.create(model="gpt-4o", messages=messages, max_tokens=400)
+        # ▼▼▼ モデル名をgpt-4-turboに変更 ▼▼▼
+        response = await openai_client.chat.completions.create(model="gpt-4-turbo", messages=messages, max_tokens=400)
         reply = response.choices[0].message.content
         new_history = history + [{"role": "user", "content": prompt}, {"role": "assistant", "content": reply}]
         if len(new_history) > 10: new_history = new_history[-10:]
@@ -381,7 +382,6 @@ async def on_message(message):
                     await message.channel.send(f"❌ {name}の会話履歴が見つかりません。先に`!all`などを実行してください。")
                     all_histories_found = False
                     break
-                # メモリから最新のアシスタントの返信を取得
                 for i in range(len(history) - 1, -1, -1):
                     if history[i]['role'] == 'assistant':
                         last_replies[name] = history[i]['content']
@@ -395,13 +395,10 @@ async def on_message(message):
                 slide_material = "以下の6つの異なるAIの意見を統合し、魅力的なプレゼンテーションのスライド骨子案を作成してください。\n\n"
                 for name, reply in last_replies.items():
                     slide_material += f"--- [{name}の意見] ---\n{reply}\n\n"
-                
                 lalah_prompt = "あなたはプレゼンテーションの構成作家です。与えられた複数の意見を元に、聞き手の心を動かす構成案を以下の形式で提案してください。\n・タイトル\n・スライド1: [タイトル] - [内容]\n・スライド2: [タイトル] - [内容]\n..."
-                
                 slide_draft = await ask_lalah(slide_material, system_prompt=lalah_prompt)
                 await send_long_message(message.channel, f"✨ **ララァ (スライド骨子案):**\n{slide_draft}")
                 if is_admin: await log_response(slide_draft, "ララァ (スライド)")
-
                 for mem in memories.values():
                     if user_id in mem: del mem[user_id]
                 await message.channel.send("🧹 全てのAIの短期記憶はリセットされました。")
