@@ -39,7 +39,6 @@ intents.message_content = True
 client = discord.Client(intents=intents)
 
 # --- メモリ管理 ---
-# このバージョンでは会話履歴メモリは使用しません
 processing_users = set()
 
 # --- ヘルパー関数 ---
@@ -52,20 +51,31 @@ async def send_long_message(channel, text):
             await channel.send(text[i:i+2000])
 
 # --- Notion連携関数 ---
-
 def _sync_get_notion_page_text(page_id):
-    """Notionページの全テキストを取得する（同期処理）"""
-    all_text = ""
-    try:
-        response = notion.blocks.children.list(block_id=page_id)
-        for block in response.get("results", []):
-            if "type" in block and block["type"] == "paragraph":
-                for rich_text in block.get("paragraph", {}).get("rich_text", []):
-                    all_text += rich_text.get("text", {}).get("content", "") + "\n"
-        return all_text
-    except Exception as e:
-        print(f"❌ Notion読み込みエラー: {e}")
-        return f"Notionページの読み込み中にエラーが発生しました: {e}"
+    """Notionページの全テキストを取得する（ページネーション対応）"""
+    all_text_blocks = []
+    next_cursor = None
+    while True:
+        try:
+            response = notion.blocks.children.list(
+                block_id=page_id,
+                start_cursor=next_cursor
+            )
+            results = response.get("results", [])
+            for block in results:
+                if block.get("type") == "paragraph":
+                    for rich_text in block.get("paragraph", {}).get("rich_text", []):
+                        all_text_blocks.append(rich_text.get("text", {}).get("content", ""))
+            
+            if response.get("has_more"):
+                next_cursor = response.get("next_cursor")
+            else:
+                break
+        except Exception as e:
+            print(f"❌ Notion読み込みエラー: {e}")
+            return f"ERROR: Notion API Error - {e}"
+    
+    return "\n".join(all_text_blocks)
 
 async def get_notion_page_text(page_id):
     """Notionページの全テキストを取得する（非同期ラッパー）"""
@@ -95,8 +105,6 @@ async def log_response(answer, bot_name):
     await log_to_notion(NOTION_MAIN_PAGE_ID, blocks)
 
 # --- 各AIモデル呼び出し関数 ---
-# このバージョンでは、各AIはペルソナを持つものの、短期記憶は持たない
-
 async def ask_gpt_base(prompt):
     system_prompt = "あなたは論理と秩序を司る神官「GPT」です。与えられた情報を元に、質問に対して150文字以内で回答してください。"
     messages = [{"role": "system", "content": system_prompt}, {"role": "user", "content": prompt}]
@@ -186,89 +194,66 @@ async def on_message(message):
     processing_users.add(message.author.id)
     try:
         content, user_id, user_name = message.content, str(message.author.id), message.author.display_name
-        attachment_data, attachment_mime_type = None, None
-        if message.attachments:
-            attachment = message.attachments[0]
-            attachment_data = await attachment.read()
-            attachment_mime_type = attachment.content_type
         command_name = content.split(' ')[0]
         query = content[len(command_name):].strip()
-
         is_admin = user_id == ADMIN_USER_ID
 
-        # ▼▼▼ 新設：Notionナレッジベースコマンド ▼▼▼
         if command_name == "!ask":
             if is_admin: await log_trigger(user_name, query, command_name)
             await message.channel.send(f"🧠 Notionページ({NOTION_MAIN_PAGE_ID})を読み込んでいます…")
             
-            # 1. Notionから全文取得
             notion_text = await get_notion_page_text(NOTION_MAIN_PAGE_ID)
-            if "エラーが発生しました" in notion_text or not notion_text.strip():
-                await message.channel.send(notion_text or "❌ Notionページからテキストを取得できませんでした。")
+            if notion_text.startswith("ERROR:"):
+                print(f"Notion Error Details: {notion_text}") # コンソールに詳細エラーを出力
+                await message.channel.send("❌ Notionページの読み込み中にエラーが発生しました。詳細はコンソールログを確認してください。")
+                return
+            if not notion_text.strip():
+                await message.channel.send("❌ Notionページからテキストを取得できませんでした。ページが空か、権限がない可能性があります。")
                 return
 
             await message.channel.send(f"📄 全文読み込み完了。GPT-4oが内容を分割して要約します…")
 
-            # 2. テキストをチャンクに分割
-            chunk_size = 8000  # 8000文字ごとに分割
+            chunk_size = 8000
             text_chunks = [notion_text[i:i + chunk_size] for i in range(0, len(notion_text), chunk_size)]
             
             summaries = []
-            # 3. 各チャンクを要約
             for i, chunk in enumerate(text_chunks):
                 await message.channel.send(f"🔄 チャンク {i+1}/{len(text_chunks)} を要約中…")
-                chunk_summary_prompt = f"""
-以下の文章は、あるNotionページのログの一部です。
-最終的にユーザーの質問「{query}」に答えるため、この部分から関連性の高い情報を抽出・要約してください。
-
-【ログの一部】
-{chunk}
-"""
-                # クレイオス(GPT-4 Turbo)をチャンク要約役として使用
-                chunk_summary = await ask_kreios(chunk_summary_prompt) 
+                chunk_summary_prompt = f"以下の文章は、あるNotionページのログの一部です。最終的にユーザーの質問「{query}」に答えるため、この部分から関連性の高い情報を抽出・要約してください。\n\n【ログの一部】\n{chunk}"
+                chunk_summary = await ask_kreios(chunk_summary_prompt)
+                if "エラー" in chunk_summary: # エラーハンドリング
+                    await message.channel.send(f"⚠️ チャンク {i+1} の要約中にエラーが発生しました。スキップします。")
+                    continue
                 summaries.append(chunk_summary)
 
-            # 4. 要約を結合して最終的なコンテキストを作成
+            if not summaries:
+                await message.channel.send("❌ Notionページの内容を要約できませんでした。")
+                return
+
             await message.channel.send("✅ 全チャンクの要約完了。最終的なコンテキストを生成します…")
             combined_summary = "\n\n---\n\n".join(summaries)
             
-            final_integration_prompt = f"""
-以下の複数の要約は、一つのNotionページを分割して要約したものです。
-これらの要約全体を元に、ユーザーの質問に答えるための最終的な参考情報を2000文字以内で作成してください。
-
-【ユーザーの質問】
-{query}
-
-【各部分の要約】
-{combined_summary}
-"""
+            final_integration_prompt = f"以下の複数の要約は、一つのNotionページを分割して要約したものです。これらの要約全体を元に、ユーザーの質問に答えるための最終的な参考情報を2000文字以内で作成してください。\n\n【ユーザーの質問】\n{query}\n\n【各部分の要約】\n{combined_summary}"
             context_summary = await ask_kreios(final_integration_prompt)
 
-            # 5. 最終的なコンテキストを元に回答を生成
             await message.channel.send("✅ コンテキスト生成完了。この情報を元に、最終的な回答を生成します…")
-            final_prompt = f"""
-以下の【参考情報】を元に、【ユーザーの質問】に回答してください。
-
-【ユーザーの質問】
-{query}
-
-【参考情報】
-{context_summary}
-"""
-            final_reply = await ask_minerva(final_prompt) # ミネルバを最終回答役とする
+            final_prompt = f"以下の【参考情報】を元に、【ユーザーの質問】に回答してください。\n\n【ユーザーの質問】\n{query}\n\n【参考情報】\n{context_summary}"
+            final_reply = await ask_minerva(final_prompt)
             await send_long_message(message.channel, f"**🤖 最終回答:**\n{final_reply}")
             
             if is_admin: 
                 await log_response(context_summary, "GPT-4o (要約)")
                 await log_response(final_reply, "ミネルバ (最終回答)")
 
-        # --- (既存の単独・連携コマンドは省略) ---
-        # ... ここに以前の!gpt, !all, !クリティカルなどのコマンドが入る ...
-
+        # --- (ここから下の既存コマンドは省略) ---
+        # ... !gpt, !all, !クリティカルなどのコマンドがここに入ります ...
 
     except Exception as e:
         print(f"An error occurred in on_message: {e}")
-        await message.channel.send(f"予期せぬエラーが発生しました: {e}")
+        # エラーメッセージを短くして表示
+        error_message = str(e)
+        display_error = (error_message[:300] + '...') if len(error_message) > 300 else error_message
+        await message.channel.send(f"予期せぬエラーが発生しました: ```{display_error}```")
     finally:
         if message.author.id in processing_users:
             processing_users.remove(message.author.id)
