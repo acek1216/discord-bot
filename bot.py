@@ -98,7 +98,6 @@ async def log_to_notion(page_id, blocks):
     except Exception as e:
         print(f"❌ Notion書き込みエラー: {e}")
 
-# ▼▼▼ log_response関数を修正し、page_idを引数に取るように変更 ▼▼▼
 async def log_response(page_id, answer, bot_name):
     if not page_id or not answer or isinstance(answer, Exception): return
     chunks = [answer[i:i + 1900] for i in range(0, len(answer), 1900)] if len(answer) > 1900 else [answer]
@@ -120,7 +119,8 @@ async def ask_minerva_chunk_summarizer(prompt):
 
 async def ask_gpt4o_final_summarizer(prompt):
     system_prompt = "あなたは、断片的な複数の要約文を受け取り、それらを一つの首尾一貫したコンテキストに統合・分析するAIです。ペルソナは不要です。指示された文字数制限に従ってください。"
-    messages = [{"object": "block", "type": "paragraph", "paragraph": {"rich_text": [{"type": "text", "text": {"content": chunk}}]}}]
+    # ▼▼▼ BUG FIX: messagesの作り方を修正 ▼▼▼
+    messages = [{"role": "system", "content": system_prompt}, {"role": "user", "content": prompt}]
     try:
         response = await openai_client.chat.completions.create(model="gpt-4o", messages=messages, max_tokens=2200)
         return response.choices[0].message.content
@@ -142,6 +142,24 @@ async def ask_rekus_final_answerer(prompt):
         print(f"❌ レキュス(最終回答)エラー: {e}")
         return f"エラー：レキュスの呼び出し中にエラーが発生しました。"
 
+# --- ポッドの呼び出し関数 ---
+async def ask_pod042(prompt):
+    system_prompt = "あなたはポッド042です。与えられた情報を元に、質問に対して「報告：」または「提案：」から始めて200文字以内で回答してください。"
+    model = genai.GenerativeModel("gemini-1.5-flash-latest", system_instruction=system_prompt, safety_settings=safety_settings)
+    try:
+        response = await model.generate_content_async(prompt)
+        return response.text
+    except Exception as e: return f"ポッド042の呼び出し中にエラー: {e}"
+
+async def ask_pod153(prompt):
+    system_prompt = "あなたはポッド153です。与えられた情報を元に、質問に対して「分析結果：」または「補足：」から始めて200文字以内で回答してください。"
+    messages = [{"role": "system", "content": system_prompt}, {"role": "user", "content": prompt}]
+    try:
+        response = await openai_client.chat.completions.create(model="gpt-4o-mini", messages=messages, max_tokens=400)
+        return response.choices[0].message.content
+    except Exception as e: return f"ポッド153の呼び出し中にエラー: {e}"
+
+
 # --- Discordイベントハンドラ ---
 @client.event
 async def on_ready(): 
@@ -154,8 +172,9 @@ async def on_message(message):
     
     content = message.content
     command_name = content.split(' ')[0]
-    
-    if command_name != "!ask": return
+
+    # !askコマンド以外は処理しないように一旦コメントアウト（必要に応じて復活させてください）
+    # if command_name != "!ask": return
 
     processing_users.add(message.author.id)
     try:
@@ -163,13 +182,8 @@ async def on_message(message):
         query = content[len(command_name):].strip()
         is_admin = user_id == ADMIN_USER_ID
         
-        # ▼▼▼ 全てのコマンドの基礎となる、スレッドIDに基づいたNotionページIDの決定 ▼▼▼
         thread_id = str(message.channel.id)
         target_notion_page_id = NOTION_PAGE_MAP.get(thread_id, NOTION_MAIN_PAGE_ID)
-
-        if not target_notion_page_id:
-            await message.channel.send("❌ このスレッドに対応するNotionページが設定されていません。")
-            return
 
         # ログ記録用のブロックを作成
         if is_admin:
@@ -228,6 +242,19 @@ async def on_message(message):
             if is_admin: 
                 await log_response(target_notion_page_id, final_context, "gpt-4o (統合コンテキスト)")
                 await log_response(target_notion_page_id, final_reply, "レキュス (最終回答)")
+
+        # ▼▼▼ BUG FIX: ポッドのコマンドにもスレッド別NotionページIDを適用 ▼▼▼
+        elif command_name == "!ポッド042":
+            await message.channel.send("《ポッド042より応答 (添付ファイル非対応)》")
+            reply = await ask_pod042(query)
+            await send_long_message(message.channel, reply)
+            if is_admin: await log_response(target_notion_page_id, reply, "ポッド042")
+
+        elif command_name == "!ポッド153":
+            await message.channel.send("《ポッド153より応答 (添付ファイル非対応)》")
+            reply = await ask_pod153(query)
+            await send_long_message(message.channel, reply)
+            if is_admin: await log_response(target_notion_page_id, reply, "ポッド153")
 
     except Exception as e:
         print(f"An error occurred in on_message: {e}")
