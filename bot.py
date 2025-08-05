@@ -199,29 +199,53 @@ async def on_message(message):
         # ▼▼▼ 新設：Notionナレッジベースコマンド ▼▼▼
         if command_name == "!ask":
             if is_admin: await log_trigger(user_name, query, command_name)
-            await message.channel.send(f"🧠 Notionページ({NOTION_MAIN_PAGE_ID})をGPT-4oが読み込み、要約しています…")
+            await message.channel.send(f"🧠 Notionページ({NOTION_MAIN_PAGE_ID})を読み込んでいます…")
             
             # 1. Notionから全文取得
             notion_text = await get_notion_page_text(NOTION_MAIN_PAGE_ID)
-            if "エラーが発生しました" in notion_text:
-                await message.channel.send(notion_text)
+            if "エラーが発生しました" in notion_text or not notion_text.strip():
+                await message.channel.send(notion_text or "❌ Notionページからテキストを取得できませんでした。")
                 return
 
-            # 2. GPT-4oに要約を依頼
-            summarizer_prompt = f"""
-以下のNotionページのログ全体から、ユーザーの質問に答えるために最も関連性の高い情報を抽出し、2000文字以内で要約・整理してください。意訳はせず、元の文章の表現を活かしてください。
+            await message.channel.send(f"📄 全文読み込み完了。GPT-4oが内容を分割して要約します…")
+
+            # 2. テキストをチャンクに分割
+            chunk_size = 8000  # 8000文字ごとに分割
+            text_chunks = [notion_text[i:i + chunk_size] for i in range(0, len(notion_text), chunk_size)]
+            
+            summaries = []
+            # 3. 各チャンクを要約
+            for i, chunk in enumerate(text_chunks):
+                await message.channel.send(f"🔄 チャンク {i+1}/{len(text_chunks)} を要約中…")
+                chunk_summary_prompt = f"""
+以下の文章は、あるNotionページのログの一部です。
+最終的にユーザーの質問「{query}」に答えるため、この部分から関連性の高い情報を抽出・要約してください。
+
+【ログの一部】
+{chunk}
+"""
+                # クレイオス(GPT-4 Turbo)をチャンク要約役として使用
+                chunk_summary = await ask_kreios(chunk_summary_prompt) 
+                summaries.append(chunk_summary)
+
+            # 4. 要約を結合して最終的なコンテキストを作成
+            await message.channel.send("✅ 全チャンクの要約完了。最終的なコンテキストを生成します…")
+            combined_summary = "\n\n---\n\n".join(summaries)
+            
+            final_integration_prompt = f"""
+以下の複数の要約は、一つのNotionページを分割して要約したものです。
+これらの要約全体を元に、ユーザーの質問に答えるための最終的な参考情報を2000文字以内で作成してください。
 
 【ユーザーの質問】
 {query}
 
-【Notionページのログ全文】
-{notion_text}
+【各部分の要約】
+{combined_summary}
 """
-            # クレイオスの関数を要約役として使用
-            context_summary = await ask_kreios(summarizer_prompt)
-            await message.channel.send(f"✅ 要約完了。この情報を元に、最終的な回答を生成します…")
-            
-            # 3. 要約を元に最終回答を生成（ここではミネルバを最終回答役とする）
+            context_summary = await ask_kreios(final_integration_prompt)
+
+            # 5. 最終的なコンテキストを元に回答を生成
+            await message.channel.send("✅ コンテキスト生成完了。この情報を元に、最終的な回答を生成します…")
             final_prompt = f"""
 以下の【参考情報】を元に、【ユーザーの質問】に回答してください。
 
@@ -231,13 +255,16 @@ async def on_message(message):
 【参考情報】
 {context_summary}
 """
-            final_reply = await ask_minerva(final_prompt)
+            final_reply = await ask_minerva(final_prompt) # ミネルバを最終回答役とする
             await send_long_message(message.channel, f"**🤖 最終回答:**\n{final_reply}")
+            
             if is_admin: 
                 await log_response(context_summary, "GPT-4o (要約)")
                 await log_response(final_reply, "ミネルバ (最終回答)")
 
-        # --- (既存のコマンドは省略) ---
+        # --- (既存の単独・連携コマンドは省略) ---
+        # ... ここに以前の!gpt, !all, !クリティカルなどのコマンドが入る ...
+
 
     except Exception as e:
         print(f"An error occurred in on_message: {e}")
