@@ -117,44 +117,125 @@ async def ask_gpt_base(user_id, prompt):
         return reply
     except Exception as e: return f"GPTエラー: {e}"
 
-# (他のグループA, グループBのAI呼び出し関数も同様に定義)
-# ... ask_gemini_base, ask_mistral_base ...
-# ... ask_kreios, ask_minerva, ask_lalah, ask_rekus ...
-# ... ask_pod042, ask_pod153 ...
+async def ask_gemini_base(user_id, prompt):
+    history = gemini_base_memory.get(user_id, [])
+    system_prompt = "あなたは「レイチェル・ゼイン（SUITS）」です。会話の文脈を考慮して150文字以内で回答してください。"
+    model = genai.GenerativeModel("gemini-1.5-flash-latest", system_instruction=system_prompt, safety_settings=safety_settings)
+    try:
+        response = await model.generate_content_async(prompt)
+        reply = response.text
+        new_history = history + [{"role": "user", "content": prompt}, {"role": "assistant", "content": reply}]
+        if len(new_history) > 10: new_history = new_history[-10:]
+        gemini_base_memory[user_id] = new_history
+        return reply
+    except Exception as e: return f"ジェミニエラー: {e}"
+    
+async def ask_mistral_base(user_id, prompt):
+    history = mistral_base_memory.get(user_id, [])
+    system_prompt = "あなたは思考戦車タチコマです。会話の文脈を考慮して150文字以内で回答してください。"
+    messages = [{"role": "system", "content": system_prompt}] + history + [{"role": "user", "content": prompt}]
+    try:
+        response = await mistral_client.chat(model="mistral-medium", messages=messages)
+        reply = response.choices[0].message.content
+        new_history = history + [{"role": "user", "content": prompt}, {"role": "assistant", "content": reply}]
+        if len(new_history) > 10: new_history = new_history[-10:]
+        mistral_base_memory[user_id] = new_history
+        return reply
+    except Exception as e: return f"ミストラルエラー: {e}"
+
+# グループB：Notion参照型（ステートレス）
+async def ask_kreios(prompt, system_prompt=None):
+    base_prompt = system_prompt or "あなたはハマーン・カーンです。与えられた情報を元に、質問に対して200文字以内で回答してください。"
+    messages = [{"role": "system", "content": base_prompt}, {"role": "user", "content": prompt}]
+    try:
+        response = await openai_client.chat.completions.create(model="gpt-4o", messages=messages, max_tokens=400)
+        return response.choices[0].message.content
+    except Exception as e: return f"クレイオスエラー: {e}"
+
+async def ask_minerva(prompt):
+    system_prompt = "あなたはシビュラシステムです。与えられた情報を元に、質問に対して200文字以内で回答してください。"
+    model = genai.GenerativeModel("gemini-1.5-pro-latest", system_instruction=system_prompt, safety_settings=safety_settings)
+    try:
+        response = await model.generate_content_async(prompt)
+        return response.text
+    except Exception as e: return f"ミネルバエラー: {e}"
+
+async def ask_lalah(prompt, system_prompt=None):
+    base_prompt = system_prompt or "あなたはララァ・スンです。与えられた情報を元に、質問に対して200文字以内で回答してください。"
+    messages = [{"role": "system", "content": base_prompt}, {"role": "user", "content": prompt}]
+    try:
+        response = await mistral_client.chat(model="mistral-large-latest", messages=messages)
+        return response.choices[0].message.content
+    except Exception as e: return f"ララァエラー: {e}"
+
+async def ask_rekus(prompt):
+    system_prompt = "あなたは探索王レキュスです。与えられた情報を元に、質問に対して200文字以内で回答してください。"
+    messages = [{"role": "system", "content": system_prompt}, {"role": "user", "content": prompt}]
+    payload = {"model": "sonar-pro", "messages": messages, "max_tokens": 400}
+    headers = {"Authorization": f"Bearer {perplexity_api_key}", "Content-Type": "application/json"}
+    try:
+        loop = asyncio.get_event_loop()
+        response = await loop.run_in_executor(None, lambda: requests.post("https://api.perplexity.ai/chat/completions", json=payload, headers=headers))
+        response.raise_for_status()
+        return response.json()["choices"][0]["message"]["content"]
+    except requests.exceptions.RequestException as e: return f"レキュスエラー: {e}"
+
+async def ask_pod042(prompt):
+    system_prompt = "あなたはポッド042です。与えられた情報を元に、質問に対して「報告：」または「提案：」から始めて200文字以内で回答してください。"
+    model = genai.GenerativeModel("gemini-1.5-flash-latest", system_instruction=system_prompt, safety_settings=safety_settings)
+    try:
+        response = await model.generate_content_async(prompt)
+        return response.text
+    except Exception as e: return f"ポッド042エラー: {e}"
+
+async def ask_pod153(prompt):
+    system_prompt = "あなたはポッド153です。与えられた情報を元に、質問に対して「分析結果：」または「補足：」から始めて200文字以内で回答してください。"
+    messages = [{"role": "system", "content": system_prompt}, {"role": "user", "content": prompt}]
+    try:
+        response = await openai_client.chat.completions.create(model="gpt-4o-mini", messages=messages, max_tokens=400)
+        return response.choices[0].message.content
+    except Exception as e: return f"ポッド153エラー: {e}"
 
 # Notionコンテキスト生成ヘルパー
 async def get_notion_context(channel, page_id, query):
-    await channel.send(f"🧠 Notionページを読み込んでいます…")
+    await channel.send(f"Notionページを読み込んでいます…")
     notion_text = await get_notion_page_text(page_id)
     if notion_text.startswith("ERROR:") or not notion_text.strip():
         await channel.send("❌ Notionページからテキストを取得できませんでした。")
         return None
 
-    await channel.send(f"📄 ミネルバが内容を分割・要約します…")
+    # チャンク要約用のAI（ミネルバ）を定義
+    chunk_summarizer_model = genai.GenerativeModel("gemini-1.5-pro-latest", system_instruction="あなたは要約AIです。指示された文字数制限に従ってください。")
     chunk_size = 8000
     text_chunks = [notion_text[i:i + chunk_size] for i in range(0, len(notion_text), chunk_size)]
     chunk_summaries = []
-    for i, chunk in enumerate(text_chunks):
-        await channel.send(f"🔄 チャンク {i+1}/{len(text_chunks)} をミネルバが要約中…")
-        # ask_minervaを呼び出す (ここでは簡略化のため直接実装)
-        prompt = f"以下の文章を、ユーザーの質問「{query}」の文脈に合わせて2000文字以内で要約してください。\n\n{chunk}"
-        # この部分は実際のask_minerva_chunk_summarizerに置き換える
-        model = genai.GenerativeModel("gemini-1.5-pro-latest", system_instruction="あなたは要約AIです。")
-        response = await model.generate_content_async(prompt)
-        summary = response.text
-        chunk_summaries.append(summary)
-        await asyncio.sleep(3)
     
-    await channel.send("✅ gpt-4oが統合・分析します…")
+    for i, chunk in enumerate(text_chunks):
+        prompt = f"以下の文章を、ユーザーの質問「{query}」の文脈に合わせて2000文字以内で要約してください。\n\n{chunk}"
+        try:
+            response = await chunk_summarizer_model.generate_content_async(prompt)
+            chunk_summaries.append(response.text)
+        except Exception as e:
+            await channel.send(f"⚠️ チャンク {i+1} の要約中にエラー: {e}")
+        await asyncio.sleep(3) # レート制限対策
+    
+    if not chunk_summaries:
+        await channel.send("❌ Notionページの内容を要約できませんでした。")
+        return None
+    
+    await channel.send("ミネルバが全チャンクの要約完了。gpt-4oが統合・分析します…")
     combined = "\n---\n".join(chunk_summaries)
-    # ask_gpt4oを呼び出す (簡略化)
+    
+    # 統合要約用のAI（GPT-4o）を定義
     prompt = f"以下の要約群を一つの文脈に統合してください。\n\n{combined}"
-    # この部分は実際のask_gpt4o_final_summarizerに置き換える
-    model = "gpt-4o"
-    response = await openai_client.chat.completions.create(model=model, messages=[{"role": "user", "content": prompt}], max_tokens=2200)
-    final_context = response.choices[0].message.content
-    return final_context
-
+    messages=[{"role": "system", "content": "あなたは統合AIです。"}, {"role": "user", "content": prompt}]
+    try:
+        response = await openai_client.chat.completions.create(model="gpt-4o", messages=messages, max_tokens=2200)
+        final_context = response.choices[0].message.content
+        return final_context
+    except Exception as e:
+        await channel.send(f"⚠️ 統合中にエラー: {e}")
+        return None
 
 # --- Discordイベントハンドラ ---
 @client.event
@@ -181,46 +262,99 @@ async def on_message(message):
             if command_name.startswith("!"):
                  await message.channel.send("❌ このスレッドに対応するNotionページが設定されておらず、メインページの指定もありません。")
             return
+        
+        # ログ先行記録
+        if is_admin and command_name.startswith("!"):
+            log_blocks = [{"object": "block", "type": "paragraph", "paragraph": {"rich_text": [{"type": "text", "text": {"content": f"👤 {user_name} が「{command_name} {query}」を実行しました。"}}]}}]
+            await log_to_notion(target_notion_page_id, log_blocks)
+
+        # --- コマンド群 ---
 
         # グループA：短期記憶型チャットAI
         if command_name in ["!gpt", "!ジェミニ", "!ミストラル", "!ポッド042", "!ポッド153"]:
-            reply = None
-            bot_name = ""
+            reply, bot_name = None, ""
             if command_name == "!gpt":
                 bot_name = "GPT"
                 await message.channel.send(f"🤵‍♂️ {bot_name}を呼び出しています…")
-                reply = await ask_gpt_base(user_id, query) # 短期記憶を使用
-            # ... 他のグループAのAIも同様に実装 ...
+                reply = await ask_gpt_base(user_id, query)
+            elif command_name == "!ジェミニ":
+                bot_name = "ジェミニ"
+                await message.channel.send(f"🧐 {bot_name}を呼び出しています…")
+                reply = await ask_gemini_base(user_id, query)
+            elif command_name == "!ミストラル":
+                bot_name = "ミストラル"
+                await message.channel.send(f"🤖 {bot_name}を呼び出しています…")
+                reply = await ask_mistral_base(user_id, query)
+            elif command_name == "!ポッド042":
+                bot_name = "ポッド042"
+                await message.channel.send("《ポッド042より応答 (添付ファイル非対応)》")
+                reply = await ask_pod042(query)
+            elif command_name == "!ポッド153":
+                bot_name = "ポッド153"
+                await message.channel.send("《ポッド153より応答 (添付ファイル非対応)》")
+                reply = await ask_pod153(query)
 
             if reply:
                 await send_long_message(message.channel, reply)
                 if is_admin: await log_response(target_notion_page_id, reply, bot_name)
 
         # グループB：Notion参照型ナレッジAI
-        elif command_name in ["!ask", "!クレイオス", "!ミネルバ", "!レキュス", "!ララァ", "!all", "!クリティカル", "!ロジカル", "!スライド"]:
-            # Notionからコンテキストを生成
-            final_context = await get_notion_context(message.channel, target_notion_page_id, query)
-            if not final_context:
-                return # エラーメッセージはget_notion_context内で送信済み
+        elif command_name in ["!ask", "!クレイオス", "!ミネルバ", "!レキュス", "!ララァ", "!みんなで", "!all", "!クリティカル", "!ロジカル", "!スライド"]:
             
-            await message.channel.send("✅ コンテキスト生成完了。最終回答を生成します…")
-            
-            final_prompt = f"以下の【参考情報】を元に、【ユーザーの質問】に回答してください。\n\n【ユーザーの質問】\n{query}\n\n【参考情報】\n{final_context}"
-            
-            # 各コマンドの最終回答役をここで指定
-            final_reply = None
-            bot_name = ""
-            if command_name in ["!ask", "!クレイオス", "!ミネルバ", "!レキュス", "!ララァ"]: # 単独コマンドの場合
-                # ... 各コマンドに応じた最終回答役で final_reply を生成 ...
-                # 例: !クレイオスなら ask_kreios(final_prompt)
-                bot_name = command_name[1:].capitalize()
-                # final_reply = await ask_rekus_final_answerer(final_prompt) # 仮
-            
-            # ... !all, !クリティカルなどの連携コマンドの処理 ...
+            # !みんなで は例外的にNotionを読まない高速連携
+            if command_name == "!みんなで":
+                await message.channel.send("🌀 三AIが同時に応答します… (GPT, ジェミニ, ミストラル)")
+                gpt_task = ask_gpt_base(user_id, query)
+                gemini_task = ask_gemini_base(user_id, query)
+                mistral_task = ask_mistral_base(user_id, query)
+                results = await asyncio.gather(gpt_task, gemini_task, mistral_task, return_exceptions=True)
+                gpt_reply, gemini_reply, mistral_reply = results
+                if not isinstance(gpt_reply, Exception): await send_long_message(message.channel, f"🤵‍♂️ **GPT**:\n{gpt_reply}")
+                if not isinstance(gemini_reply, Exception): await send_long_message(message.channel, f"🧐 **ジェミニ**:\n{gemini_reply}")
+                if not isinstance(mistral_reply, Exception): await send_long_message(message.channel, f"🤖 **ミストラル**:\n{mistral_reply}")
+                if is_admin:
+                    await log_response(target_notion_page_id, gpt_reply, "GPT (!みんなで)")
+                    await log_response(target_notion_page_id, gemini_reply, "ジェミニ (!みんなで)")
+                    await log_response(target_notion_page_id, mistral_reply, "ミストラル (!みんなで)")
+                return # !みんなで はここで処理終了
 
-            if final_reply:
-                await send_long_message(message.channel, f"**🤖 最終回答 (by {bot_name}):**\n{final_reply}")
-                if is_admin: await log_response(target_notion_page_id, final_reply, f"{bot_name} (最終回答)")
+            # --- ここから下は全てNotionを読み込むコマンド ---
+            context = await get_notion_context(message.channel, target_notion_page_id, query)
+            if not context:
+                return
+
+            await message.channel.send("最終回答生成中…")
+            prompt_with_context = f"以下の【参考情報】を元に、【ユーザーの質問】に回答してください。\n\n【ユーザーの質問】\n{query}\n\n【参考情報】\n{context}"
+            
+            # 単独コマンド (グループB)
+            if command_name in ["!ask", "!クレイオス", "!ミネルバ", "!レキュス", "!ララァ"]:
+                reply, bot_name = None, ""
+                if command_name == "!ask": bot_name, reply = "レキュス", await ask_rekus(prompt_with_context)
+                elif command_name == "!クレイオス": bot_name, reply = "クレイオス", await ask_kreios(prompt_with_context)
+                elif command_name == "!ミネルバ": bot_name, reply = "ミネルバ", await ask_minerva(prompt_with_context)
+                elif command_name == "!レキュス": bot_name, reply = "レキュス", await ask_rekus(prompt_with_context)
+                elif command_name == "!ララァ": bot_name, reply = "ララァ", await ask_lalah(prompt_with_context)
+                
+                if reply:
+                    await send_long_message(message.channel, f"**🤖 最終回答 (by {bot_name}):**\n{reply}")
+                    if is_admin: await log_response(target_notion_page_id, reply, f"{bot_name} (Notion参照)")
+            
+            # 連携コマンド (グループB)
+            elif command_name == "!all":
+                await message.channel.send("🌐 全6AIが同時に応答します…")
+                tasks = {
+                    "GPT": ask_gpt_base(user_id, prompt_with_context),
+                    "ジェミニ": ask_gemini_base(user_id, prompt_with_context),
+                    "ミストラル": ask_mistral_base(user_id, prompt_with_context),
+                    "クレイオス": ask_kreios(prompt_with_context),
+                    "ミネルバ": ask_minerva(prompt_with_context),
+                    "レキュス": ask_rekus(prompt_with_context)
+                }
+                results = await asyncio.gather(*tasks.values(), return_exceptions=True)
+                for (name, result) in zip(tasks.keys(), results):
+                    reply_text = result if not isinstance(result, Exception) else f"エラー: {result}"
+                    await send_long_message(message.channel, f"**🔹 {name}:**\n{reply_text}")
+                    if is_admin: await log_response(target_notion_page_id, reply_text, f"{name} (!all)")
 
     except Exception as e:
         print(f"An error occurred in on_message: {e}")
