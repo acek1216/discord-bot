@@ -36,6 +36,8 @@ if NOTION_PAGE_MAP_STRING:
 # --- 各種クライアントの初期化 ---
 openai_client = AsyncOpenAI(api_key=openai_api_key)
 genai.configure(api_key=gemini_api_key)
+# ▼▼▼ BUG FIX: 削除されていたmistral_clientの初期化コードを復活 ▼▼▼
+mistral_client = MistralAsyncClient(api_key=MISTRAL_API_KEY)
 notion = Client(auth=notion_api_key)
 safety_settings = {
     HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
@@ -278,15 +280,13 @@ async def on_message(message):
                 bot_name = "ポッド042"; reply = await ask_pod042(query)
             elif command_name == "!ポッド153":
                 bot_name = "ポッド153"; reply = await ask_pod153(query)
-
             if reply:
                 await send_long_message(message.channel, reply)
                 if is_admin: await log_response(target_notion_page_id, reply, bot_name)
 
         # グループB：Notion参照型ナレッジAI
-        elif command_name in ["!クレイオス", "!ミネルバ", "!レキュス", "!ララァ", "!みんなで", "!all", "!クリティカル", "!ロジカル", "!スライド"]:
+        elif command_name in ["!ask", "!クレイオス", "!ミネルバ", "!レキュス", "!ララァ", "!みんなで", "!all", "!クリティカル", "!ロジカル", "!スライド"]:
             
-            # !みんなで は例外的にNotionを読まない高速連携
             if command_name == "!みんなで":
                 await message.channel.send("🌀 三AIが同時に応答します… (GPT, ジェミニ, ミストラル)")
                 tasks = {"GPT": ask_gpt_base(user_id, query), "ジェミニ": ask_gemini_base(user_id, query), "ミストラル": ask_mistral_base(user_id, query)}
@@ -296,7 +296,6 @@ async def on_message(message):
                     if is_admin: await log_response(target_notion_page_id, result, f"{name} (!みんなで)")
                 return
 
-            # !スライド は例外的に短期記憶を参照
             if command_name == "!スライド":
                 await message.channel.send("📝 スライド骨子案を作成します…")
                 memories = {"GPT": gpt_base_memory, "ジェミニ": gemini_base_memory, "ミストラル": mistral_base_memory}
@@ -323,26 +322,23 @@ async def on_message(message):
                     await message.channel.send("🧹 ベースAIの短期記憶はリセットされました。")
                 return
             
-            # --- ここから下は全てNotionを読み込むコマンド ---
             context = await get_notion_context(message.channel, target_notion_page_id, query)
             if not context: return
 
             await message.channel.send("最終回答生成中…")
             prompt_with_context = f"以下の【参考情報】を元に、【ユーザーの質問】に回答してください。\n\n【ユーザーの質問】\n{query}\n\n【参考情報】\n{context}"
             
-            # 単独コマンド (グループB)
-            if command_name in ["!クレイオス", "!ミネルバ", "!レキュス", "!ララァ"]:
+            if command_name in ["!ask", "!クレイオス", "!ミネルバ", "!レキュス", "!ララァ"]:
                 reply, bot_name = None, ""
-                if command_name == "!クレイオス": bot_name, reply = "クレイオス", await ask_kreios(prompt_with_context)
+                if command_name == "!ask": bot_name, reply = "レキュス", await ask_rekus(prompt_with_context)
+                elif command_name == "!クレイオス": bot_name, reply = "クレイオス", await ask_kreios(prompt_with_context)
                 elif command_name == "!ミネルバ": bot_name, reply = "ミネルバ", await ask_minerva(prompt_with_context)
                 elif command_name == "!レキュス": bot_name, reply = "レキュス", await ask_rekus(prompt_with_context)
                 elif command_name == "!ララァ": bot_name, reply = "ララァ", await ask_lalah(prompt_with_context)
-                
                 if reply:
                     await send_long_message(message.channel, f"**🤖 最終回答 (by {bot_name}):**\n{reply}")
                     if is_admin: await log_response(target_notion_page_id, reply, f"{bot_name} (Notion参照)")
             
-            # 連携コマンド (グループB)
             elif command_name == "!all":
                 await message.channel.send("🌐 全6AIが同時に応答します…")
                 tasks = {
@@ -357,10 +353,7 @@ async def on_message(message):
 
             elif command_name == "!クリティカル":
                 await message.channel.send("🔬 6体のAIが初期意見を生成中…")
-                tasks = {
-                    "GPT": ask_gpt_base(user_id, prompt_with_context), "ジェミニ": ask_gemini_base(user_id, prompt_with_context), "ミストラル": ask_mistral_base(user_id, prompt_with_context),
-                    "クレイオス": ask_kreios(prompt_with_context), "ミネルバ": ask_minerva(prompt_with_context), "レキュス": ask_rekus(prompt_with_context)
-                }
+                tasks = { "GPT": ask_gpt_base(user_id, prompt_with_context), "ジェミニ": ask_gemini_base(user_id, prompt_with_context), "ミストラル": ask_mistral_base(user_id, prompt_with_context), "クレイオス": ask_kreios(prompt_with_context), "ミネルバ": ask_minerva(prompt_with_context), "レキュス": ask_rekus(prompt_with_context) }
                 results = await asyncio.gather(*tasks.values(), return_exceptions=True)
                 synthesis_material = "以下の6つの異なるAIの意見を統合してください。\n\n"
                 for (name, result) in zip(tasks.keys(), results):
@@ -396,7 +389,6 @@ async def on_message(message):
                 final_report = await ask_lalah(synthesis_material, system_prompt=lalah_prompt)
                 await send_long_message(message.channel, f"✨ **ララァ (最終統合レポート):**\n{final_report}")
                 if is_admin: await log_response(target_notion_page_id, final_report, "ララァ (統合)")
-                # メモリリセットは不要
 
     except Exception as e:
         print(f"An error occurred in on_message: {e}")
