@@ -168,9 +168,9 @@ async def ask_lalah(prompt, system_prompt=None):
         return response.choices[0].message.content
     except Exception as e: return f"ララァエラー: {e}"
 
-async def ask_rekus(prompt):
-    system_prompt = "あなたは探索王レキュスです。与えられた情報を元に、質問に対して200文字以内で回答してください。"
-    messages = [{"role": "system", "content": system_prompt}, {"role": "user", "content": prompt}]
+async def ask_rekus(prompt, system_prompt=None):
+    base_prompt = system_prompt or "あなたは探索王レキュスです。与えられた情報を元に、質問に対して200文字以内で回答してください。"
+    messages = [{"role": "system", "content": base_prompt}, {"role": "user", "content": prompt}]
     payload = {"model": "sonar-pro", "messages": messages, "max_tokens": 400}
     headers = {"Authorization": f"Bearer {perplexity_api_key}", "Content-Type": "application/json"}
     try:
@@ -284,7 +284,7 @@ async def on_message(message):
                 if is_admin: await log_response(target_notion_page_id, reply, bot_name)
 
         # グループB：Notion参照型ナレッジAI
-        elif command_name in ["!ask", "!クレイオス", "!ミネルバ", "!レキュス", "!ララァ", "!みんなで", "!all", "!クリティカル", "!ロジカル", "!スライド"]:
+        elif command_name in ["!クレイオス", "!ミネルバ", "!レキュス", "!ララァ", "!みんなで", "!all", "!クリティカル", "!ロジカル", "!スライド"]:
             
             # !みんなで は例外的にNotionを読まない高速連携
             if command_name == "!みんなで":
@@ -301,23 +301,26 @@ async def on_message(message):
                 await message.channel.send("📝 スライド骨子案を作成します…")
                 memories = {"GPT": gpt_base_memory, "ジェミニ": gemini_base_memory, "ミストラル": mistral_base_memory}
                 last_replies = {}
+                all_histories_found = True
                 for name, mem in memories.items():
                     history = mem.get(user_id, [])
                     if not history or history[-1]['role'] != 'assistant':
                         await message.channel.send(f"❌ {name}の直近の回答履歴が見つかりません。先に`!みんなで`などを実行してください。")
-                        return
+                        all_histories_found = False
+                        break
                     last_replies[name] = history[-1]['content']
                 
-                slide_material = "以下の3つのAIの意見を統合し、魅力的なプレゼンテーションのスライド骨子案を作成してください。\n\n"
-                for name, reply in last_replies.items():
-                    slide_material += f"--- [{name}の意見] ---\n{reply}\n\n"
-                lalah_prompt = "あなたはプレゼンテーションの構成作家です。与えられた複数の意見を元に、聞き手の心を動かす構成案を以下の形式で提案してください。\n・タイトル\n・スライド1: [タイトル] - [内容]\n・スライド2: [タイトル] - [内容]\n..."
-                slide_draft = await ask_lalah(slide_material, system_prompt=lalah_prompt)
-                await send_long_message(message.channel, f"✨ **ララァ (スライド骨子案):**\n{slide_draft}")
-                if is_admin: await log_response(target_notion_page_id, slide_draft, "ララァ (スライド)")
-                for mem in memories.values():
-                    if user_id in mem: del mem[user_id]
-                await message.channel.send("🧹 ベースAIの短期記憶はリセットされました。")
+                if all_histories_found:
+                    slide_material = "以下の3つのAIの意見を統合し、魅力的なプレゼンテーションのスライド骨子案を作成してください。\n\n"
+                    for name, reply in last_replies.items():
+                        slide_material += f"--- [{name}の意見] ---\n{reply}\n\n"
+                    lalah_prompt = "あなたはプレゼンテーションの構成作家です。与えられた複数の意見を元に、聞き手の心を動かす構成案を以下の形式で提案してください。\n・タイトル\n・スライド1: [タイトル] - [内容]\n・スライド2: [タイトル] - [内容]\n..."
+                    slide_draft = await ask_lalah(slide_material, system_prompt=lalah_prompt)
+                    await send_long_message(message.channel, f"✨ **ララァ (スライド骨子案):**\n{slide_draft}")
+                    if is_admin: await log_response(target_notion_page_id, slide_draft, "ララァ (スライド)")
+                    for mem in memories.values():
+                        if user_id in mem: del mem[user_id]
+                    await message.channel.send("🧹 ベースAIの短期記憶はリセットされました。")
                 return
             
             # --- ここから下は全てNotionを読み込むコマンド ---
@@ -327,84 +330,73 @@ async def on_message(message):
             await message.channel.send("最終回答生成中…")
             prompt_with_context = f"以下の【参考情報】を元に、【ユーザーの質問】に回答してください。\n\n【ユーザーの質問】\n{query}\n\n【参考情報】\n{context}"
             
-            if command_name in ["!ask", "!クレイオス", "!ミネルバ", "!レキュス", "!ララァ"]:
+            # 単独コマンド (グループB)
+            if command_name in ["!クレイオス", "!ミネルバ", "!レキュス", "!ララァ"]:
                 reply, bot_name = None, ""
-                if command_name == "!ask": bot_name, reply = "レキュス", await ask_rekus(prompt_with_context)
-                elif command_name == "!クレイオス": bot_name, reply = "クレイオス", await ask_kreios(prompt_with_context)
+                if command_name == "!クレイオス": bot_name, reply = "クレイオス", await ask_kreios(prompt_with_context)
                 elif command_name == "!ミネルバ": bot_name, reply = "ミネルバ", await ask_minerva(prompt_with_context)
                 elif command_name == "!レキュス": bot_name, reply = "レキュス", await ask_rekus(prompt_with_context)
                 elif command_name == "!ララァ": bot_name, reply = "ララァ", await ask_lalah(prompt_with_context)
+                
                 if reply:
                     await send_long_message(message.channel, f"**🤖 最終回答 (by {bot_name}):**\n{reply}")
                     if is_admin: await log_response(target_notion_page_id, reply, f"{bot_name} (Notion参照)")
-
+            
+            # 連携コマンド (グループB)
             elif command_name == "!all":
                 await message.channel.send("🌐 全6AIが同時に応答します…")
-tasks = {
-    "GPT": ask_gpt_base(user_id, prompt_with_context),
-    "ジェミニ": ask_gemini_base(user_id, prompt_with_context),
-    "ミストラル": ask_mistral_base(user_id, prompt_with_context),
-    "クレイオス": ask_kreios(prompt_with_context),
-    "ミネルバ": ask_minerva(prompt_with_context),
-    "レキュス": ask_rekus(prompt_with_context)
-}
-results = await asyncio.gather(*tasks.values(), return_exceptions=True)
-for (name, result) in zip(tasks.keys(), results):
-    reply_text = result if not isinstance(result, Exception) else f"エラー: {result}"
-    await send_long_message(message.channel, f"**🔹 {name}:**\n{reply_text}")
-    if is_admin: await log_response(target_notion_page_id, reply_text, f"{name} (!all)")
-        
+                tasks = {
+                    "GPT": ask_gpt_base(user_id, prompt_with_context), "ジェミニ": ask_gemini_base(user_id, prompt_with_context), "ミストラル": ask_mistral_base(user_id, prompt_with_context),
+                    "クレイオス": ask_kreios(prompt_with_context), "ミネルバ": ask_minerva(prompt_with_context), "レキュス": ask_rekus(prompt_with_context)
+                }
+                results = await asyncio.gather(*tasks.values(), return_exceptions=True)
+                for (name, result) in zip(tasks.keys(), results):
+                    reply_text = result if not isinstance(result, Exception) else f"エラー: {result}"
+                    await send_long_message(message.channel, f"**🔹 {name}:**\n{reply_text}")
+                    if is_admin: await log_response(target_notion_page_id, reply_text, f"{name} (!all)")
+
             elif command_name == "!クリティカル":
-                await message.channel.send("⚔️ クリティカル検証を開始します…")
-await message.channel.send("🔬 6体のAIが初期意見を生成中…")
-tasks = {
-    "GPT": ask_gpt_base(user_id, prompt_with_context),
-    "ジェミニ": ask_gemini_base(user_id, prompt_with_context),
-    "ミストラル": ask_mistral_base(user_id, prompt_with_context),
-    "クレイオス": ask_kreios(prompt_with_context),
-    "ミネルバ": ask_minerva(prompt_with_context),
-    "レキュス": ask_rekus(prompt_with_context)
-}
-results = await asyncio.gather(*tasks.values(), return_exceptions=True)
-synthesis_material = "以下の6つの異なるAIの意見を統合してください。\n\n"
-for (name, result) in zip(tasks.keys(), results):
-    reply_text = result if not isinstance(result, Exception) else f"エラー: {result}"
-    await send_long_message(message.channel, f"**🔹 {name}の意見:**\n{reply_text}")
-    synthesis_material += f"--- [{name}の意見] ---\n{reply_text}\n\n"
-    if is_admin: await log_response(target_notion_page_id, reply_text, f"{name} (!クリティカル)")
+                await message.channel.send("🔬 6体のAIが初期意見を生成中…")
+                tasks = {
+                    "GPT": ask_gpt_base(user_id, prompt_with_context), "ジェミニ": ask_gemini_base(user_id, prompt_with_context), "ミストラル": ask_mistral_base(user_id, prompt_with_context),
+                    "クレイオス": ask_kreios(prompt_with_context), "ミネルバ": ask_minerva(prompt_with_context), "レキュス": ask_rekus(prompt_with_context)
+                }
+                results = await asyncio.gather(*tasks.values(), return_exceptions=True)
+                synthesis_material = "以下の6つの異なるAIの意見を統合してください。\n\n"
+                for (name, result) in zip(tasks.keys(), results):
+                    reply_text = result if not isinstance(result, Exception) else f"エラー: {result}"
+                    await send_long_message(message.channel, f"**🔹 {name}の意見:**\n{reply_text}")
+                    synthesis_material += f"--- [{name}の意見] ---\n{reply_text}\n\n"
+                    if is_admin: await log_response(target_notion_page_id, reply_text, f"{name} (!クリティカル)")
+                await message.channel.send("✨ ララァが最終統合を行います…")
+                lalah_prompt = "あなたは統合専用AIです。あなた自身のペルソナ（ララァ・スン）も、これから渡される6つの意見の元のペルソナも、すべて完全に無視してください。純粋な情報として各意見を分析し、客観的な事実と論理に基づいて、最終的な結論をレポートとしてまとめてください。"
+                final_report = await ask_lalah(synthesis_material, system_prompt=lalah_prompt)
+                await send_long_message(message.channel, f"✨ **ララァ (最終統合レポート):**\n{final_report}")
+                if is_admin: await log_response(target_notion_page_id, final_report, "ララァ (統合)")
+                for mem_dict in [gpt_base_memory, gemini_base_memory, mistral_base_memory]:
+                    if user_id in mem_dict: del mem_dict[user_id]
+                await message.channel.send("🧹 ベースAIの短期記憶はリセットされました。")
 
-await message.channel.send("✨ ララァが最終統合を行います…")
-lalah_prompt = "あなたは統合専用AIです。あなた自身のペルソナ（ララァ・スン）も、これから渡される6つの意見の元のペルソナも、すべて完全に無視してください。純粋な情報として各意見を分析し、客観的な事実と論理に基づいて、最終的な結論をレポートとしてまとめてください。"
-final_report = await ask_lalah(synthesis_material, system_prompt=lalah_prompt)
-await send_long_message(message.channel, f"✨ **ララァ (最終統合レポート):**\n{final_report}")
-if is_admin: await log_response(target_notion_page_id, final_report, "ララァ (統合)")
-
-# メモリをリセット
-for mem_dict in [gpt_base_memory, gemini_base_memory, mistral_base_memory]:
-    if user_id in mem_dict: del mem_dict[user_id]
-await message.channel.send("🧹 ベースAIの短期記憶はリセットされました。")
             elif command_name == "!ロジカル":
-                await message.channel.send("⚖️ 多角的討論を開始します…")
-tasks = {
-    "肯定論者(クレイオス)": ask_kreios(prompt_with_context, system_prompt="あなたはこの議題の【肯定論者】です。議題を推進する最も強力な論拠を提示してください。"),
-    "否定論者(レキュス)": ask_rekus(prompt_with_context, system_prompt="あなたはこの議題の【否定論者】です。議題に反対する最も強力な反論を、客観的な事実やデータに基づいて提示してください。"),
-    "中立分析官(ミネルバ)": ask_minerva(prompt_with_context, system_prompt="あなたはこの議題に関する【中立的な分析官】です。関連する社会的・倫理的な論点を、感情を排して提示してください。")
-}
-results = await asyncio.gather(*tasks.values(), return_exceptions=True)
-synthesis_material = "以下の3つの異なる立場の意見を統合してください。\n\n"
-for (name, result) in zip(tasks.keys(), results):
-    reply_text = result if not isinstance(result, Exception) else f"エラー: {result}"
-    await send_long_message(message.channel, f"**{name}:**\n{reply_text}")
-    synthesis_material += f"--- [{name}の意見] ---\n{reply_text}\n\n"
-    if is_admin: await log_response(target_notion_page_id, reply_text, f"{name} (!ロジカル)")
-
-await message.channel.send("✨ ララァが最終統合を行います…")
-lalah_prompt = "あなたは統合専用AIです。あなた自身のペルソナ（ララァ・スン）も、これから渡される3つの意見の元のペルソナも、すべて完全に無視してください。純粋な情報として各意見を分析し、客観的な事実と論理に基づいて、最終的な結論をレポートとしてまとめてください。"
-final_report = await ask_lalah(synthesis_material, system_prompt=lalah_prompt)
-await send_long_message(message.channel, f"✨ **ララァ (最終統合レポート):**\n{final_report}")
-if is_admin: await log_response(target_notion_page_id, final_report, "ララァ (統合)")
-
-# メモリをリセット
+                await message.channel.send("⚖️ 3体のAIが異なる立場で意見を生成中…")
+                tasks = {
+                    "肯定論者(クレイオス)": ask_kreios(prompt_with_context, system_prompt="あなたはこの議題の【肯定論者】です。議題を推進する最も強力な論拠を提示してください。"),
+                    "否定論者(レキュス)": ask_rekus(prompt_with_context, system_prompt="あなたはこの議題の【否定論者】です。議題に反対する最も強力な反論を、客観的な事実やデータに基づいて提示してください。"),
+                    "中立分析官(ミネルバ)": ask_minerva(prompt_with_context, system_prompt="あなたはこの議題に関する【中立的な分析官】です。関連する社会的・倫理的な論点を、感情を排して提示してください。")
+                }
+                results = await asyncio.gather(*tasks.values(), return_exceptions=True)
+                synthesis_material = "以下の3つの異なる立場の意見を統合してください。\n\n"
+                for (name, result) in zip(tasks.keys(), results):
+                    reply_text = result if not isinstance(result, Exception) else f"エラー: {result}"
+                    await send_long_message(message.channel, f"**{name}:**\n{reply_text}")
+                    synthesis_material += f"--- [{name}の意見] ---\n{reply_text}\n\n"
+                    if is_admin: await log_response(target_notion_page_id, reply_text, f"{name} (!ロジカル)")
+                await message.channel.send("✨ ララァが最終統合を行います…")
+                lalah_prompt = "あなたは統合専用AIです。あなた自身のペルソナ（ララァ・スン）も、これから渡される3つの意見の元のペルソナも、すべて完全に無視してください。純粋な情報として各意見を分析し、客観的な事実と論理に基づいて、最終的な結論をレポートとしてまとめてください。"
+                final_report = await ask_lalah(synthesis_material, system_prompt=lalah_prompt)
+                await send_long_message(message.channel, f"✨ **ララァ (最終統合レポート):**\n{final_report}")
+                if is_admin: await log_response(target_notion_page_id, final_report, "ララァ (統合)")
+                # メモリリセットは不要
 
     except Exception as e:
         print(f"An error occurred in on_message: {e}")
