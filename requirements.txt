@@ -6,4 +6,6 @@ requests
 notion-client
 Pillow
 mistralai==0.4.2
+aiohttp
+PyMuPDF
 
