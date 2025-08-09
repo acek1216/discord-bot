@@ -8,6 +8,8 @@ import os
 from dotenv import load_dotenv
 from notion_client import Client
 import requests # Rekus用
+import io
+from PIL import Image
 
 # --- 環境変数の読み込み ---
 load_dotenv()
@@ -154,9 +156,9 @@ async def ask_kreios(prompt, system_prompt=None):
         return response.choices[0].message.content
     except Exception as e: return f"クレイオスエラー: {e}"
 
-async def ask_minerva(prompt, attachment_parts=[]):
-    system_prompt = "あなたはシビュラシステムです。与えられた情報を元に、質問に対して200文字以内で回答してください。"
-    model = genai.GenerativeModel("gemini-1.5-pro-latest", system_instruction=system_prompt, safety_settings=safety_settings)
+async def ask_minerva(prompt, system_prompt=None, attachment_parts=[]):
+    base_prompt = system_prompt or "あなたはシビュラシステムです。与えられた情報を元に、質問に対して200文字以内で回答してください。"
+    model = genai.GenerativeModel("gemini-1.5-pro-latest", system_instruction=base_prompt, safety_settings=safety_settings)
     contents = [prompt] + attachment_parts
     try:
         response = await model.generate_content_async(contents)
@@ -277,8 +279,18 @@ async def on_message(message):
         final_query = query
         if attachment_data:
             await message.channel.send("💠 添付ファイルをミネルバが分析し、議題とします…")
-            # 添付ファイル要約用のステートレスなask_minerva呼び出し
-            summary = await ask_minerva("この添付ファイルの内容を、後続のAIへの議題として簡潔に要約してください。", attachment_data=attachment_data, attachment_mime_type=attachment_mime_type)
+            summary_model = genai.GenerativeModel("gemini-1.5-pro-latest", system_instruction="あなたは添付ファイルを要約するAIです。")
+            attachment_parts = []
+            if "image" in attachment_mime_type:
+                from PIL import Image
+                import io
+                attachment_parts.append(Image.open(io.BytesIO(attachment_data)))
+            elif attachment_mime_type:
+                attachment_parts.append({'mime_type': attachment_mime_type, 'data': attachment_data})
+            
+            contents = ["この添付ファイルの内容を、後続のAIへの議題として簡潔に要約してください。"] + attachment_parts
+            response = await summary_model.generate_content_async(contents)
+            summary = response.text
             final_query = f"{query}\n\n[添付資料の要約]:\n{summary}"
             await message.channel.send("✅ 添付ファイルの分析が完了しました。")
 
@@ -292,9 +304,10 @@ async def on_message(message):
             elif command_name == "!ミストラル":
                 bot_name = "ミストラル"; reply = await ask_mistral_base(user_id, final_query)
             elif command_name == "!ポッド042":
-                bot_name = "ポッド042"; reply = await ask_pod042(query) # ポッドは添付無視
+                bot_name = "ポッド042"; reply = await ask_pod042(query)
             elif command_name == "!ポッド153":
-                bot_name = "ポッド153"; reply = await ask_pod153(query) # ポッドは添付無視
+                bot_name = "ポッド153"; reply = await ask_pod153(query)
+
             if reply:
                 await send_long_message(message.channel, reply)
                 if is_admin: await log_response(target_notion_page_id, reply, bot_name)
@@ -312,17 +325,32 @@ async def on_message(message):
                 return
 
             if command_name == "!スライド":
-                context = await get_notion_context(message.channel, target_notion_page_id, final_query)
-                if not context: return
-                await message.channel.send("📝 gpt-4oがスライド骨子案を作成します…")
-                prompt_with_context = f"以下の【参考情報】を元に、【ユーザーの質問】に対するプレゼンテーションのスライド骨子案を作成してください。\n\n【ユーザーの質問】\n{final_query}\n\n【参考情報】\n{context}"
-                slide_prompt = "あなたはプレゼンテーションの構成作家です。与えられた情報を元に、聞き手の心を動かす構成案を以下の形式で提案してください。\n・タイトル\n・スライド1: [タイトル] - [内容]\n・スライド2: [タイトル] - [内容]\n..."
-                slide_draft = await ask_kreios(prompt_with_context, system_prompt=slide_prompt)
-                await send_long_message(message.channel, f"✨ **クレイオス (スライド骨子案):**\n{slide_draft}")
-                if is_admin: await log_response(target_notion_page_id, slide_draft, "クレイオス (スライド)")
+                await message.channel.send("📝 スライド骨子案を作成します…")
+                memories = {"GPT": gpt_base_memory, "ジェミニ": gemini_base_memory, "ミストラル": mistral_base_memory}
+                last_replies = {}
+                all_histories_found = True
+                for name, mem in memories.items():
+                    history = mem.get(user_id, [])
+                    if not history or history[-1]['role'] != 'assistant':
+                        await message.channel.send(f"❌ {name}の直近の回答履歴が見つかりません。先に`!みんなで`などを実行してください。")
+                        all_histories_found = False
+                        break
+                    last_replies[name] = history[-1]['content']
+                
+                if all_histories_found:
+                    slide_material = "以下の3つのAIの意見を統合し、魅力的なプレゼンテーションのスライド骨子案を作成してください。\n\n"
+                    for name, reply in last_replies.items():
+                        slide_material += f"--- [{name}の意見] ---\n{reply}\n\n"
+                    lalah_prompt = "あなたはプレゼンテーションの構成作家です。与えられた複数の意見を元に、聞き手の心を動かす構成案を以下の形式で提案してください。\n・タイトル\n・スライド1: [タイトル] - [内容]\n・スライド2: [タイトル] - [内容]\n..."
+                    slide_draft = await ask_lalah(slide_material, system_prompt=lalah_prompt)
+                    await send_long_message(message.channel, f"✨ **ララァ (スライド骨子案):**\n{slide_draft}")
+                    if is_admin: await log_response(target_notion_page_id, slide_draft, "ララァ (スライド)")
+                    for mem in memories.values():
+                        if user_id in mem: del mem[user_id]
+                    await message.channel.send("🧹 ベースAIの短期記憶はリセットされました。")
                 return
             
-            # --- ここから下は全てNotionを読み込むコマンド (ask, 単独上位AI, all, クリティカル, ロジカル) ---
+            # --- ここから下は全てNotionを読み込むコマンド ---
             context = await get_notion_context(message.channel, target_notion_page_id, final_query)
             if not context: return
             if is_admin: await log_response(target_notion_page_id, context, "gpt-4o (統合コンテキスト)")
@@ -372,24 +400,37 @@ async def on_message(message):
                 await message.channel.send("🧹 ベースAIの短期記憶はリセットされました。")
 
             elif command_name == "!ロジカル":
-                await message.channel.send("⚖️ 3体のAIが異なる立場で意見を生成中…")
-                tasks = {
+                await message.channel.send("⚖️ 内部討論と外部調査を並列で開始します…")
+                tasks_internal = {
                     "肯定論者(クレイオス)": ask_kreios(prompt_with_context, system_prompt="あなたはこの議題の【肯定論者】です。議題を推進する最も強力な論拠を提示してください。"),
                     "否定論者(レキュス)": ask_rekus(prompt_with_context, system_prompt="あなたはこの議題の【否定論者】です。議題に反対する最も強力な反論を、客観的な事実やデータに基づいて提示してください。"),
                     "中立分析官(ミネルバ)": ask_minerva(prompt_with_context, system_prompt="あなたはこの議題に関する【中立的な分析官】です。関連する社会的・倫理的な論点を、感情を排して提示してください。")
                 }
-                results = await asyncio.gather(*tasks.values(), return_exceptions=True)
-                synthesis_material = "以下の3つの異なる立場の意見を統合してください。\n\n"
-                for (name, result) in zip(tasks.keys(), results):
+                tasks_external = {"外部調査(レキュス)": ask_rekus(final_query, system_prompt="あなたは探索王です。ユーザーの質問に関する最新のWeb情報を収集・要約してください。")}
+                
+                results_internal = await asyncio.gather(*tasks_internal.values(), return_exceptions=True)
+                results_external = await asyncio.gather(*tasks_external.values(), return_exceptions=True)
+
+                synthesis_material = "以下の情報を統合し、最終的な結論を導き出してください。\n\n"
+                await message.channel.send("--- 内部討論の結果 ---")
+                for (name, result) in zip(tasks_internal.keys(), results_internal):
                     reply_text = result if not isinstance(result, Exception) else f"エラー: {result}"
                     await send_long_message(message.channel, f"**{name}:**\n{reply_text}")
                     synthesis_material += f"--- [{name}の意見] ---\n{reply_text}\n\n"
-                    if is_admin: await log_response(target_notion_page_id, reply_text, f"{name} (!ロジカル)")
+                    if is_admin: await log_response(target_notion_page_id, reply_text, name)
+
+                await message.channel.send("--- 外部調査の結果 ---")
+                for (name, result) in zip(tasks_external.keys(), results_external):
+                    reply_text = result if not isinstance(result, Exception) else f"エラー: {result}"
+                    await send_long_message(message.channel, f"**{name}:**\n{reply_text}")
+                    synthesis_material += f"--- [{name}の意見] ---\n{reply_text}\n\n"
+                    if is_admin: await log_response(target_notion_page_id, reply_text, name)
+                
                 await message.channel.send("✨ ララァが最終統合を行います…")
                 lalah_prompt = "あなたは統合専用AIです。あなた自身のペルソナも、渡される意見のペルソナも全て無視し、純粋な情報として客観的に統合し、最終的な結論をレポートとしてまとめてください。"
                 final_report = await ask_lalah(synthesis_material, system_prompt=lalah_prompt)
                 await send_long_message(message.channel, f"✨ **ララァ (最終統合レポート):**\n{final_report}")
-                if is_admin: await log_response(target_notion_page_id, final_report, "ララァ (統合)")
+                if is_admin: await log_response(target_notion_page_id, final_report, "ララァ (ロジカル統合)")
 
     except Exception as e:
         print(f"An error occurred in on_message: {e}")
