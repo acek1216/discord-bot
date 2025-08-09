@@ -7,7 +7,9 @@ import asyncio
 import os
 from dotenv import load_dotenv
 from notion_client import Client
-import requests # Rekus用
+import requests
+import io
+from PIL import Image
 
 # --- 環境変数の読み込み ---
 load_dotenv()
@@ -18,7 +20,7 @@ perplexity_api_key = os.getenv("PERPLEXITY_API_KEY")
 MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY")
 notion_api_key = os.getenv("NOTION_API_KEY")
 ADMIN_USER_ID = os.getenv("ADMIN_USER_ID")
-NOTION_MAIN_PAGE_ID = os.getenv("NOTION_PAGE_ID") 
+NOTION_MAIN_PAGE_ID = os.getenv("NOTION_PAGE_ID")
 
 # Renderの環境変数から対応表を読み込み、辞書を作成
 NOTION_PAGE_MAP_STRING = os.getenv("NOTION_PAGE_MAP_STRING", "")
@@ -61,7 +63,7 @@ async def send_long_message(channel, text):
         await channel.send(text)
     else:
         for i in range(0, len(text), 2000):
-            await channel.send(text[i:i+2000])
+            await channel.send(text[i:i + 2000])
 
 # --- Notion連携関数 ---
 def _sync_get_notion_page_text(page_id):
@@ -103,7 +105,6 @@ async def log_response(page_id, answer, bot_name):
     await log_to_notion(page_id, blocks)
 
 # --- AIモデル呼び出し関数 ---
-
 # グループA：短期記憶型
 async def ask_gpt_base(user_id, prompt):
     history = gpt_base_memory.get(user_id, [])
@@ -123,7 +124,8 @@ async def ask_gemini_base(user_id, prompt):
     system_prompt = "あなたは「レイチェル・ゼイン（SUITS）」です。会話の文脈を考慮して150文字以内で回答してください。"
     model = genai.GenerativeModel("gemini-1.5-flash-latest", system_instruction=system_prompt, safety_settings=safety_settings)
     try:
-        response = await model.generate_content_async(prompt)
+        full_prompt = "\n".join([f"{h['role']}: {h['content']}" for h in history]) + f"\nuser: {prompt}"
+        response = await model.generate_content_async(full_prompt)
         reply = response.text
         new_history = history + [{"role": "user", "content": prompt}, {"role": "assistant", "content": reply}]
         if len(new_history) > 10: new_history = new_history[-10:]
@@ -153,11 +155,12 @@ async def ask_kreios(prompt, system_prompt=None):
         return response.choices[0].message.content
     except Exception as e: return f"クレイオスエラー: {e}"
 
-async def ask_minerva(prompt):
+async def ask_minerva(prompt, attachment_parts=[]):
     system_prompt = "あなたはシビュラシステムです。与えられた情報を元に、質問に対して200文字以内で回答してください。"
     model = genai.GenerativeModel("gemini-1.5-pro-latest", system_instruction=system_prompt, safety_settings=safety_settings)
+    contents = [prompt] + attachment_parts
     try:
-        response = await model.generate_content_async(prompt)
+        response = await model.generate_content_async(contents)
         return response.text
     except Exception as e: return f"ミネルバエラー: {e}"
 
@@ -199,32 +202,19 @@ async def ask_pod153(prompt):
 
 # Notionコンテキスト生成ヘルパー
 async def get_notion_context(channel, page_id, query):
-    await channel.send(f"Notionページを読み込んでいます…")
+    await channel.send("Notionページを読み込んでいます…")
     notion_text = await get_notion_page_text(page_id)
     if notion_text.startswith("ERROR:") or not notion_text.strip():
         await channel.send("❌ Notionページからテキストを取得できませんでした。")
         return None
-
+    
     chunk_summarizer_model = genai.GenerativeModel("gemini-1.5-pro-latest", system_instruction="あなたは構造化要約AIです。")
     chunk_size = 8000
     text_chunks = [notion_text[i:i + chunk_size] for i in range(0, len(notion_text), chunk_size)]
     chunk_summaries = []
     
     for i, chunk in enumerate(text_chunks):
-        # ▼▼▼ タグ付け指示を追加 ▼▼▼
-        prompt = f"""以下のテキストを要約し、必ず以下のタグを付けて分類してください：
-[背景情報] ...
-[定義・前提] ...
-[事実経過] ...
-[未解決課題] ...
-[補足情報] ...
-
-タグは省略可能ですが、存在する場合は必ず上記のいずれかに分類してください。
-ユーザーの質問は「{query}」です。この質問との関連性を考慮して要約してください。
-
-【テキスト】
-{chunk}
-"""
+        prompt = f"以下のテキストを要約し、必ず以下のタグを付けて分類してください：\n[背景情報]\n[定義・前提]\n[事実経過]\n[未解決課題]\n[補足情報]\nタグは省略可ですが、存在する場合は必ず上記のいずれかに分類してください。\nユーザーの質問は「{query}」です。この質問との関連性を考慮して要約してください。\n\n【テキスト】\n{chunk}"
         try:
             response = await chunk_summarizer_model.generate_content_async(prompt)
             chunk_summaries.append(response.text)
@@ -239,16 +229,7 @@ async def get_notion_context(channel, page_id, query):
     await channel.send("ミネルバが全チャンクの要約完了。gpt-4oが統合・分析します…")
     combined = "\n---\n".join(chunk_summaries)
     
-    # ▼▼▼ タグごとの統合指示を追加 ▼▼▼
-    prompt = f"""以下の、タグ付けされた複数の要約群を、一つの構造化されたレポートに統合してください。
-各タグ（[背景情報]、[事実経過]など）ごとに内容をまとめ直し、最終的なコンテキストとして出力してください。
-
-【ユーザーの質問】
-{query}
-
-【タグ付き要約群】
-{combined}
-"""
+    prompt = f"以下の、タグ付けされた複数の要約群を、一つの構造化されたレポートに統合してください。\n各タグ（[背景情報]、[事実経過]など）ごとに内容をまとめ直し、最終的なコンテキストとして出力してください。\n\n【ユーザーの質問】\n{query}\n\n【タグ付き要約群】\n{combined}"
     messages=[{"role": "system", "content": "あなたは構造化統合AIです。"}, {"role": "user", "content": prompt}]
     try:
         response = await openai_client.chat.completions.create(model="gpt-4o", messages=messages, max_tokens=2200)
@@ -276,6 +257,12 @@ async def on_message(message):
         query = content[len(command_name):].strip()
         is_admin = user_id == ADMIN_USER_ID
         
+        attachment_data, attachment_mime_type = None, None
+        if message.attachments and command_name not in ["!ポッド042", "!ポッド153"]:
+            attachment = message.attachments[0]
+            attachment_data = await attachment.read()
+            attachment_mime_type = attachment.content_type
+            
         thread_id = str(message.channel.id)
         target_notion_page_id = NOTION_PAGE_MAP.get(thread_id, NOTION_MAIN_PAGE_ID)
 
@@ -287,20 +274,43 @@ async def on_message(message):
         if is_admin and command_name.startswith("!"):
             log_blocks = [{"object": "block", "type": "paragraph", "paragraph": {"rich_text": [{"type": "text", "text": {"content": f"👤 {user_name} が「{command_name} {query}」を実行しました。"}}]}}]
             await log_to_notion(target_notion_page_id, log_blocks)
+        
+        # 添付ファイルの前処理
+        final_query = query
+        if attachment_data:
+            await message.channel.send("💠 添付ファイルをミネルバが分析し、議題とします…")
+            summary_model = genai.GenerativeModel("gemini-1.5-pro-latest", system_instruction="あなたは添付ファイルを要約するAIです。")
+            attachment_parts = []
+            if "image" in attachment_mime_type:
+                from PIL import Image
+                import io
+                attachment_parts.append(Image.open(io.BytesIO(attachment_data)))
+            elif attachment_mime_type:
+                attachment_parts.append({'mime_type': attachment_mime_type, 'data': attachment_data})
+            
+            contents = ["この添付ファイルの内容を、後続のAIへの議題として簡潔に要約してください。"] + attachment_parts
+            response = await summary_model.generate_content_async(contents)
+            summary = response.text
+            final_query = f"{query}\n\n[添付資料の要約]:\n{summary}"
+            await message.channel.send("✅ 添付ファイルの分析が完了しました。")
 
         # グループA：短期記憶型チャットAI
         if command_name in ["!gpt", "!ジェミニ", "!ミストラル", "!ポッド042", "!ポッド153"]:
             reply, bot_name = None, ""
             if command_name == "!gpt":
-                bot_name = "GPT"; reply = await ask_gpt_base(user_id, query)
+                bot_name = "GPT"; reply = await ask_gpt_base(user_id, final_query)
             elif command_name == "!ジェミニ":
-                bot_name = "ジェミニ"; reply = await ask_gemini_base(user_id, query)
+                bot_name = "ジェミニ"; reply = await ask_gemini_base(user_id, final_query)
             elif command_name == "!ミストラル":
-                bot_name = "ミストラル"; reply = await ask_mistral_base(user_id, query)
+                bot_name = "ミストラル"; reply = await ask_mistral_base(user_id, final_query)
             elif command_name == "!ポッド042":
-                bot_name = "ポッド042"; reply = await ask_pod042(query)
+                bot_name = "ポッド042"
+                await message.channel.send("《ポッド042より応答 (添付ファイル非対応)》")
+                reply = await ask_pod042(query) # ポッドは添付ファイルを無視
             elif command_name == "!ポッド153":
-                bot_name = "ポッド153"; reply = await ask_pod153(query)
+                bot_name = "ポッド153"
+                await message.channel.send("《ポッド153より応答 (添付ファイル非対応)》")
+                reply = await ask_pod153(query) # ポッドは添付ファイルを無視
             if reply:
                 await send_long_message(message.channel, reply)
                 if is_admin: await log_response(target_notion_page_id, reply, bot_name)
@@ -310,7 +320,7 @@ async def on_message(message):
             
             if command_name == "!みんなで":
                 await message.channel.send("🌀 三AIが同時に応答します… (GPT, ジェミニ, ミストラル)")
-                tasks = {"GPT": ask_gpt_base(user_id, query), "ジェミニ": ask_gemini_base(user_id, query), "ミストラル": ask_mistral_base(user_id, query)}
+                tasks = {"GPT": ask_gpt_base(user_id, final_query), "ジェミニ": ask_gemini_base(user_id, final_query), "ミストラル": ask_mistral_base(user_id, final_query)}
                 results = await asyncio.gather(*tasks.values(), return_exceptions=True)
                 for name, result in zip(tasks.keys(), results):
                     await send_long_message(message.channel, f"**{name}:**\n{result}")
@@ -343,12 +353,12 @@ async def on_message(message):
                     await message.channel.send("🧹 ベースAIの短期記憶はリセットされました。")
                 return
             
-            context = await get_notion_context(message.channel, target_notion_page_id, query)
+            context = await get_notion_context(message.channel, target_notion_page_id, final_query)
             if not context: return
             if is_admin: await log_response(target_notion_page_id, context, "gpt-4o (統合コンテキスト)")
 
             await message.channel.send("最終回答生成中…")
-            prompt_with_context = f"以下の【参考情報】を元に、【ユーザーの質問】に回答してください。\n\n【ユーザーの質問】\n{query}\n\n【参考情報】\n{context}"
+            prompt_with_context = f"以下の【参考情報】を元に、【ユーザーの質問】に回答してください。\n\n【ユーザーの質問】\n{final_query}\n\n【参考情報】\n{context}"
             
             if command_name in ["!クレイオス", "!ミネルバ", "!レキュス", "!ララァ"]:
                 reply, bot_name = None, ""
@@ -422,4 +432,3 @@ async def on_message(message):
 
 # --- 起動 ---
 client.run(DISCORD_TOKEN)
-
