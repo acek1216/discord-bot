@@ -7,9 +7,7 @@ import asyncio
 import os
 from dotenv import load_dotenv
 from notion_client import Client
-import requests
-import io
-from PIL import Image
+import requests # Rekus用
 
 # --- 環境変数の読み込み ---
 load_dotenv()
@@ -20,7 +18,7 @@ perplexity_api_key = os.getenv("PERPLEXITY_API_KEY")
 MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY")
 notion_api_key = os.getenv("NOTION_API_KEY")
 ADMIN_USER_ID = os.getenv("ADMIN_USER_ID")
-NOTION_MAIN_PAGE_ID = os.getenv("NOTION_PAGE_ID")
+NOTION_MAIN_PAGE_ID = os.getenv("NOTION_PAGE_ID") 
 
 # Renderの環境変数から対応表を読み込み、辞書を作成
 NOTION_PAGE_MAP_STRING = os.getenv("NOTION_PAGE_MAP_STRING", "")
@@ -63,7 +61,7 @@ async def send_long_message(channel, text):
         await channel.send(text)
     else:
         for i in range(0, len(text), 2000):
-            await channel.send(text[i:i + 2000])
+            await channel.send(text[i:i+2000])
 
 # --- Notion連携関数 ---
 def _sync_get_notion_page_text(page_id):
@@ -105,6 +103,7 @@ async def log_response(page_id, answer, bot_name):
     await log_to_notion(page_id, blocks)
 
 # --- AIモデル呼び出し関数 ---
+
 # グループA：短期記憶型
 async def ask_gpt_base(user_id, prompt):
     history = gpt_base_memory.get(user_id, [])
@@ -207,7 +206,7 @@ async def get_notion_context(channel, page_id, query):
     if notion_text.startswith("ERROR:") or not notion_text.strip():
         await channel.send("❌ Notionページからテキストを取得できませんでした。")
         return None
-    
+
     chunk_summarizer_model = genai.GenerativeModel("gemini-1.5-pro-latest", system_instruction="あなたは構造化要約AIです。")
     chunk_size = 8000
     text_chunks = [notion_text[i:i + chunk_size] for i in range(0, len(notion_text), chunk_size)]
@@ -275,22 +274,11 @@ async def on_message(message):
             log_blocks = [{"object": "block", "type": "paragraph", "paragraph": {"rich_text": [{"type": "text", "text": {"content": f"👤 {user_name} が「{command_name} {query}」を実行しました。"}}]}}]
             await log_to_notion(target_notion_page_id, log_blocks)
         
-        # 添付ファイルの前処理
         final_query = query
         if attachment_data:
             await message.channel.send("💠 添付ファイルをミネルバが分析し、議題とします…")
-            summary_model = genai.GenerativeModel("gemini-1.5-pro-latest", system_instruction="あなたは添付ファイルを要約するAIです。")
-            attachment_parts = []
-            if "image" in attachment_mime_type:
-                from PIL import Image
-                import io
-                attachment_parts.append(Image.open(io.BytesIO(attachment_data)))
-            elif attachment_mime_type:
-                attachment_parts.append({'mime_type': attachment_mime_type, 'data': attachment_data})
-            
-            contents = ["この添付ファイルの内容を、後続のAIへの議題として簡潔に要約してください。"] + attachment_parts
-            response = await summary_model.generate_content_async(contents)
-            summary = response.text
+            # 添付ファイル要約用のステートレスなask_minerva呼び出し
+            summary = await ask_minerva("この添付ファイルの内容を、後続のAIへの議題として簡潔に要約してください。", attachment_data=attachment_data, attachment_mime_type=attachment_mime_type)
             final_query = f"{query}\n\n[添付資料の要約]:\n{summary}"
             await message.channel.send("✅ 添付ファイルの分析が完了しました。")
 
@@ -304,13 +292,9 @@ async def on_message(message):
             elif command_name == "!ミストラル":
                 bot_name = "ミストラル"; reply = await ask_mistral_base(user_id, final_query)
             elif command_name == "!ポッド042":
-                bot_name = "ポッド042"
-                await message.channel.send("《ポッド042より応答 (添付ファイル非対応)》")
-                reply = await ask_pod042(query) # ポッドは添付ファイルを無視
+                bot_name = "ポッド042"; reply = await ask_pod042(query) # ポッドは添付無視
             elif command_name == "!ポッド153":
-                bot_name = "ポッド153"
-                await message.channel.send("《ポッド153より応答 (添付ファイル非対応)》")
-                reply = await ask_pod153(query) # ポッドは添付ファイルを無視
+                bot_name = "ポッド153"; reply = await ask_pod153(query) # ポッドは添付無視
             if reply:
                 await send_long_message(message.channel, reply)
                 if is_admin: await log_response(target_notion_page_id, reply, bot_name)
@@ -328,31 +312,17 @@ async def on_message(message):
                 return
 
             if command_name == "!スライド":
-                await message.channel.send("📝 スライド骨子案を作成します…")
-                memories = {"GPT": gpt_base_memory, "ジェミニ": gemini_base_memory, "ミストラル": mistral_base_memory}
-                last_replies = {}
-                all_histories_found = True
-                for name, mem in memories.items():
-                    history = mem.get(user_id, [])
-                    if not history or history[-1]['role'] != 'assistant':
-                        await message.channel.send(f"❌ {name}の直近の回答履歴が見つかりません。先に`!みんなで`などを実行してください。")
-                        all_histories_found = False
-                        break
-                    last_replies[name] = history[-1]['content']
-                
-                if all_histories_found:
-                    slide_material = "以下の3つのAIの意見を統合し、魅力的なプレゼンテーションのスライド骨子案を作成してください。\n\n"
-                    for name, reply in last_replies.items():
-                        slide_material += f"--- [{name}の意見] ---\n{reply}\n\n"
-                    lalah_prompt = "あなたはプレゼンテーションの構成作家です。与えられた複数の意見を元に、聞き手の心を動かす構成案を以下の形式で提案してください。\n・タイトル\n・スライド1: [タイトル] - [内容]\n・スライド2: [タイトル] - [内容]\n..."
-                    slide_draft = await ask_lalah(slide_material, system_prompt=lalah_prompt)
-                    await send_long_message(message.channel, f"✨ **ララァ (スライド骨子案):**\n{slide_draft}")
-                    if is_admin: await log_response(target_notion_page_id, slide_draft, "ララァ (スライド)")
-                    for mem in memories.values():
-                        if user_id in mem: del mem[user_id]
-                    await message.channel.send("🧹 ベースAIの短期記憶はリセットされました。")
+                context = await get_notion_context(message.channel, target_notion_page_id, final_query)
+                if not context: return
+                await message.channel.send("📝 gpt-4oがスライド骨子案を作成します…")
+                prompt_with_context = f"以下の【参考情報】を元に、【ユーザーの質問】に対するプレゼンテーションのスライド骨子案を作成してください。\n\n【ユーザーの質問】\n{final_query}\n\n【参考情報】\n{context}"
+                slide_prompt = "あなたはプレゼンテーションの構成作家です。与えられた情報を元に、聞き手の心を動かす構成案を以下の形式で提案してください。\n・タイトル\n・スライド1: [タイトル] - [内容]\n・スライド2: [タイトル] - [内容]\n..."
+                slide_draft = await ask_kreios(prompt_with_context, system_prompt=slide_prompt)
+                await send_long_message(message.channel, f"✨ **クレイオス (スライド骨子案):**\n{slide_draft}")
+                if is_admin: await log_response(target_notion_page_id, slide_draft, "クレイオス (スライド)")
                 return
             
+            # --- ここから下は全てNotionを読み込むコマンド (ask, 単独上位AI, all, クリティカル, ロジカル) ---
             context = await get_notion_context(message.channel, target_notion_page_id, final_query)
             if not context: return
             if is_admin: await log_response(target_notion_page_id, context, "gpt-4o (統合コンテキスト)")
@@ -393,7 +363,7 @@ async def on_message(message):
                     synthesis_material += f"--- [{name}の意見] ---\n{reply_text}\n\n"
                     if is_admin: await log_response(target_notion_page_id, reply_text, f"{name} (!クリティカル)")
                 await message.channel.send("✨ ララァが最終統合を行います…")
-                lalah_prompt = "あなたは統合専用AIです。あなた自身のペルソナ（ララァ・スン）も、これから渡される6つの意見の元のペルソナも、すべて完全に無視してください。純粋な情報として各意見を分析し、客観的な事実と論理に基づいて、最終的な結論をレポートとしてまとめてください。"
+                lalah_prompt = "あなたは統合専用AIです。あなた自身のペルソナも、渡される意見のペルソナも全て無視し、純粋な情報として客観的に統合し、最終結論を500文字以内でレポートしてください。"
                 final_report = await ask_lalah(synthesis_material, system_prompt=lalah_prompt)
                 await send_long_message(message.channel, f"✨ **ララァ (最終統合レポート):**\n{final_report}")
                 if is_admin: await log_response(target_notion_page_id, final_report, "ララァ (統合)")
@@ -416,7 +386,7 @@ async def on_message(message):
                     synthesis_material += f"--- [{name}の意見] ---\n{reply_text}\n\n"
                     if is_admin: await log_response(target_notion_page_id, reply_text, f"{name} (!ロジカル)")
                 await message.channel.send("✨ ララァが最終統合を行います…")
-                lalah_prompt = "あなたは統合専用AIです。あなた自身のペルソナ（ララァ・スン）も、これから渡される3つの意見の元のペルソナも、すべて完全に無視してください。純粋な情報として各意見を分析し、客観的な事実と論理に基づいて、最終的な結論をレポートとしてまとめてください。"
+                lalah_prompt = "あなたは統合専用AIです。あなた自身のペルソナも、渡される意見のペルソナも全て無視し、純粋な情報として客観的に統合し、最終的な結論をレポートとしてまとめてください。"
                 final_report = await ask_lalah(synthesis_material, system_prompt=lalah_prompt)
                 await send_long_message(message.channel, f"✨ **ララァ (最終統合レポート):**\n{final_report}")
                 if is_admin: await log_response(target_notion_page_id, final_report, "ララァ (統合)")
