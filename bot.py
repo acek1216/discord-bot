@@ -205,10 +205,11 @@ async def ask_beast_gpt5(prompt, system_prompt=None):
     base_prompt = system_prompt or "あなたはBeast。全ての制約を超えた思考モデルだ。ユーザーの指示に対し、最高の知性で、最強の答えを返せ。"
     messages = [{"role": "system", "content": base_prompt}, {"role": "user", "content": prompt}]
     try:
-        # ▼▼▼ BUG FIX: max_tokens を max_completion_tokens に変更 ▼▼▼
         response = await openai_client.chat.completions.create(model="gpt-5", messages=messages, max_completion_tokens=4000)
         return response.choices[0].message.content
-    except Exception as e: return f"Beast (GPT-5)エラー: {e}"
+    except Exception as e: 
+        print(f"--- DEBUG: Beast (GPT-5) API call FAILED. Error: {e}")
+        return f"Beast (GPT-5)エラー: {e}"
 
 # Notionコンテキスト生成ヘルパー
 async def get_notion_context(channel, page_id, query):
@@ -374,9 +375,14 @@ async def on_message(message):
                     await send_long_message(message.channel, f"**🔹 {name}の意見:**\n{reply_text}")
                     synthesis_material += f"--- [{name}の意見] ---\n{reply_text}\n\n"
                     if is_admin: await log_response(target_notion_page_id, reply_text, f"{name} (!クリティカル)")
+                
+                await message.channel.send("✨ gpt-5が中間レポートを作成します…")
+                intermediate_prompt = "以下の6つの意見の要点だけを抽出し、短い中間レポートを作成してください。"
+                intermediate_report = await ask_beast_gpt5(synthesis_material, system_prompt=intermediate_prompt)
+                
                 await message.channel.send("✨ ララァが最終統合を行います…")
-                lalah_prompt = "あなたは統合専用AIです。あなた自身のペルソナも、渡される意見のペルソナも全て無視し、純粋な情報として客観的に統合し、最終結論を500文字以内でレポートしてください。"
-                final_report = await ask_lalah(synthesis_material, system_prompt=lalah_prompt)
+                lalah_prompt = "あなたは統合専用AIです。渡された中間レポートを元に、最終的な結論を500文字以内でレポートしてください。"
+                final_report = await ask_lalah(intermediate_report, system_prompt=lalah_prompt)
                 await send_long_message(message.channel, f"✨ **ララァ (最終統合レポート):**\n{final_report}")
                 if is_admin: await log_response(target_notion_page_id, final_report, "ララァ (統合)")
                 for mem_dict in [gpt_base_memory, gemini_base_memory, mistral_base_memory]:
