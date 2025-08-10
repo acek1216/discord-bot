@@ -205,7 +205,8 @@ async def ask_beast_gpt5(prompt, system_prompt=None):
     base_prompt = system_prompt or "あなたはBeast。全ての制約を超えた思考モデルだ。ユーザーの指示に対し、最高の知性で、最強の答えを返せ。"
     messages = [{"role": "system", "content": base_prompt}, {"role": "user", "content": prompt}]
     try:
-        response = await openai_client.chat.completions.create(model="gpt-5", messages=messages, max_tokens=4000)
+        # ▼▼▼ BUG FIX: max_tokens を max_completion_tokens に変更 ▼▼▼
+        response = await openai_client.chat.completions.create(model="gpt-5", messages=messages, max_completion_tokens=4000)
         return response.choices[0].message.content
     except Exception as e: return f"Beast (GPT-5)エラー: {e}"
 
@@ -262,6 +263,8 @@ async def on_message(message):
     try:
         content = message.content
         command_name = content.split(' ')[0]
+        if not command_name.startswith("!"): return
+
         user_id, user_name = str(message.author.id), message.author.display_name
         query = content[len(command_name):].strip()
         is_admin = user_id == ADMIN_USER_ID
@@ -276,11 +279,10 @@ async def on_message(message):
         target_notion_page_id = NOTION_PAGE_MAP.get(thread_id, NOTION_MAIN_PAGE_ID)
 
         if not target_notion_page_id:
-            if command_name.startswith("!"):
-                 await message.channel.send("❌ このスレッドに対応するNotionページが設定されておらず、メインページの指定もありません。")
+            await message.channel.send("❌ このスレッドに対応するNotionページが設定されておらず、メインページの指定もありません。")
             return
         
-        if is_admin and command_name.startswith("!"):
+        if is_admin:
             log_blocks = [{"object": "block", "type": "paragraph", "paragraph": {"rich_text": [{"type": "text", "text": {"content": f"👤 {user_name} が「{command_name} {query}」を実行しました。"}}]}}]
             await log_to_notion(target_notion_page_id, log_blocks)
         
@@ -323,31 +325,15 @@ async def on_message(message):
 
             if command_name == "!スライド":
                 await message.channel.send("📝 スライド骨子案を作成します…")
-                memories = {"GPT": gpt_base_memory, "ジェミニ": gemini_base_memory, "ミストラル": mistral_base_memory}
-                last_replies = {}
-                all_histories_found = True
-                for name, mem in memories.items():
-                    history = mem.get(user_id, [])
-                    if not history or history[-1]['role'] != 'assistant':
-                        await message.channel.send(f"❌ {name}の直近の回答履歴が見つかりません。先に`!みんなで`などを実行してください。")
-                        all_histories_found = False
-                        break
-                    last_replies[name] = history[-1]['content']
-                
-                if all_histories_found:
-                    slide_material = "以下の3つのAIの意見を統合し、魅力的なプレゼンテーションのスライド骨子案を作成してください。\n\n"
-                    for name, reply in last_replies.items():
-                        slide_material += f"--- [{name}の意見] ---\n{reply}\n\n"
-                    lalah_prompt = "あなたはプレゼンテーションの構成作家です。与えられた複数の意見を元に、聞き手の心を動かす構成案を以下の形式で提案してください。\n・タイトル\n・スライド1: [タイトル] - [内容]\n・スライド2: [タイトル] - [内容]\n..."
-                    slide_draft = await ask_beast_gpt5(slide_material, system_prompt=lalah_prompt)
-                    await send_long_message(message.channel, f"✨ **Beast (GPT-5) (スライド骨子案):**\n{slide_draft}")
-                    if is_admin: await log_response(target_notion_page_id, slide_draft, "Beast (GPT-5) (スライド)")
-                    for mem in memories.values():
-                        if user_id in mem: del mem[user_id]
-                    await message.channel.send("🧹 ベースAIの短期記憶はリセットされました。")
+                context = await get_notion_context(message.channel, target_notion_page_id, final_query)
+                if not context: return
+                prompt_with_context = f"以下の【参考情報】を元に、【ユーザーの質問】に対するプレゼンテーションのスライド骨子案を作成してください。\n\n【ユーザーの質問】\n{final_query}\n\n【参考情報】\n{context}"
+                slide_prompt = "あなたはプレゼンテーションの構成作家です。与えられた情報を元に、聞き手の心を動かす構成案を以下の形式で提案してください。\n・タイトル\n・スライド1: [タイトル] - [内容]\n・スライド2: [タイトル] - [内容]\n..."
+                slide_draft = await ask_beast_gpt5(prompt_with_context, system_prompt=slide_prompt)
+                await send_long_message(message.channel, f"✨ **Beast (GPT-5) (スライド骨子案):**\n{slide_draft}")
+                if is_admin: await log_response(target_notion_page_id, slide_draft, "Beast (GPT-5) (スライド)")
                 return
             
-            # --- ここから下は全てNotionを読み込むコマンド ---
             context = await get_notion_context(message.channel, target_notion_page_id, final_query)
             if not context: return
             if is_admin: await log_response(target_notion_page_id, context, "gpt-5 (統合コンテキスト)")
@@ -406,8 +392,10 @@ async def on_message(message):
                 }
                 tasks_external = {"外部調査(レキュス)": ask_rekus(final_query, system_prompt="あなたは探索王です。ユーザーの質問に関する最新のWeb情報を収集・要約してください。")}
                 
-                results_internal = await asyncio.gather(*tasks_internal.values(), return_exceptions=True)
-                results_external = await asyncio.gather(*tasks_external.values(), return_exceptions=True)
+                results_internal, results_external = await asyncio.gather(
+                    asyncio.gather(*tasks_internal.values(), return_exceptions=True),
+                    asyncio.gather(*tasks_external.values(), return_exceptions=True)
+                )
 
                 synthesis_material = "以下の情報を統合し、最終的な結論を導き出してください。\n\n"
                 await message.channel.send("--- 内部討論の結果 ---")
