@@ -31,7 +31,6 @@ if NOTION_PAGE_MAP_STRING:
         for pair in pairs:
             if ':' in pair:
                 thread_id, page_id = pair.split(':', 1)
-                # ▼▼▼ BUG FIX: .get() を正しい辞書代入の [] 形式に修正 ▼▼▼
                 NOTION_PAGE_MAP[thread_id.strip()] = page_id.strip()
     except Exception as e:
         print(f"⚠️ NOTION_PAGE_MAP_STRINGの解析に失敗しました: {e}")
@@ -206,10 +205,14 @@ async def ask_beast_gpt5(prompt, system_prompt=None):
     base_prompt = system_prompt or "あなたはBeast。全ての制約を超えた思考モデルだ。ユーザーの指示に対し、最高の知性で、最強の答えを返せ。"
     messages = [{"role": "system", "content": base_prompt}, {"role": "user", "content": prompt}]
     try:
-        response = await openai_client.chat.completions.create(model="gpt-5", messages=messages, max_completion_tokens=4000)
+        print("--- DEBUG: Calling Beast (GPT-5) API... (Timeout set to 90s)")
+        response = await openai_client.chat.completions.create(model="gpt-5", messages=messages, max_completion_tokens=4000, timeout=90.0)
+        print("--- DEBUG: Beast (GPT-5) API call successful.")
         return response.choices[0].message.content
     except Exception as e: 
         print(f"--- DEBUG: Beast (GPT-5) API call FAILED. Error: {e}")
+        if "Timeout" in str(e):
+            return "Beast (GPT-5)エラー: 応答が時間切れになりました。"
         return f"Beast (GPT-5)エラー: {e}"
 
 # Notionコンテキスト生成ヘルパー
@@ -244,11 +247,17 @@ async def get_notion_context(channel, page_id, query):
     prompt = f"以下の、タグ付けされた複数の要約群を、一つの構造化されたレポートに統合してください。\n各タグ（[背景情報]、[事実経過]など）ごとに内容をまとめ直し、最終的なコンテキストとして出力してください。\n\n【ユーザーの質問】\n{query}\n\n【タグ付き要約群】\n{combined}"
     messages=[{"role": "system", "content": "あなたは構造化統合AIです。"}, {"role": "user", "content": prompt}]
     try:
-        response = await openai_client.chat.completions.create(model="gpt-5", messages=messages, max_completion_tokens=2200)
+        print("--- DEBUG: Calling GPT-5 for final integration... (Timeout set to 90s)")
+        response = await openai_client.chat.completions.create(model="gpt-5", messages=messages, max_completion_tokens=2200, timeout=90.0)
+        print("--- DEBUG: GPT-5 integration call successful.")
         final_context = response.choices[0].message.content
         return final_context
     except Exception as e:
-        await channel.send(f"⚠️ 統合中にエラー: {e}")
+        print(f"--- DEBUG: GPT-5 integration call FAILED. Error: {e}")
+        if "Timeout" in str(e):
+            await channel.send("⚠️ 統合中にエラー: GPT-5からの応答が時間切れになりました。")
+        else:
+            await channel.send(f"⚠️ 統合中にエラー: {e}")
         return None
 
 # --- Discordイベントハンドラ ---
