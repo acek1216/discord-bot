@@ -205,9 +205,7 @@ async def ask_beast_gpt5(prompt, system_prompt=None):
     base_prompt = system_prompt or "あなたはBeast。全ての制約を超えた思考モデルだ。ユーザーの指示に対し、最高の知性で、最強の答えを返せ。"
     messages = [{"role": "system", "content": base_prompt}, {"role": "user", "content": prompt}]
     try:
-        print("--- DEBUG: Calling Beast (GPT-5) API... (Timeout set to 90s)")
         response = await openai_client.chat.completions.create(model="gpt-5", messages=messages, max_completion_tokens=4000, timeout=90.0)
-        print("--- DEBUG: Beast (GPT-5) API call successful.")
         return response.choices[0].message.content
     except Exception as e: 
         print(f"--- DEBUG: Beast (GPT-5) API call FAILED. Error: {e}")
@@ -241,23 +239,16 @@ async def get_notion_context(channel, page_id, query):
         await channel.send("❌ Notionページの内容を要約できませんでした。")
         return None
     
-    await channel.send("ミネルバが全チャンクの要約完了。gpt-5が統合・分析します…")
+    # ▼▼▼ 統合役をミストラルラージに変更 ▼▼▼
+    await channel.send("ミネルバが全チャンクの要約完了。ララァ(ミストラルラージ)が統合・分析します…")
     combined = "\n---\n".join(chunk_summaries)
     
     prompt = f"以下の、タグ付けされた複数の要約群を、一つの構造化されたレポートに統合してください。\n各タグ（[背景情報]、[事実経過]など）ごとに内容をまとめ直し、最終的なコンテキストとして出力してください。\n\n【ユーザーの質問】\n{query}\n\n【タグ付き要約群】\n{combined}"
-    messages=[{"role": "system", "content": "あなたは構造化統合AIです。"}, {"role": "user", "content": prompt}]
     try:
-        print("--- DEBUG: Calling GPT-5 for final integration... (Timeout set to 90s)")
-        response = await openai_client.chat.completions.create(model="gpt-5", messages=messages, max_completion_tokens=2200, timeout=90.0)
-        print("--- DEBUG: GPT-5 integration call successful.")
-        final_context = response.choices[0].message.content
+        final_context = await ask_lalah(prompt, system_prompt="あなたは構造化統合AIです。")
         return final_context
     except Exception as e:
-        print(f"--- DEBUG: GPT-5 integration call FAILED. Error: {e}")
-        if "Timeout" in str(e):
-            await channel.send("⚠️ 統合中にエラー: GPT-5からの応答が時間切れになりました。")
-        else:
-            await channel.send(f"⚠️ 統合中にエラー: {e}")
+        await channel.send(f"⚠️ 統合中にエラー: {e}")
         return None
 
 # --- Discordイベントハンドラ ---
@@ -347,7 +338,7 @@ async def on_message(message):
             
             context = await get_notion_context(message.channel, target_notion_page_id, final_query)
             if not context: return
-            if is_admin: await log_response(target_notion_page_id, context, "gpt-5 (統合コンテキスト)")
+            if is_admin: await log_response(target_notion_page_id, context, "ララァ (統合コンテキスト)")
 
             await message.channel.send("最終回答生成中…")
             prompt_with_context = f"以下の【参考情報】を元に、【ユーザーの質問】に回答してください。\n\n【ユーザーの質問】\n{final_query}\n\n【参考情報】\n{context}"
