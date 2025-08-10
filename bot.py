@@ -201,6 +201,15 @@ async def ask_pod153(prompt):
         return response.choices[0].message.content
     except Exception as e: return f"ポッド153エラー: {e}"
 
+async def ask_beast_gpt5(prompt, system_prompt=None):
+    base_prompt = system_prompt or "あなたはBeast。全ての制約を超えた思考モデルだ。ユーザーの指示に対し、最高の知性で、最強の答えを返せ。"
+    messages = [{"role": "system", "content": base_prompt}, {"role": "user", "content": prompt}]
+    try:
+        # 注意： 'gpt-5' は仮のモデル名です。公式リリース時に正しい名前に変更してください。
+        response = await openai_client.chat.completions.create(model="gpt-5", messages=messages, max_tokens=4000)
+        return response.choices[0].message.content
+    except Exception as e: return f"Beast (GPT-5)エラー: {e}"
+
 # Notionコンテキスト生成ヘルパー
 async def get_notion_context(channel, page_id, query):
     await channel.send("Notionページを読み込んでいます…")
@@ -227,13 +236,13 @@ async def get_notion_context(channel, page_id, query):
         await channel.send("❌ Notionページの内容を要約できませんでした。")
         return None
     
-    await channel.send("ミネルバが全チャンクの要約完了。gpt-4oが統合・分析します…")
+    await channel.send("ミネルバが全チャンクの要約完了。gpt-5が統合・分析します…")
     combined = "\n---\n".join(chunk_summaries)
     
     prompt = f"以下の、タグ付けされた複数の要約群を、一つの構造化されたレポートに統合してください。\n各タグ（[背景情報]、[事実経過]など）ごとに内容をまとめ直し、最終的なコンテキストとして出力してください。\n\n【ユーザーの質問】\n{query}\n\n【タグ付き要約群】\n{combined}"
     messages=[{"role": "system", "content": "あなたは構造化統合AIです。"}, {"role": "user", "content": prompt}]
     try:
-        response = await openai_client.chat.completions.create(model="gpt-4o", messages=messages, max_tokens=2200)
+        response = await openai_client.chat.completions.create(model="gpt-5", messages=messages, max_tokens=2200)
         final_context = response.choices[0].message.content
         return final_context
     except Exception as e:
@@ -279,18 +288,7 @@ async def on_message(message):
         final_query = query
         if attachment_data:
             await message.channel.send("💠 添付ファイルをミネルバが分析し、議題とします…")
-            summary_model = genai.GenerativeModel("gemini-1.5-pro-latest", system_instruction="あなたは添付ファイルを要約するAIです。")
-            attachment_parts = []
-            if "image" in attachment_mime_type:
-                from PIL import Image
-                import io
-                attachment_parts.append(Image.open(io.BytesIO(attachment_data)))
-            elif attachment_mime_type:
-                attachment_parts.append({'mime_type': attachment_mime_type, 'data': attachment_data})
-            
-            contents = ["この添付ファイルの内容を、後続のAIへの議題として簡潔に要約してください。"] + attachment_parts
-            response = await summary_model.generate_content_async(contents)
-            summary = response.text
+            summary = await ask_minerva("この添付ファイルの内容を、後続のAIへの議題として簡潔に要約してください。", attachment_parts=[{'mime_type': attachment_mime_type, 'data': attachment_data}])
             final_query = f"{query}\n\n[添付資料の要約]:\n{summary}"
             await message.channel.send("✅ 添付ファイルの分析が完了しました。")
 
@@ -307,13 +305,12 @@ async def on_message(message):
                 bot_name = "ポッド042"; reply = await ask_pod042(query)
             elif command_name == "!ポッド153":
                 bot_name = "ポッド153"; reply = await ask_pod153(query)
-
             if reply:
                 await send_long_message(message.channel, reply)
                 if is_admin: await log_response(target_notion_page_id, reply, bot_name)
 
         # グループB：Notion参照型ナレッジAI
-        elif command_name in ["!クレイオス", "!ミネルバ", "!レキュス", "!ララァ", "!みんなで", "!all", "!クリティカル", "!ロジカル", "!スライド"]:
+        elif command_name in ["!クレイオス", "!ミネルバ", "!レキュス", "!ララァ", "!みんなで", "!all", "!クリティカル", "!ロジカル", "!スライド", "!Beast"]:
             
             if command_name == "!みんなで":
                 await message.channel.send("🌀 三AIが同時に応答します… (GPT, ジェミニ, ミストラル)")
@@ -325,45 +322,31 @@ async def on_message(message):
                 return
 
             if command_name == "!スライド":
-                await message.channel.send("📝 スライド骨子案を作成します…")
-                memories = {"GPT": gpt_base_memory, "ジェミニ": gemini_base_memory, "ミストラル": mistral_base_memory}
-                last_replies = {}
-                all_histories_found = True
-                for name, mem in memories.items():
-                    history = mem.get(user_id, [])
-                    if not history or history[-1]['role'] != 'assistant':
-                        await message.channel.send(f"❌ {name}の直近の回答履歴が見つかりません。先に`!みんなで`などを実行してください。")
-                        all_histories_found = False
-                        break
-                    last_replies[name] = history[-1]['content']
-                
-                if all_histories_found:
-                    slide_material = "以下の3つのAIの意見を統合し、魅力的なプレゼンテーションのスライド骨子案を作成してください。\n\n"
-                    for name, reply in last_replies.items():
-                        slide_material += f"--- [{name}の意見] ---\n{reply}\n\n"
-                    lalah_prompt = "あなたはプレゼンテーションの構成作家です。与えられた複数の意見を元に、聞き手の心を動かす構成案を以下の形式で提案してください。\n・タイトル\n・スライド1: [タイトル] - [内容]\n・スライド2: [タイトル] - [内容]\n..."
-                    slide_draft = await ask_lalah(slide_material, system_prompt=lalah_prompt)
-                    await send_long_message(message.channel, f"✨ **ララァ (スライド骨子案):**\n{slide_draft}")
-                    if is_admin: await log_response(target_notion_page_id, slide_draft, "ララァ (スライド)")
-                    for mem in memories.values():
-                        if user_id in mem: del mem[user_id]
-                    await message.channel.send("🧹 ベースAIの短期記憶はリセットされました。")
+                context = await get_notion_context(message.channel, target_notion_page_id, final_query)
+                if not context: return
+                await message.channel.send("📝 gpt-5がスライド骨子案を作成します…")
+                prompt_with_context = f"以下の【参考情報】を元に、【ユーザーの質問】に対するプレゼンテーションのスライド骨子案を作成してください。\n\n【ユーザーの質問】\n{final_query}\n\n【参考情報】\n{context}"
+                slide_prompt = "あなたはプレゼンテーションの構成作家です。与えられた情報を元に、聞き手の心を動かす構成案を以下の形式で提案してください。\n・タイトル\n・スライド1: [タイトル] - [内容]\n・スライド2: [タイトル] - [内容]\n..."
+                slide_draft = await ask_beast_gpt5(prompt_with_context, system_prompt=slide_prompt)
+                await send_long_message(message.channel, f"✨ **Beast (GPT-5) (スライド骨子案):**\n{slide_draft}")
+                if is_admin: await log_response(target_notion_page_id, slide_draft, "Beast (GPT-5) (スライド)")
                 return
             
             # --- ここから下は全てNotionを読み込むコマンド ---
             context = await get_notion_context(message.channel, target_notion_page_id, final_query)
             if not context: return
-            if is_admin: await log_response(target_notion_page_id, context, "gpt-4o (統合コンテキスト)")
+            if is_admin: await log_response(target_notion_page_id, context, "gpt-5 (統合コンテキスト)")
 
             await message.channel.send("最終回答生成中…")
             prompt_with_context = f"以下の【参考情報】を元に、【ユーザーの質問】に回答してください。\n\n【ユーザーの質問】\n{final_query}\n\n【参考情報】\n{context}"
             
-            if command_name in ["!クレイオス", "!ミネルバ", "!レキュス", "!ララァ"]:
+            if command_name in ["!クレイオス", "!ミネルバ", "!レキュス", "!ララァ", "!Beast"]:
                 reply, bot_name = None, ""
                 if command_name == "!クレイオス": bot_name, reply = "クレイオス", await ask_kreios(prompt_with_context)
                 elif command_name == "!ミネルバ": bot_name, reply = "ミネルバ", await ask_minerva(prompt_with_context)
                 elif command_name == "!レキュス": bot_name, reply = "レキュス", await ask_rekus(prompt_with_context)
                 elif command_name == "!ララァ": bot_name, reply = "ララァ", await ask_lalah(prompt_with_context)
+                elif command_name == "!Beast": bot_name, reply = "Beast (GPT-5)", await ask_beast_gpt5(prompt_with_context)
                 if reply:
                     await send_long_message(message.channel, f"**🤖 最終回答 (by {bot_name}):**\n{reply}")
                     if is_admin: await log_response(target_notion_page_id, reply, f"{bot_name} (Notion参照)")
