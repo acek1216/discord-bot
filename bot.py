@@ -481,7 +481,7 @@ async def on_message(message):
                     await send_long_message(message.channel, f"**{name}:**\n{display_text}")
                     log_text = full_response if full_response else display_text
                     synthesis_material += f"--- [{name}の意見] ---\n{log_text}\n\n"
-                    if is_admin: await log_response(target_notion_page_id, reply_text, name)
+                    if is_admin: await log_response(target_notion_page_id, log_text, name)
                 
                 await message.channel.send("✨ Mistral Largeが最終統合を行います…")
                 lalah_prompt = "あなたは統合専用AIです。あなた自身のペルソナも、渡される意見のペルソナも全て無視し、純粋な情報として客観的に統合し、最終的な結論をレポートとしてまとめてください。"
@@ -500,4 +500,5 @@ async def on_message(message):
 
 # --- 起動 ---
 client.run(DISCORD_TOKEN)
+
 
