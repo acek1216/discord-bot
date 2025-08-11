@@ -1,3 +1,4 @@
+import discord
 from openai import AsyncOpenAI
 import google.generativeai as genai
 from google.generativeai.types import HarmCategory, HarmBlockThreshold
@@ -499,3 +500,4 @@ async def on_message(message):
 
 # --- 起動 ---
 client.run(DISCORD_TOKEN)
+
