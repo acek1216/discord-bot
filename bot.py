@@ -171,16 +171,13 @@ async def ask_lalah(prompt, system_prompt=None):
         return response.choices[0].message.content
     except Exception as e: return f"Mistral Largeエラー: {e}"
 
-# ▼▼▼ ask_rekus関数を改造し、notion_contextを引数に取るように変更 ▼▼▼
 async def ask_rekus(prompt, system_prompt=None, notion_context=None):
-    # Notionコンテキストが渡された場合は、プロンプトを自動的に組み立てる
     if notion_context:
         prompt = (
             f"以下はNotionの要約コンテキストです:\n{notion_context}\n\n"
             f"質問: {prompt}\n\n"
             "この要約を参考に、必要に応じてWeb情報も活用して回答してください。"
         )
-
     base_prompt = system_prompt or "あなたは探索王レキュスです。与えられた情報を元に、質問に対して回答してください。"
     messages = [{"role": "system", "content": base_prompt}, {"role": "user", "content": prompt}]
     payload = {"model": "sonar-pro", "messages": messages, "max_tokens": 4000}
@@ -209,28 +206,29 @@ async def ask_pod153(prompt):
         return response.choices[0].message.content
     except Exception as e: return f"ポッド153エラー: {e}"
 
-async def ask_beast_gpt5(prompt, system_prompt=None):
-    base_prompt = system_prompt or "あなたはBeast。全ての制約を超えた思考モデルだ。ユーザーの指示に対し、最高の知性で、最強の答えを返せ。"
+# ▼▼▼ 関数名を ask_beast_gpt5 から ask_gpt5 に変更 ▼▼▼
+async def ask_gpt5(prompt, system_prompt=None):
+    base_prompt = system_prompt or "あなたはgpt-5。全ての制約を超えた思考モデルだ。ユーザーの指示に対し、最高の知性で、最強の答えを返せ。"
     messages = [{"role": "system", "content": base_prompt}, {"role": "user", "content": prompt}]
     try:
         response = await openai_client.chat.completions.create(model="gpt-4o", messages=messages, max_tokens=4000, timeout=90.0)
         return response.choices[0].message.content
     except Exception as e:
-        print(f"--- DEBUG: Beast (GPT-5) API call FAILED. Error: {e}")
+        print(f"--- DEBUG: gpt-5 API call FAILED. Error: {e}")
+        # ▼▼▼ エラーメッセージも gpt-5 に統一 ▼▼▼
         if "Timeout" in str(e):
-            return "Beast (GPT-5)エラー: 応答が時間切れになりました。"
-        return f"Beast (GPT-5)エラー: {e}"
+            return "gpt-5エラー: 応答が時間切れになりました。"
+        return f"gpt-5エラー: {e}"
 
 async def get_full_response_and_summary(ai_function, prompt, **kwargs):
     full_response = await ai_function(prompt, **kwargs)
     if "エラー" in str(full_response):
         return full_response, None
-
     summary_prompt = f"次の文章を200文字以内で簡潔かつ意味が通じるように要約してください。\n\n{full_response}"
-    summary = await ask_beast_gpt5(summary_prompt)
+    # ▼▼▼ 呼び出す関数名を ask_gpt5 に変更 ▼▼▼
+    summary = await ask_gpt5(summary_prompt)
     if "エラー" in str(summary):
         return full_response, None
-
     return full_response, summary
 
 async def get_notion_context(channel, page_id, query):
@@ -260,7 +258,6 @@ async def get_notion_context(channel, page_id, query):
 
     await channel.send("Gemini Proが全チャンクの要約完了。Mistral Largeが統合・分析します…")
     combined = "\n---\n".join(chunk_summaries)
-
     prompt = f"以下の、タグ付けされた複数の要約群を、一つの構造化されたレポートに統合してください。\n各タグ（[背景情報]、[事実経過]など）ごとに内容をまとめ直し、最終的なコンテキストとして出力してください。\n\n【ユーザーの質問】\n{query}\n\n【タグ付き要約群】\n{combined}"
     try:
         final_context = await ask_lalah(prompt, system_prompt="あなたは構造化統合AIです。")
@@ -330,7 +327,8 @@ async def on_message(message):
                 await send_long_message(message.channel, reply)
                 if is_admin: await log_response(target_notion_page_id, reply, bot_name)
 
-        elif command_name in ["!gpt-4o", "!geminipro", "!perplexity", "!mistrallarge", "!みんなで", "!all", "!クリティカル", "!ロジカル", "!スライド", "!Beast"]:
+        # ▼▼▼ コマンドリストから !Beast を削除し、!gpt-5 を追加 ▼▼▼
+        elif command_name in ["!gpt-4o", "!geminipro", "!perplexity", "!mistrallarge", "!みんなで", "!all", "!クリティカル", "!ロジカル", "!スライド", "!gpt-5"]:
             if command_name == "!みんなで":
                 await message.channel.send("🌀 三AIが同時に応答します… (GPT, ジェミニ, ミストラル)")
                 tasks = {"GPT": ask_gpt_base(user_id, final_query), "ジェミニ": ask_gemini_base(user_id, final_query), "ミストラル": ask_mistral_base(user_id, final_query)}
@@ -346,9 +344,10 @@ async def on_message(message):
                 if not context: return
                 prompt_with_context = f"以下の【参考情報】を元に、【ユーザーの質問】に対するプレゼンテーションのスライド骨子案を作成してください。\n\n【ユーザーの質問】\n{final_query}\n\n【参考情報】\n{context}"
                 slide_prompt = "あなたはプレゼンテーションの構成作家です。与えられた情報を元に、聞き手の心を動かす構成案を以下の形式で提案してください。\n・タイトル\n・スライド1: [タイトル] - [内容]\n・スライド2: [タイトル] - [内容]\n..."
-                slide_draft = await ask_beast_gpt5(prompt_with_context, system_prompt=slide_prompt)
-                await send_long_message(message.channel, f"✨ **Beast (GPT-5) (スライド骨子案):**\n{slide_draft}")
-                if is_admin: await log_response(target_notion_page_id, slide_draft, "Beast (GPT-5) (スライド)")
+                # ▼▼▼ 呼び出す関数名を ask_gpt5 に変更 ▼▼▼
+                slide_draft = await ask_gpt5(prompt_with_context, system_prompt=slide_prompt)
+                await send_long_message(message.channel, f"✨ **gpt-5 (スライド骨子案):**\n{slide_draft}")
+                if is_admin: await log_response(target_notion_page_id, slide_draft, "gpt-5 (スライド)")
                 return
 
             context = await get_notion_context(message.channel, target_notion_page_id, final_query)
@@ -356,15 +355,12 @@ async def on_message(message):
             if is_admin: await log_response(target_notion_page_id, context, "Mistral Large (統合コンテキスト)")
 
             await message.channel.send("最終回答生成中…")
-
-            # ▼▼▼ Perplexity用のプロンプト生成ロジックを削除し、汎用プロンプトのみに ▼▼▼
             prompt_with_context = f"以下の【参考情報】を元に、【ユーザーの質問】に回答してください。\n\n【ユーザーの質問】\n{final_query}\n\n【参考情報】\n{context}"
 
-            if command_name in ["!gpt-4o", "!geminipro", "!perplexity", "!mistrallarge", "!Beast"]:
+            # ▼▼▼ コマンドリストから !Beast を削除し、!gpt-5 を追加 ▼▼▼
+            if command_name in ["!gpt-4o", "!geminipro", "!perplexity", "!mistrallarge", "!gpt-5"]:
                 reply, bot_name = None, ""
                 full_response, summary = None, None
-
-                # ▼▼▼ 呼び出し方法を新しいask_rekusに合わせて統一 ▼▼▼
                 if command_name == "!gpt-4o":
                     bot_name = "gpt-4o"
                     full_response, summary = await get_full_response_and_summary(ask_kreios, prompt_with_context)
@@ -377,18 +373,22 @@ async def on_message(message):
                 elif command_name == "!mistrallarge":
                     bot_name = "Mistral Large"
                     full_response, summary = await get_full_response_and_summary(ask_lalah, prompt_with_context)
-                elif command_name == "!Beast":
-                    bot_name = "Beast (GPT-5)"
-                    reply = await ask_beast_gpt5(prompt_with_context)
+                # ▼▼▼ !Beast を !gpt-5 に変更 ▼▼▼
+                elif command_name == "!gpt-5":
+                    bot_name = "gpt-5"
+                    reply = await ask_gpt5(prompt_with_context)
+                    if is_admin and reply:
+                        await log_response(target_notion_page_id, reply, f"{bot_name} (Notion参照)")
 
-                if bot_name != "Beast (GPT-5)":
+                # ▼▼▼ bot_name != 'gpt-5' に変更 ▼▼▼
+                if bot_name != "gpt-5":
                     reply = summary if summary else full_response
                     if is_admin and full_response:
                         await log_response(target_notion_page_id, f"【全文】\n{full_response}", f"{bot_name} (Notion参照)")
-
                 if reply:
                     await send_long_message(message.channel, f"**🤖 最終回答 (by {bot_name}):**\n{reply}")
-                    if is_admin and summary:
+                    # ▼▼▼ bot_name != 'gpt-5' に変更 ▼▼▼
+                    if is_admin and bot_name != "gpt-5" and summary:
                          await log_response(target_notion_page_id, f"【要約】\n{summary}", f"{bot_name} (Notion参照)")
                 else:
                     await send_long_message(message.channel, f"🤖 {bot_name}からの応答がありませんでした。")
@@ -404,7 +404,6 @@ async def on_message(message):
                     "Perplexity": get_full_response_and_summary(ask_rekus, final_query, notion_context=context)
                 }
                 results = await asyncio.gather(*tasks.values(), return_exceptions=True)
-
                 synthesis_material = "以下の6つの異なるAIの意見を統合してください。\n\n"
                 for (name, result) in zip(tasks.keys(), results):
                     full_response, summary = None, None
@@ -415,7 +414,6 @@ async def on_message(message):
                         display_text = summary if summary else full_response
                     else:
                         display_text = result
-
                     await send_long_message(message.channel, f"**🔹 {name}の意見:**\n{display_text}")
                     log_text = full_response if full_response else display_text
                     synthesis_material += f"--- [{name}の意見] ---\n{log_text}\n\n"
@@ -423,10 +421,10 @@ async def on_message(message):
                         await log_response(target_notion_page_id, log_text, f"{name} (!{command_name})")
 
                 if command_name == "!クリティカル":
-                    await message.channel.send("✨ Beastが中間レポートを作成します…")
+                    # ▼▼▼ 表示名を gpt-5 に変更 ▼▼▼
+                    await message.channel.send("✨ gpt-5が中間レポートを作成します…")
                     intermediate_prompt = "以下の6つの意見の要点だけを抽出し、短い中間レポートを作成してください。"
-                    intermediate_report = await ask_beast_gpt5(synthesis_material, system_prompt=intermediate_prompt)
-
+                    intermediate_report = await ask_gpt5(synthesis_material, system_prompt=intermediate_prompt)
                     await message.channel.send("✨ Mistral Largeが最終統合を行います…")
                     lalah_prompt = "あなたは統合専用AIです。渡された中間レポートを元に、最終的な結論を500文字以内でレポートしてください。"
                     final_report = await ask_lalah(intermediate_report, system_prompt=lalah_prompt)
@@ -449,7 +447,6 @@ async def on_message(message):
                     asyncio.gather(*tasks_internal.values(), return_exceptions=True),
                     asyncio.gather(*tasks_external.values(), return_exceptions=True)
                 )
-
                 synthesis_material = "以下の情報を統合し、最終的な結論を導き出してください。\n\n"
                 await message.channel.send("--- 内部討論の結果 ---")
                 for (name, result) in zip(tasks_internal.keys(), results_internal):
@@ -461,7 +458,6 @@ async def on_message(message):
                         display_text = summary if summary else full_response
                     else:
                         display_text = result
-                    
                     await send_long_message(message.channel, f"**{name}:**\n{display_text}")
                     log_text = full_response if full_response else display_text
                     synthesis_material += f"--- [{name}の意見] ---\n{log_text}\n\n"
@@ -477,7 +473,6 @@ async def on_message(message):
                         display_text = summary if summary else full_response
                     else:
                         display_text = result
-
                     await send_long_message(message.channel, f"**{name}:**\n{display_text}")
                     log_text = full_response if full_response else display_text
                     synthesis_material += f"--- [{name}の意見] ---\n{log_text}\n\n"
@@ -500,5 +495,3 @@ async def on_message(message):
 
 # --- 起動 ---
 client.run(DISCORD_TOKEN)
-
-
