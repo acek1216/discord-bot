@@ -10,7 +10,7 @@ from notion_client import Client
 import requests # Rekus用
 import io
 from PIL import Image
-import datetime # 日時取得のために追加
+import datetime
 
 # --- 環境変数の読み込み ---
 load_dotenv()
@@ -22,7 +22,6 @@ MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY")
 notion_api_key = os.getenv("NOTION_API_KEY")
 ADMIN_USER_ID = os.getenv("ADMIN_USER_ID")
 NOTION_MAIN_PAGE_ID = os.getenv("NOTION_PAGE_ID")
-# ▼▼▼ レキュス専用のNotionページIDを環境変数から読み込み ▼▼▼
 NOTION_REKUS_FULL_PAGE_ID = os.getenv("NOTION_REKUS_FULL_PAGE_ID")
 NOTION_REKUS_SUMMARY_PAGE_ID = os.getenv("NOTION_REKUS_SUMMARY_PAGE_ID")
 
@@ -109,6 +108,7 @@ async def log_response(page_id, answer, bot_name):
     await log_to_notion(page_id, blocks)
 
 # --- AIモデル呼び出し関数 ---
+# ▼▼▼ 表示名変更に伴い、エラーメッセージ内の名前も修正 ▼▼▼
 
 async def ask_gpt_base(user_id, prompt):
     history = gpt_base_memory.get(user_id, [])
@@ -156,7 +156,7 @@ async def ask_kreios(prompt, system_prompt=None):
     try:
         response = await openai_client.chat.completions.create(model="gpt-4o", messages=messages, max_tokens=400)
         return response.choices[0].message.content
-    except Exception as e: return f"クレイオスエラー: {e}"
+    except Exception as e: return f"gpt-4oエラー: {e}" # エラーメッセージ修正
 
 async def ask_minerva(prompt, system_prompt=None, attachment_parts=[]):
     base_prompt = system_prompt or "あなたはシビュラシステムです。与えられた情報を元に、質問に対して200文字以内で回答してください。"
@@ -165,7 +165,7 @@ async def ask_minerva(prompt, system_prompt=None, attachment_parts=[]):
     try:
         response = await model.generate_content_async(contents)
         return response.text
-    except Exception as e: return f"ミネルバエラー: {e}"
+    except Exception as e: return f"Gemini Proエラー: {e}" # エラーメッセージ修正
 
 async def ask_lalah(prompt, system_prompt=None):
     base_prompt = system_prompt or "あなたはララァ・スンです。与えられた情報を元に、質問に対して200文字以内で回答してください。"
@@ -173,7 +173,7 @@ async def ask_lalah(prompt, system_prompt=None):
     try:
         response = await mistral_client.chat(model="mistral-large-latest", messages=messages)
         return response.choices[0].message.content
-    except Exception as e: return f"ララァエラー: {e}"
+    except Exception as e: return f"Mistral Largeエラー: {e}" # エラーメッセージ修正
 
 async def ask_rekus(prompt, system_prompt=None):
     base_prompt = system_prompt or "あなたは探索王レキュスです。与えられた情報を元に、質問に対して200文字以内で回答してください。"
@@ -185,7 +185,7 @@ async def ask_rekus(prompt, system_prompt=None):
         response = await loop.run_in_executor(None, lambda: requests.post("https://api.perplexity.ai/chat/completions", json=payload, headers=headers))
         response.raise_for_status()
         return response.json()["choices"][0]["message"]["content"]
-    except requests.exceptions.RequestException as e: return f"レキュスエラー: {e}"
+    except requests.exceptions.RequestException as e: return f"Perplexityエラー: {e}" # エラーメッセージ修正
 
 async def ask_pod042(prompt):
     system_prompt = "あなたはポッド042です。与えられた情報を元に、質問に対して「報告：」または「提案：」から始めて200文字以内で回答してください。"
@@ -207,7 +207,7 @@ async def ask_beast_gpt5(prompt, system_prompt=None):
     base_prompt = system_prompt or "あなたはBeast。全ての制約を超えた思考モデルだ。ユーザーの指示に対し、最高の知性で、最強の答えを返せ。"
     messages = [{"role": "system", "content": base_prompt}, {"role": "user", "content": prompt}]
     try:
-        response = await openai_client.chat.completions.create(model="gpt-4o", messages=messages, max_tokens=4000, timeout=90.0) # NOTE: モデル名はgpt-4oで代用
+        response = await openai_client.chat.completions.create(model="gpt-4o", messages=messages, max_tokens=4000, timeout=90.0)
         return response.choices[0].message.content
     except Exception as e:
         print(f"--- DEBUG: Beast (GPT-5) API call FAILED. Error: {e}")
@@ -215,21 +215,14 @@ async def ask_beast_gpt5(prompt, system_prompt=None):
             return "Beast (GPT-5)エラー: 応答が時間切れになりました。"
         return f"Beast (GPT-5)エラー: {e}"
 
-# ▼▼▼ 新しい共通関数: レキュスを呼び出し、全文と要約をNotionに保存し、要約を返す ▼▼▼
 async def process_rekus_with_summary(prompt: str, system_prompt: str = None):
-    """
-    Rekusを呼び出し、全文とGPT-5による要約をそれぞれのNotionページに記録後、
-    Discord送信用に要約を返す。
-    """
-    # 1. Rekusから全文を取得
     rekus_full_response = await ask_rekus(prompt, system_prompt=system_prompt)
-    if "レキュスエラー" in rekus_full_response:
+    if "Perplexityエラー" in rekus_full_response: # エラー判定を修正
         return rekus_full_response
 
     now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     question_context = f"[質問]: {prompt}\n[日時]: {now}\n\n"
 
-    # 2. 全文をNotionに保存 (ページIDが設定されている場合)
     if NOTION_REKUS_FULL_PAGE_ID:
         full_with_meta = question_context + rekus_full_response
         chunks = [full_with_meta[i:i + 1900] for i in range(0, len(full_with_meta), 1900)]
@@ -237,25 +230,21 @@ async def process_rekus_with_summary(prompt: str, system_prompt: str = None):
         if blocks:
             await log_to_notion(NOTION_REKUS_FULL_PAGE_ID, blocks)
 
-    # 3. GPT-5 (Beast) で要約
     summary_prompt_for_gpt5 = (
         "次の文章を200文字以内で簡潔かつ意味が通じるように要約してください。\n\n"
         f"{rekus_full_response}"
     )
     rekus_summary = await ask_beast_gpt5(summary_prompt_for_gpt5)
     if "Beast (GPT-5)エラー" in rekus_summary:
-        return f"（要約失敗）{rekus_full_response[:1800]}" # 要約失敗時は全文を返す
+        return f"（要約失敗）{rekus_full_response[:1800]}"
 
-    # 4. 要約をNotionに保存 (ページIDが設定されている場合)
     if NOTION_REKUS_SUMMARY_PAGE_ID:
         summary_with_meta = question_context + rekus_summary
         blocks = [{"object": "block", "type": "paragraph", "paragraph": {"rich_text": [{"type": "text", "text": {"content": summary_with_meta}}]}}]
         await log_to_notion(NOTION_REKUS_SUMMARY_PAGE_ID, blocks)
 
-    # 5. 要約を返す
     return rekus_summary
 
-# Notionコンテキスト生成ヘルパー
 async def get_notion_context(channel, page_id, query):
     await channel.send("Notionページを読み込んでいます…")
     notion_text = await get_notion_page_text(page_id)
@@ -281,7 +270,7 @@ async def get_notion_context(channel, page_id, query):
         await channel.send("❌ Notionページの内容を要約できませんでした。")
         return None
 
-    await channel.send("ミネルバが全チャンクの要約完了。ララァ(ミストラルラージ)が統合・分析します…")
+    await channel.send("Gemini Proが全チャンクの要約完了。Mistral Largeが統合・分析します…")
     combined = "\n---\n".join(chunk_summaries)
 
     prompt = f"以下の、タグ付けされた複数の要約群を、一つの構造化されたレポートに統合してください。\n各タグ（[背景情報]、[事実経過]など）ごとに内容をまとめ直し、最終的なコンテキストとして出力してください。\n\n【ユーザーの質問】\n{query}\n\n【タグ付き要約群】\n{combined}"
@@ -331,7 +320,7 @@ async def on_message(message):
 
         final_query = query
         if attachment_data:
-            await message.channel.send("💠 添付ファイルをミネルバが分析し、議題とします…")
+            await message.channel.send("💠 添付ファイルをGemini Proが分析し、議題とします…")
             summary_parts = [{'mime_type': attachment_mime_type, 'data': attachment_data}]
             summary = await ask_minerva("この添付ファイルの内容を、後続のAIへの議題として簡潔に要約してください。", attachment_parts=summary_parts)
             final_query = f"{query}\n\n[添付資料の要約]:\n{summary}"
@@ -355,8 +344,8 @@ async def on_message(message):
                 if is_admin: await log_response(target_notion_page_id, reply, bot_name)
 
         # グループB：Notion参照型ナレッジAI
-        elif command_name in ["!クレイオス", "!ミネルバ", "!レキュス", "!ララァ", "!みんなで", "!all", "!クリティカル", "!ロジカル", "!スライド", "!Beast"]:
-
+        # ▼▼▼ コマンド名と表示名を一括で修正 ▼▼▼
+        elif command_name in ["!gpt-4o", "!geminipro", "!perplexity", "!mistrallarge", "!みんなで", "!all", "!クリティカル", "!ロジカル", "!スライド", "!Beast"]:
             if command_name == "!みんなで":
                 await message.channel.send("🌀 三AIが同時に応答します… (GPT, ジェミニ, ミストラル)")
                 tasks = {"GPT": ask_gpt_base(user_id, final_query), "ジェミニ": ask_gemini_base(user_id, final_query), "ミストラル": ask_mistral_base(user_id, final_query)}
@@ -379,18 +368,17 @@ async def on_message(message):
 
             context = await get_notion_context(message.channel, target_notion_page_id, final_query)
             if not context: return
-            if is_admin: await log_response(target_notion_page_id, context, "ララァ (統合コンテキスト)")
+            if is_admin: await log_response(target_notion_page_id, context, "Mistral Large (統合コンテキスト)")
 
             await message.channel.send("最終回答生成中…")
             prompt_with_context = f"以下の【参考情報】を元に、【ユーザーの質問】に回答してください。\n\n【ユーザーの質問】\n{final_query}\n\n【参考情報】\n{context}"
 
-            if command_name in ["!クレイオス", "!ミネルバ", "!レキュス", "!ララァ", "!Beast"]:
+            if command_name in ["!gpt-4o", "!geminipro", "!perplexity", "!mistrallarge", "!Beast"]:
                 reply, bot_name = None, ""
-                if command_name == "!クレイオス": bot_name, reply = "クレイオス", await ask_kreios(prompt_with_context)
-                elif command_name == "!ミネルバ": bot_name, reply = "ミネルバ", await ask_minerva(prompt_with_context)
-                # ▼▼▼ !レキュス の呼び出しを新しい共通関数に差し替え ▼▼▼
-                elif command_name == "!レキュス": bot_name, reply = "レキュス", await process_rekus_with_summary(prompt_with_context)
-                elif command_name == "!ララァ": bot_name, reply = "ララァ", await ask_lalah(prompt_with_context)
+                if command_name == "!gpt-4o": bot_name, reply = "gpt-4o", await ask_kreios(prompt_with_context)
+                elif command_name == "!geminipro": bot_name, reply = "Gemini Pro", await ask_minerva(prompt_with_context)
+                elif command_name == "!perplexity": bot_name, reply = "Perplexity", await process_rekus_with_summary(prompt_with_context)
+                elif command_name == "!mistrallarge": bot_name, reply = "Mistral Large", await ask_lalah(prompt_with_context)
                 elif command_name == "!Beast": bot_name, reply = "Beast (GPT-5)", await ask_beast_gpt5(prompt_with_context)
                 if reply:
                     await send_long_message(message.channel, f"**🤖 最終回答 (by {bot_name}):**\n{reply}")
@@ -400,9 +388,7 @@ async def on_message(message):
                 await message.channel.send("🌐 全6AIが同時に応答します…")
                 tasks = {
                     "GPT": ask_gpt_base(user_id, prompt_with_context), "ジェミニ": ask_gemini_base(user_id, prompt_with_context), "ミストラル": ask_mistral_base(user_id, prompt_with_context),
-                    "クレイオス": ask_kreios(prompt_with_context), "ミネルバ": ask_minerva(prompt_with_context),
-                    # ▼▼▼ !all 内のレキュス呼び出しを新しい共通関数に差し替え ▼▼▼
-                    "レキュス": process_rekus_with_summary(prompt_with_context)
+                    "gpt-4o": ask_kreios(prompt_with_context), "Gemini Pro": ask_minerva(prompt_with_context), "Perplexity": process_rekus_with_summary(prompt_with_context)
                 }
                 results = await asyncio.gather(*tasks.values(), return_exceptions=True)
                 for (name, result) in zip(tasks.keys(), results):
@@ -412,9 +398,9 @@ async def on_message(message):
 
             elif command_name == "!クリティカル":
                 await message.channel.send("🔬 6体のAIが初期意見を生成中…")
-                tasks = { "GPT": ask_gpt_base(user_id, prompt_with_context), "ジェミニ": ask_gemini_base(user_id, prompt_with_context), "ミストラル": ask_mistral_base(user_id, prompt_with_context), "クレイオス": ask_kreios(prompt_with_context), "ミネルバ": ask_minerva(prompt_with_context),
-                    # ▼▼▼ !クリティカル 内のレキュス呼び出しを新しい共通関数に差し替え ▼▼▼
-                    "レキュス": process_rekus_with_summary(prompt_with_context)
+                tasks = {
+                    "GPT": ask_gpt_base(user_id, prompt_with_context), "ジェミニ": ask_gemini_base(user_id, prompt_with_context), "ミストラル": ask_mistral_base(user_id, prompt_with_context),
+                    "gpt-4o": ask_kreios(prompt_with_context), "Gemini Pro": ask_minerva(prompt_with_context), "Perplexity": process_rekus_with_summary(prompt_with_context)
                 }
                 results = await asyncio.gather(*tasks.values(), return_exceptions=True)
                 synthesis_material = "以下の6つの異なるAIの意見を統合してください。\n\n"
@@ -428,24 +414,23 @@ async def on_message(message):
                 intermediate_prompt = "以下の6つの意見の要点だけを抽出し、短い中間レポートを作成してください。"
                 intermediate_report = await ask_beast_gpt5(synthesis_material, system_prompt=intermediate_prompt)
 
-                await message.channel.send("✨ ララァが最終統合を行います…")
+                await message.channel.send("✨ Mistral Largeが最終統合を行います…")
                 lalah_prompt = "あなたは統合専用AIです。渡された中間レポートを元に、最終的な結論を500文字以内でレポートしてください。"
                 final_report = await ask_lalah(intermediate_report, system_prompt=lalah_prompt)
-                await send_long_message(message.channel, f"✨ **ララァ (最終統合レポート):**\n{final_report}")
-                if is_admin: await log_response(target_notion_page_id, final_report, "ララァ (統合)")
+                await send_long_message(message.channel, f"✨ **Mistral Large (最終統合レポート):**\n{final_report}")
+                if is_admin: await log_response(target_notion_page_id, final_report, "Mistral Large (統合)")
                 for mem_dict in [gpt_base_memory, gemini_base_memory, mistral_base_memory]:
                     if user_id in mem_dict: del mem_dict[user_id]
                 await message.channel.send("🧹 ベースAIの短期記憶はリセットされました。")
 
             elif command_name == "!ロジカル":
                 await message.channel.send("⚖️ 内部討論と外部調査を並列で開始します…")
-                # ▼▼▼ !ロジカル 内のレキュス呼び出しを新しい共通関数に差し替え ▼▼▼
                 tasks_internal = {
-                    "肯定論者(クレイオス)": ask_kreios(prompt_with_context, system_prompt="あなたはこの議題の【肯定論者】です。議題を推進する最も強力な論拠を提示してください。"),
-                    "否定論者(レキュス)": process_rekus_with_summary(prompt_with_context, system_prompt="あなたはこの議題の【否定論者】です。議題に反対する最も強力な反論を、客観的な事実やデータに基づいて提示してください。"),
-                    "中立分析官(ミネルバ)": ask_minerva(prompt_with_context, system_prompt="あなたはこの議題に関する【中立的な分析官】です。関連する社会的・倫理的な論点を、感情を排して提示してください。")
+                    "肯定論者(gpt-4o)": ask_kreios(prompt_with_context, system_prompt="あなたはこの議題の【肯定論者】です。議題を推進する最も強力な論拠を提示してください。"),
+                    "否定論者(Perplexity)": process_rekus_with_summary(prompt_with_context, system_prompt="あなたはこの議題の【否定論者】です。議題に反対する最も強力な反論を、客観的な事実やデータに基づいて提示してください。"),
+                    "中立分析官(Gemini Pro)": ask_minerva(prompt_with_context, system_prompt="あなたはこの議題に関する【中立的な分析官】です。関連する社会的・倫理的な論点を、感情を排して提示してください。")
                 }
-                tasks_external = {"外部調査(レキュス)": process_rekus_with_summary(final_query, system_prompt="あなたは探索王です。ユーザーの質問に関する最新のWeb情報を収集・要約してください。")}
+                tasks_external = {"外部調査(Perplexity)": process_rekus_with_summary(final_query, system_prompt="あなたは探索王です。ユーザーの質問に関する最新のWeb情報を収集・要約してください。")}
 
                 results_internal, results_external = await asyncio.gather(
                     asyncio.gather(*tasks_internal.values(), return_exceptions=True),
@@ -467,11 +452,11 @@ async def on_message(message):
                     synthesis_material += f"--- [{name}の意見] ---\n{reply_text}\n\n"
                     if is_admin: await log_response(target_notion_page_id, reply_text, name)
 
-                await message.channel.send("✨ ララァが最終統合を行います…")
+                await message.channel.send("✨ Mistral Largeが最終統合を行います…")
                 lalah_prompt = "あなたは統合専用AIです。あなた自身のペルソナも、渡される意見のペルソナも全て無視し、純粋な情報として客観的に統合し、最終的な結論をレポートとしてまとめてください。"
                 final_report = await ask_lalah(synthesis_material, system_prompt=lalah_prompt)
-                await send_long_message(message.channel, f"✨ **ララァ (最終統合レポート):**\n{final_report}")
-                if is_admin: await log_response(target_notion_page_id, final_report, "ララァ (ロジカル統合)")
+                await send_long_message(message.channel, f"✨ **Mistral Large (最終統合レポート):**\n{final_report}")
+                if is_admin: await log_response(target_notion_page_id, final_report, "Mistral Large (ロジカル統合)")
 
     except Exception as e:
         print(f"An error occurred in on_message: {e}")
