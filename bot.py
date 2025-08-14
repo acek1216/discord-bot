@@ -231,7 +231,7 @@ async def ask_gpt5(prompt, system_prompt=None):
         response = await openai_client.chat.completions.create(
             model="gpt-5",
             messages=messages,
-            max_compleletion_tokens=4000,
+            max_completion_tokens=4000,
             timeout=90.0
         )
         return response.choices[0].message.content
@@ -546,4 +546,5 @@ async def on_message(message):
 
 # --- 起動 ---
 client.run(DISCORD_TOKEN)
+
 
