@@ -27,18 +27,18 @@ NOTION_MAIN_PAGE_ID = os.getenv("NOTION_PAGE_ID")
 NOTION_PAGE_MAP_STRING = os.getenv("NOTION_PAGE_MAP_STRING", "")
 NOTION_PAGE_MAP = {}
 if NOTION_PAGE_MAP_STRING:
-     intents = discord.Intents.default()             # ← ここ追加！！！
-     intents.message_content = True                  # ← ここも追加！！！
-     client = discord.Client(intents=intents)        # ← ここも追加！！！
+    intents = discord.Intents.default()  # ← ここ追加
+    intents.message_content = True       # ← ここ追加
+    client = discord.Client(intents=intents)  # ← ここ追加
 
-     try:
-         pairs = NOTION_PAGE_MAP_STRING.split(',')
-         for pair in pairs:
-             if ':' in pair:
-                 thread_id, page_id = pair.split(':', 1)
-                 NOTION_PAGE_MAP[thread_id.strip()] = page_id.strip()
-      except Exception as e:
-          print(f"⚠️ NOTION_PAGE_MAP_STRINGの解析に失敗しました: {e}")
+    try:
+        pairs = NOTION_PAGE_MAP_STRING.split(',')
+        for pair in pairs:
+            if ':' in pair:
+                thread_id, page_id = pair.split(':', 1)
+                NOTION_PAGE_MAP[thread_id.strip()] = page_id.strip()
+    except Exception as e:
+        print(f"⚠️ NOTION_PAGE_MAP_STRINGの解析に失敗しました: {e}")
 
 # --- 各種クライアントの初期化 ---
 openai_client = AsyncOpenAI(api_key=openai_api_key)
@@ -568,6 +568,7 @@ def run_bot():
 
 if __name__ == "__main__":
     run_bot()
+
 
 
 
