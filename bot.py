@@ -27,6 +27,10 @@ NOTION_MAIN_PAGE_ID = os.getenv("NOTION_PAGE_ID")
 NOTION_PAGE_MAP_STRING = os.getenv("NOTION_PAGE_MAP_STRING", "")
 NOTION_PAGE_MAP = {}
 if NOTION_PAGE_MAP_STRING:
+     intents = discord.Intents.default()             # ← ここ追加！！！
+     intents.message_content = True                  # ← ここも追加！！！
+     client = discord.Client(intents=intents)        # ← ここも追加！！！
+
     try:
         pairs = NOTION_PAGE_MAP_STRING.split(',')
         for pair in pairs:
@@ -546,5 +550,6 @@ async def on_message(message):
 
 # --- 起動 ---
 client.run(DISCORD_TOKEN)
+
 
 
