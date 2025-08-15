@@ -550,6 +550,8 @@ async def on_message(message):
 
 # --- 起動 ---
 from flask import Flask
+import threading
+import os
 
 app = Flask(__name__)
 
@@ -558,11 +560,11 @@ def index():
     return "Bot is running!"
 
 if __name__ == "__main__":
-    import threading
     t = threading.Thread(target=client.run, args=(DISCORD_TOKEN,))
     t.start()
-    app.run(host="0.0.0.0", port=8080)
 
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host="0.0.0.0", port=port)
 
 
 
