@@ -549,24 +549,8 @@ async def on_message(message):
             processing_users.remove(message.author.id)
 
 # --- 起動 ---
-from flask import Flask
+client.run(DISCORD_TOKEN)
 
-app = Flask(__name__)
-
-@app.route("/")
-def index():
-    return "Bot is running!"
-
-def run_flask():
-    app.run(host="0.0.0.0", port=8080)
-
-if __name__ == "__main__":
-    import threading
-    flask_thread = threading.Thread(target=run_flask)
-    flask_thread.start()
-    
-    # ← Main thread で Discord Bot を起動！
-    client.run(DISCORD_TOKEN)
 
 
 
