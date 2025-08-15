@@ -559,12 +559,16 @@ app = Flask(__name__)
 def index():
     return "Bot is running!"
 
-if __name__ == "__main__":
+def run_bot():
     t = threading.Thread(target=client.run, args=(DISCORD_TOKEN,))
     t.start()
 
     port = int(os.environ.get("PORT", 8080))
     app.run(host="0.0.0.0", port=port)
+
+if __name__ == "__main__":
+    run_bot()
+
 
 
 
