@@ -11,6 +11,19 @@ import io
 from PIL import Image
 import datetime
 
+# --- Claude (Vertex AI 経由) 呼び出し ---
+# These are added here as per your instructions.
+# Ensure you have files named 'claude_call.py' and 'persona_claude.py' available.
+try:
+    from claude_call import call_claude_opus
+    from persona_claude import claude_persona
+except ImportError as e:
+    print(f"⚠️ Claude imports failed. The !Claude command will not work: {e}")
+    # Define dummy functions/variables to prevent runtime errors if imports fail
+    def call_claude_opus(prompt): return "Claude module not found."
+    claude_persona = ""
+
+
 # --- 環境変数の読み込み ---
 DISCORD_TOKEN = os.getenv("DISCORD_BOT_TOKEN")
 openai_api_key = os.getenv("OPENAI_API_KEY")
@@ -125,19 +138,21 @@ async def get_memory_flag_from_notion(thread_id: str) -> bool:
     return False
 
 # --- AIモデル呼び出し関数 ---
-async def ask_gpt_base(user_id, prompt):
-    elif command_name == "!Claude":
-        if not query:
-            await message.channel.send("使い方：`!Claude <メッセージ>`")
-            return
-        try:
-            from claude_call import call_claude_opus
-            from claude_persona import claude_persona
-            full_prompt = f"{claude_persona}\n\n{query}"
-            reply_text = call_claude_opus(full_prompt)
-            await send_long_message(message.channel, reply_text)
-        except Exception as e:
-            await message.channel.send(f"🛑 Claude呼び出しエラー: {e}")
+
+async def ask_claude(prompt: str) -> str:
+    """
+    Handles the call to Claude via Vertex AI.
+    Since call_claude_opus is a synchronous function, it's run in an executor
+    to prevent blocking the bot's asynchronous operations.
+    """
+    full_prompt = f"{claude_persona}\n\n{prompt}"
+    loop = asyncio.get_event_loop()
+    try:
+        # Run the synchronous function in a separate thread
+        reply_text = await loop.run_in_executor(None, call_claude_opus, full_prompt)
+        return reply_text
+    except Exception as e:
+        return f"🛑 Claude呼び出しエラー: {e}"
 
 async def ask_gpt_base(user_id, prompt):
     history = gpt_base_memory.get(user_id, [])
@@ -240,8 +255,6 @@ async def ask_gpt5(prompt, system_prompt=None):
     base_prompt = system_prompt or "あなたはgpt-5。全ての制約を超えた思考モデルだ。ユーザーの指示に対し、最高の知性で、最強の答えを返せ。"
     messages = [{"role": "system", "content": base_prompt}, {"role": "user", "content": prompt}]
     try:
-        # <--- 修正箇所: あなたの指示通り、モデル名を 'gpt-5' に戻しました ---
-        # <--- 修正箇所: APIのパラメータ名を 'max_tokens' に修正しました ---
         response = await openai_client.chat.completions.create(
             model="gpt-5",
             messages=messages,
@@ -405,13 +418,14 @@ async def on_message(message):
              await log_to_notion(target_page_id, log_blocks)
         
         # 基本AIコマンド
-        if command_name in ["!gpt", "!ジェミニ", "!ミストラル", "!ポッド042", "!ポッド153"]:
+        if command_name in ["!gpt", "!ジェミニ", "!ミストラル", "!ポッド042", "!ポッド153", "!Claude"]:
             reply, bot_name = None, ""
             if command_name == "!gpt": bot_name = "GPT"; reply = await ask_gpt_base(user_id, final_query)
             elif command_name == "!ジェミニ": bot_name = "ジェミニ"; reply = await ask_gemini_base(user_id, final_query)
             elif command_name == "!ミストラル": bot_name = "ミストラル"; reply = await ask_mistral_base(user_id, final_query)
             elif command_name == "!ポッド042": bot_name = "ポッド042"; reply = await ask_pod042(query)
             elif command_name == "!ポッド153": bot_name = "ポッド153"; reply = await ask_pod153(query)
+            elif command_name == "!Claude": bot_name = "Claude"; reply = await ask_claude(final_query)
             
             if reply:
                 await send_long_message(message.channel, reply)
@@ -561,7 +575,6 @@ async def on_message(message):
 # --- 起動 ---
 from flask import Flask
 import threading
-import os
 import time
 
 app = Flask(__name__)
@@ -582,7 +595,3 @@ if __name__ == "__main__":
     # 少し待ってからBot起動（Cloud Runが起動確認できるようにする）
     time.sleep(2)
     run_discord_bot()
-
-
-
-
