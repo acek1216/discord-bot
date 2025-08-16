@@ -545,4 +545,24 @@ async def on_message(message):
             processing_users.remove(message.author.id)
 
 # --- 起動 ---
-client.run(DISCORD_TOKEN)
+from flask import Flask
+import threading
+import os
+
+# Flask サーバーの作成
+app = Flask(__name__)
+
+@app.route("/")
+def index():
+    return "Bot is running!"
+
+if __name__ == "__main__":
+    # Botの起動を別スレッドで実行
+    t = threading.Thread(target=client.run, args=(DISCORD_TOKEN,))
+    t.start()
+
+    # Flask サーバーを起動
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host="0.0.0.0", port=port)
+
+
