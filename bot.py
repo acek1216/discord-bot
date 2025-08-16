@@ -136,12 +136,11 @@ async def get_memory_flag_from_notion(thread_id: str) -> bool:
 # --- AIモデル呼び出し関数 ---
 async def ask_claude_base(user_id, prompt):
     try:
-        from persona_claude import claude_persona
-        full_prompt = f"{claude_persona}\n\n{prompt}"
-        reply = call_claude_opus(full_prompt)
-        return reply
+        full_prompt = f"{claude_persona}\n\nユーザー: {prompt}\nai:"
+        response = call_claude_opus(full_prompt)
+        return response
     except Exception as e:
-        return f"❌ Claude呼び出しエラー: {e}"
+        return f"Claudeエラー: {e}"
 
 async def ask_gpt_base(user_id, prompt):
     history = gpt_base_memory.get(user_id, [])
@@ -155,6 +154,16 @@ async def ask_gpt_base(user_id, prompt):
         gpt_base_memory[user_id] = new_history
         return reply
     except Exception as e: return f"GPTエラー: {e}"
+
+elif message.content.startswith("!Claude"):
+    user_id = str(message.author.id)
+    prompt = message.content[len("!Claude"):].strip()
+    if not prompt:
+        await message.channel.send("質問内容が空です。")
+        return
+    await message.channel.send("🌸 少々お待ちください、aiが心を込めてお応えいたします……")
+    reply = await ask_claude_base(user_id, prompt)
+    await message.channel.send(reply)
 
 async def ask_gemini_base(user_id, prompt):
     history = gemini_base_memory.get(user_id, [])
@@ -587,6 +596,7 @@ def run_bot():
 
 if __name__ == "__main__":
     run_bot()
+
 
 
 
