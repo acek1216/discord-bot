@@ -2,18 +2,18 @@ import vertexai
 from vertexai.generative_models import GenerativeModel, Part
 
 # あなたのGoogle CloudプロジェクトIDなどを設定
-PROJECT_ID = "stunning-agency-469102-b5"  # ここにあなたのプロジェクトIDを設定
-LOCATION = "asia-northeast1"              # 利用可能なリージョンを設定 (例: asia-northeast1)
+PROJECT_ID = "stunning-agency-469102-b5"
+LOCATION = "asia-northeast1"
 
 # Vertex AI を初期化
 vertexai.init(project=PROJECT_ID, location=LOCATION)
 
-# モデルを読み込み (正式なモデルIDを指定)
-model = GenerativeModel("claude-3-opus@20240229")
+# モデルを読み込み (ご指定の正式なモデルID)
+model = GenerativeModel("claude-opus-4-1@20250805")
 
 def call_claude_opus(prompt_text: str) -> str:
     """
-    Claude 3 Opusモデルにプロンプトを送信し、応答を返す関数
+    指定されたClaudeモデルにプロンプトを送信し、応答を返す関数
     """
 
     try:
