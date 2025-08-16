@@ -368,7 +368,7 @@ async def on_message(message):
             if is_admin and target_page_id:
                 log_blocks = [{"object": "block", "type": "paragraph", "paragraph": {"rich_text": [{"type": "text", "text": {"content": f"👤 {message.author.display_name}:\n{prompt}"}}]}}]
                 await log_to_notion(target_page_id, log_blocks)
-                await log_response(target_page_id, reply, "gpt-4o (専用スレッド)")
+                await log_response(target_page_id, reply, "gpt-5 (専用スレッド)")
             return
 
         # --- 以下、コマンド入力時の処理 ---
@@ -595,3 +595,4 @@ if __name__ == "__main__":
     # 少し待ってからBot起動（Cloud Runが起動確認できるようにする）
     time.sleep(2)
     run_discord_bot()
+
