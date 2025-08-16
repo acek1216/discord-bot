@@ -330,16 +330,21 @@ async def on_ready():
     print(f"📖 Notion対応表が読み込まれました: {NOTION_PAGE_MAP}")
 
 @client.event
-async def on_message(message):
-    if message.content.startswith("!Claude"):
-    user_id = str(message.author.id)
-    prompt = message.content[len("!Claude"):].strip()
-    reply = await ask_claude_base(user_id, prompt)
-    await message.channel.send(reply)
-    return
-
-    if message.author.bot or message.author.id in processing_users:
+if message.content.startswith("!Claude"):
+    user_prompt = message.content[len("!Claude"):].strip()
+    if not user_prompt:
+        await message.channel.send("使い方: `!Claude <質問や指示>`")
         return
+
+    # ペルソナ + ユーザー入力
+    full_prompt = f"{claude_persona}\n\n父上: {user_prompt}\nai:"
+
+    try:
+        reply = call_claude_opus(full_prompt)   # ← 非async関数なので await 不要
+        await message.channel.send(reply[:1900])  # Discord上限ケア
+    except Exception as e:
+        await message.channel.send(f"Claude 呼び出しでエラー: {e}")
+    return
 
     processing_users.add(message.author.id)
     try:
@@ -596,6 +601,7 @@ def run_bot():
 
 if __name__ == "__main__":
     run_bot()
+
 
 
 
