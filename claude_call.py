@@ -1,46 +1,21 @@
-import google.auth
-from google.auth.transport.requests import Request
-import requests
-import json
+import vertexai
+from vertexai.generative_models import GenerativeModel, Part
 
-def call_claude(prompt: str) -> str:
-    project_id = "stunning-agency-469102-b5"
-    location = "asia-northeast1"
-    model = "claude-opus-4-1"
+# Claude対応リージョンに変更（us-central1）
+PROJECT_ID = "stunning-agency-469102-b5"
+LOCATION = "us-central1"  # ← ここだけ変更！
 
-    # 認証情報の取得と更新
-    credentials, _ = google.auth.default(scopes=["https://www.googleapis.com/auth/cloud-platform"])
-    credentials.refresh(Request())
-    token = credentials.token
+# Vertex AI を初期化
+vertexai.init(project=PROJECT_ID, location=LOCATION)
 
-    url = f"https://{location}-aiplatform.googleapis.com/v1/projects/{project_id}/locations/{location}/publishers/anthropic/models/{model}:generateContent"
+# モデルを読み込み（バージョンを明示）
+model = GenerativeModel("claude-opus-4-1@20250805")
 
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Content-Type": "application/json"
-    }
-
-    body = {
-        "contents": [
-            {
-                "role": "user",
-                "parts": [
-                    {
-                        "text": prompt
-                    }
-                ]
-            }
-        ],
-        "generationConfig": {
-            "temperature": 0.7,
-            "maxOutputTokens": 1024
-        }
-    }
-
-    response = requests.post(url, headers=headers, json=body)
-
-    if response.status_code != 200:
-        raise Exception(f"🛑 Claude呼び出しエラー: {response.status_code} {response.text}")
-
-    data = response.json()
-    return data["candidates"][0]["content"]["parts"][0]["text"]
+def call_claude_opus(prompt_text: str) -> str:
+    try:
+        contents = [Part.from_text(prompt_text)]
+        response = model.generate_content(contents)
+        return response.text
+    except Exception as e:
+        print(f"Vertex AI 呼び出し中にエラーが発生しました: {e}")
+        return f"エラー: Claudeモデルの呼び出しに失敗しました。詳細: {e}"
