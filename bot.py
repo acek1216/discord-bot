@@ -330,7 +330,6 @@ async def on_ready():
     print(f"📖 Notion対応表が読み込まれました: {NOTION_PAGE_MAP}")
 
 @client.event
-@client.event
 async def on_message(message):
     if message.content.startswith("!Claude"):
         user_prompt = message.content[len("!Claude"):].strip()
@@ -605,6 +604,7 @@ def run_bot():
 
 if __name__ == "__main__":
     run_bot()
+
 
 
 
