@@ -330,11 +330,15 @@ async def on_ready():
     print(f"📖 Notion対応表が読み込まれました: {NOTION_PAGE_MAP}")
 
 @client.event
-if message.content.startswith("!Claude"):
-    user_prompt = message.content[len("!Claude"):].strip()
-    if not user_prompt:
-        await message.channel.send("使い方: `!Claude <質問や指示>`")
-        return
+@client.event
+async def on_message(message):
+    if message.content.startswith("!Claude"):
+        user_prompt = message.content[len("!Claude"):].strip()
+        if not user_prompt:
+            await message.channel.send("使い方：`!Claude <質問や指示>` ˆᴗˆ")
+            return
+
+        # Claude呼び出し処理などをここに書く
 
     # ペルソナ + ユーザー入力
     full_prompt = f"{claude_persona}\n\n父上: {user_prompt}\nai:"
@@ -601,6 +605,7 @@ def run_bot():
 
 if __name__ == "__main__":
     run_bot()
+
 
 
 
