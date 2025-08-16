@@ -4,9 +4,9 @@ import vertexai
 def call_claude_opus(prompt: str) -> str:
     vertexai.init(project="stunning-agency-469102-b5", location="asia-northeast1")
 
-    chat_model = ChatModel.from_pretrained(
-        "publishers/anthropic/models/claude-opus-4-1@20250805"
-    )
+    # Claude 4.1 Opus（Vertex AIでのAnthropic提供モデル）の正しい指定方法
+    chat_model = ChatModel.from_pretrained("claude-opus-4-1")
+
     chat = chat_model.start_chat()
     response = chat.send_message(prompt, temperature=0.7, max_tokens=1024)
     return response.text
