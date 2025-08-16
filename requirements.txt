@@ -9,6 +9,4 @@ mistralai==0.4.2
 aiohttp
 PyMuPDF
 flask
-anthropic>=0.25.7
-
-
+google-cloud-aiplatform
