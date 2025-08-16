@@ -8,11 +8,5 @@ Pillow
 mistralai==0.4.2
 aiohttp
 PyMuPDF
-Flask
-google-cloud-aiplatform
-google-cloud-vision # Vertex AIが内部で利用する場合があるため
 google-cloud-aiplatform>=1.49.0
-
-
-
-
+Flask
