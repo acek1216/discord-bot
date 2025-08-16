@@ -11,6 +11,9 @@ import requests # Rekus用
 import io
 from PIL import Image
 import datetime
+from claude_call import call_claude_opus
+from persona_claude import claude_persona
+
 
 # --- 環境変数の読み込み ---
 load_dotenv()
@@ -131,6 +134,15 @@ async def get_memory_flag_from_notion(thread_id: str) -> bool:
     return False
 
 # --- AIモデル呼び出し関数 ---
+async def ask_claude_base(user_id, prompt):
+    try:
+        from persona_claude import claude_persona
+        full_prompt = f"{claude_persona}\n\n{prompt}"
+        reply = call_claude_opus(full_prompt)
+        return reply
+    except Exception as e:
+        return f"❌ Claude呼び出しエラー: {e}"
+
 async def ask_gpt_base(user_id, prompt):
     history = gpt_base_memory.get(user_id, [])
     system_prompt = "あなたは論理と秩序を司る神官「GPT」です。丁寧で理知的な執事のように振る舞い、会話の文脈を考慮して150文字以内で回答してください。"
@@ -310,6 +322,13 @@ async def on_ready():
 
 @client.event
 async def on_message(message):
+    if message.content.startswith("!Claude"):
+    user_id = str(message.author.id)
+    prompt = message.content[len("!Claude"):].strip()
+    reply = await ask_claude_base(user_id, prompt)
+    await message.channel.send(reply)
+    return
+
     if message.author.bot or message.author.id in processing_users:
         return
 
@@ -568,6 +587,7 @@ def run_bot():
 
 if __name__ == "__main__":
     run_bot()
+
 
 
 
