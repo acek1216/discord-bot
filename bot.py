@@ -155,15 +155,19 @@ async def ask_gpt_base(user_id, prompt):
         return reply
     except Exception as e: return f"GPTエラー: {e}"
 
-elif message.content.startswith("!Claude"):
-    user_id = str(message.author.id)
-    prompt = message.content[len("!Claude"):].strip()
-    if not prompt:
-        await message.channel.send("質問内容が空です。")
-        return
-    await message.channel.send("🌸 少々お待ちください、aiが心を込めてお応えいたします……")
-    reply = await ask_claude_base(user_id, prompt)
-    await message.channel.send(reply)
+@client.event
+async def on_message(message):
+    if message.content.startswith("!Claude"):
+        user_id = str(message.author.id)
+        prompt = message.content[len("!Claude"):].strip()
+
+        if not prompt:
+            await message.channel.send("❗質問内容が空です。")
+            return
+
+        await message.channel.send("🌸 少々お待ちください、aiが心を込めてお応えいたします……")
+        reply = await ask_claude_base(user_id, prompt)
+        await message.channel.send(reply)
 
 async def ask_gemini_base(user_id, prompt):
     history = gemini_base_memory.get(user_id, [])
@@ -329,15 +333,7 @@ async def on_ready():
     print(f"✅ ログイン成功: {client.user}")
     print(f"📖 Notion対応表が読み込まれました: {NOTION_PAGE_MAP}")
 
-@client.event
-async def on_message(message):
-    if message.content.startswith("!Claude"):
-        user_prompt = message.content[len("!Claude"):].strip()
-        if not user_prompt:
-            await message.channel.send("使い方：`!Claude <質問や指示>` ˆᴗˆ")
-            return
 
-        # Claude呼び出し処理などをここに書く
 
     # ペルソナ + ユーザー入力
     full_prompt = f"{claude_persona}\n\n父上: {user_prompt}\nai:"
@@ -604,6 +600,7 @@ def run_bot():
 
 if __name__ == "__main__":
     run_bot()
+
 
 
 
