@@ -11,5 +11,7 @@ PyMuPDF
 Flask
 google-cloud-aiplatform
 google-cloud-vision # Vertex AIが内部で利用する場合があるため
+google-cloud-aiplatform>=1.44.0
+
 
 
