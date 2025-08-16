@@ -350,21 +350,26 @@ async def on_message(message):
         if channel_name.startswith("gpt") and not content.startswith("!"):
             prompt = message.content
             is_memory_on = await get_memory_flag_from_notion(thread_id)
-            messages_for_api = []
-            if is_memory_on:
-                history = gpt_thread_memory.get(thread_id, [])
-                messages_for_api.extend(history)
+
+            # 履歴を一度だけ取得する
+            history = gpt_thread_memory.get(thread_id, []) if is_memory_on else []
+
+            # APIに送るメッセージリストを作成 (履歴の安全なコピーを使用)
+            messages_for_api = history.copy()
             messages_for_api.append({"role": "user", "content": prompt})
-            
-            reply = await ask_thread_gpt4o(messages_for_api)
+
+            # ★★★ gpt-5を呼び出すように修正 ★★★
+            full_prompt = "\n".join([f"{m['role']}: {m['content']}" for m in messages_for_api])
+            reply = await ask_gpt5(full_prompt)
             await send_long_message(message.channel, reply)
 
+            # 履歴を更新して保存
             if is_memory_on:
-                current_history = gpt_thread_memory.get(thread_id, [])
-                current_history.append({"role": "user", "content": prompt})
-                current_history.append({"role": "assistant", "content": reply})
-                gpt_thread_memory[thread_id] = current_history[-10:]
+                history.append({"role": "user", "content": prompt})
+                history.append({"role": "assistant", "content": reply})
+                gpt_thread_memory[thread_id] = history[-10:] # 常に最新の5往復分を保持
 
+            # Notionへのログ記録 (Bot名をgpt-5に)
             if is_admin and target_page_id:
                 log_blocks = [{"object": "block", "type": "paragraph", "paragraph": {"rich_text": [{"type": "text", "text": {"content": f"👤 {message.author.display_name}:\n{prompt}"}}]}}]
                 await log_to_notion(target_page_id, log_blocks)
@@ -595,4 +600,3 @@ if __name__ == "__main__":
     # 少し待ってからBot起動（Cloud Runが起動確認できるようにする）
     time.sleep(2)
     run_discord_bot()
-
