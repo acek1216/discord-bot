@@ -126,6 +126,20 @@ async def get_memory_flag_from_notion(thread_id: str) -> bool:
 
 # --- AIモデル呼び出し関数 ---
 async def ask_gpt_base(user_id, prompt):
+    elif command_name == "!Claude":
+        if not query:
+            await message.channel.send("使い方：`!Claude <メッセージ>`")
+            return
+        try:
+            from claude_call import call_claude_opus
+            from claude_persona import claude_persona
+            full_prompt = f"{claude_persona}\n\n{query}"
+            reply_text = call_claude_opus(full_prompt)
+            await send_long_message(message.channel, reply_text)
+        except Exception as e:
+            await message.channel.send(f"🛑 Claude呼び出しエラー: {e}")
+
+async def ask_gpt_base(user_id, prompt):
     history = gpt_base_memory.get(user_id, [])
     system_prompt = "あなたは論理と秩序を司る神官「GPT」です。丁寧で理知的な執事のように振る舞い、会話の文脈を考慮して150文字以内で回答してください。"
     messages = [{"role": "system", "content": system_prompt}] + history + [{"role": "user", "content": prompt}]
@@ -568,6 +582,7 @@ if __name__ == "__main__":
     # 少し待ってからBot起動（Cloud Runが起動確認できるようにする）
     time.sleep(2)
     run_discord_bot()
+
 
 
 
