@@ -8,8 +8,8 @@ LOCATION = "asia-northeast1"
 # Vertex AI を初期化
 vertexai.init(project=PROJECT_ID, location=LOCATION)
 
-# モデルを読み込み (ご指定の正式なモデルID)
-model = GenerativeModel("claude-opus-4-1@20250805")
+# モデルを読み込み (Anthropicのモデルであることを明示的に指定)
+model = GenerativeModel("publishers/anthropic/models/claude-opus-4-1@20250805")
 
 def call_claude_opus(prompt_text: str) -> str:
     """
