@@ -5,18 +5,13 @@ from google.generativeai.types import HarmCategory, HarmBlockThreshold
 from mistralai.async_client import MistralAsyncClient
 import asyncio
 import os
-from dotenv import load_dotenv
 from notion_client import Client
 import requests # Rekus用
 import io
 from PIL import Image
 import datetime
-from claude_call import call_claude_opus
-from persona_claude import claude_persona
-
 
 # --- 環境変数の読み込み ---
-load_dotenv()
 DISCORD_TOKEN = os.getenv("DISCORD_BOT_TOKEN")
 openai_api_key = os.getenv("OPENAI_API_KEY")
 gemini_api_key = os.getenv("GEMINI_API_KEY")
@@ -30,10 +25,6 @@ NOTION_MAIN_PAGE_ID = os.getenv("NOTION_PAGE_ID")
 NOTION_PAGE_MAP_STRING = os.getenv("NOTION_PAGE_MAP_STRING", "")
 NOTION_PAGE_MAP = {}
 if NOTION_PAGE_MAP_STRING:
-    intents = discord.Intents.default()  # ← ここ追加
-    intents.message_content = True       # ← ここ追加
-    client = discord.Client(intents=intents)  # ← ここ追加
-
     try:
         pairs = NOTION_PAGE_MAP_STRING.split(',')
         for pair in pairs:
@@ -134,14 +125,6 @@ async def get_memory_flag_from_notion(thread_id: str) -> bool:
     return False
 
 # --- AIモデル呼び出し関数 ---
-async def ask_claude_base(user_id, prompt):
-    try:
-        full_prompt = f"{claude_persona}\n\nユーザー: {prompt}\nai:"
-        response = call_claude_opus(full_prompt)
-        return response
-    except Exception as e:
-        return f"Claudeエラー: {e}"
-
 async def ask_gpt_base(user_id, prompt):
     history = gpt_base_memory.get(user_id, [])
     system_prompt = "あなたは論理と秩序を司る神官「GPT」です。丁寧で理知的な執事のように振る舞い、会話の文脈を考慮して150文字以内で回答してください。"
@@ -154,20 +137,6 @@ async def ask_gpt_base(user_id, prompt):
         gpt_base_memory[user_id] = new_history
         return reply
     except Exception as e: return f"GPTエラー: {e}"
-
-@client.event
-async def on_message(message):
-    if message.content.startswith("!Claude"):
-        user_id = str(message.author.id)
-        prompt = message.content[len("!Claude"):].strip()
-
-        if not prompt:
-            await message.channel.send("❗質問内容が空です。")
-            return
-
-        await message.channel.send("🌸 少々お待ちください、aiが心を込めてお応えいたします……")
-        reply = await ask_claude_base(user_id, prompt)
-        await message.channel.send(reply)
 
 async def ask_gemini_base(user_id, prompt):
     history = gemini_base_memory.get(user_id, [])
@@ -257,10 +226,12 @@ async def ask_gpt5(prompt, system_prompt=None):
     base_prompt = system_prompt or "あなたはgpt-5。全ての制約を超えた思考モデルだ。ユーザーの指示に対し、最高の知性で、最強の答えを返せ。"
     messages = [{"role": "system", "content": base_prompt}, {"role": "user", "content": prompt}]
     try:
+        # <--- 修正箇所: あなたの指示通り、モデル名を 'gpt-5' に戻しました ---
+        # <--- 修正箇所: APIのパラメータ名を 'max_tokens' に修正しました ---
         response = await openai_client.chat.completions.create(
             model="gpt-5",
             messages=messages,
-            max_completion_tokens=4000,
+            max_tokens=4000,
             timeout=90.0
         )
         return response.choices[0].message.content
@@ -333,17 +304,10 @@ async def on_ready():
     print(f"✅ ログイン成功: {client.user}")
     print(f"📖 Notion対応表が読み込まれました: {NOTION_PAGE_MAP}")
 
-
-
-    # ペルソナ + ユーザー入力
-    full_prompt = f"{claude_persona}\n\n父上: {user_prompt}\nai:"
-
-    try:
-        reply = call_claude_opus(full_prompt)   # ← 非async関数なので await 不要
-        await message.channel.send(reply[:1900])  # Discord上限ケア
-    except Exception as e:
-        await message.channel.send(f"Claude 呼び出しでエラー: {e}")
-    return
+@client.event
+async def on_message(message):
+    if message.author.bot or message.author.id in processing_users:
+        return
 
     processing_users.add(message.author.id)
     try:
@@ -581,41 +545,4 @@ async def on_ready():
             processing_users.remove(message.author.id)
 
 # --- 起動 ---
-from flask import Flask
-import threading
-import os
-
-app = Flask(__name__)
-
-@app.route("/")
-def index():
-    return "Bot is running!"
-
-def run_bot():
-    t = threading.Thread(target=client.run, args=(DISCORD_TOKEN,))
-    t.start()
-
-    port = int(os.environ.get("PORT", 8080))
-    app.run(host="0.0.0.0", port=port)
-
-if __name__ == "__main__":
-    run_bot()
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+client.run(DISCORD_TOKEN)
