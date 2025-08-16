@@ -258,7 +258,8 @@ async def ask_gpt5(prompt, system_prompt=None):
         response = await openai_client.chat.completions.create(
             model="gpt-5",
             messages=messages,
-            max_tokens=4000,
+            # ↓↓↓ この行が max_completion_tokens になっているか確認
+            max_completion_tokens=4000,
             timeout=90.0
         )
         return response.choices[0].message.content
@@ -600,3 +601,4 @@ if __name__ == "__main__":
     # 少し待ってからBot起動（Cloud Runが起動確認できるようにする）
     time.sleep(2)
     run_discord_bot()
+
