@@ -548,21 +548,26 @@ async def on_message(message):
 from flask import Flask
 import threading
 import os
+import time
 
-# Flask サーバーの作成
 app = Flask(__name__)
 
 @app.route("/")
 def index():
     return "Bot is running!"
 
-if __name__ == "__main__":
-    # Botの起動を別スレッドで実行
-    t = threading.Thread(target=client.run, args=(DISCORD_TOKEN,))
-    t.start()
+def run_discord_bot():
+    client.run(DISCORD_TOKEN)
 
-    # Flask サーバーを起動
+if __name__ == "__main__":
+    # Flaskを先に起動（Cloud RunのTCP probe用）
     port = int(os.environ.get("PORT", 8080))
-    app.run(host="0.0.0.0", port=port)
+    flask_thread = threading.Thread(target=lambda: app.run(host="0.0.0.0", port=port))
+    flask_thread.start()
+
+    # 少し待ってからBot起動（Cloud Runが起動確認できるようにする）
+    time.sleep(2)
+    run_discord_bot()
+
 
 
