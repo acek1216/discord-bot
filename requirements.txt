@@ -8,5 +8,6 @@ Pillow
 mistralai==0.4.2
 aiohttp
 PyMuPDF
-flask
+Flask==2.3.3
 google-cloud-aiplatform
+
