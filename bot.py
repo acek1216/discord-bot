@@ -1,6 +1,6 @@
 import discord
 from openai import AsyncOpenAI
-import google.generai as genai
+import google.generativeai as genai
 from google.generativeai.types import HarmCategory, HarmBlockThreshold
 from mistralai.async_client import MistralAsyncClient
 import asyncio
@@ -45,7 +45,7 @@ genai.configure(api_key=gemini_api_key)
 mistral_client = MistralAsyncClient(api_key=MISTRAL_API_KEY)
 notion = Client(auth=notion_api_key)
 
-# --- ★★★★★ 最終修正箇所 ★★★★★ ---
+# --- ★★★★★ 最終的な修正 ★★★★★ ---
 # Vertex AIの初期化は、ここで一度だけ行います。
 # ClaudeとLlamaの両方が使えるように、リージョンは us-central1 を指定します。
 vertexai.init(project="stunning-agency-469102-b5", location="us-central1")
@@ -139,7 +139,7 @@ async def get_memory_flag_from_notion(thread_id: str) -> bool:
 # --- AIモデル呼び出し関数 ---
 def _sync_call_llama(p_text: str):
     try:
-        # 初期化処理は削除
+        # 初期化は最初に一度だけ行うため、ここでは実行しない
         model = GenerativeModel("meta/llama3-8b-instruct")
         response = model.generate_content(p_text)
         return response.text
@@ -161,7 +161,7 @@ async def ask_llama(prompt: str) -> str:
 
 def _sync_call_claude(p_text: str):
     try:
-        # 初期化処理は削除
+        # 初期化は最初に一度だけ行うため、ここでは実行しない
         model = GenerativeModel("claude-3-5-sonnet@20240620")
         response = model.generate_content(p_text)
         return response.text
