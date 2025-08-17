@@ -12,7 +12,8 @@ from PIL import Image
 import datetime
 
 # --- Claude (Vertex AI 経由) 呼び出し ---
-# このコードを実行するには、同じディレクトリに `claude_call.py` ファイルが必要です。
+# These are added here as per your instructions.
+# Ensure you have files named 'claude_call.py' and 'persona_claude.py' available.
 try:
     from claude_call import call_claude_opus
     from persona_claude import claude_persona
@@ -139,9 +140,15 @@ async def get_memory_flag_from_notion(thread_id: str) -> bool:
 # --- AIモデル呼び出し関数 ---
 
 async def ask_claude(prompt: str) -> str:
+    """
+    Handles the call to Claude via Vertex AI.
+    Since call_claude_opus is a synchronous function, it's run in an executor
+    to prevent blocking the bot's asynchronous operations.
+    """
     full_prompt = f"{claude_persona}\n\n{prompt}"
     loop = asyncio.get_event_loop()
     try:
+        # Run the synchronous function in a separate thread
         reply_text = await loop.run_in_executor(None, call_claude_opus, full_prompt)
         return reply_text
     except Exception as e:
@@ -251,6 +258,7 @@ async def ask_gpt5(prompt, system_prompt=None):
         response = await openai_client.chat.completions.create(
             model="gpt-5",
             messages=messages,
+            # ↓↓↓ この行が max_completion_tokens になっているか確認
             max_completion_tokens=4000,
             timeout=90.0
         )
@@ -259,6 +267,19 @@ async def ask_gpt5(prompt, system_prompt=None):
         if "Timeout" in str(e):
             return "gpt-5エラー: 応答が時間切れになりました。"
         return f"gpt-5エラー: {e}"
+
+async def ask_thread_gpt4o(messages: list):
+    system_prompt = "あなたはユーザーの優秀なアシスタントです。自然な対話を心がけてください。"
+    final_messages = [{"role": "system", "content": system_prompt}] + messages
+    try:
+        response = await openai_client.chat.completions.create(
+            model="gpt-4o",
+            messages=final_messages,
+            max_tokens=4000
+        )
+        return response.choices[0].message.content
+    except Exception as e:
+        return f"gpt-4oエラー: {e}"
 
 async def get_full_response_and_summary(ai_function, prompt, **kwargs):
     full_response = await ai_function(prompt, **kwargs)
@@ -331,19 +352,25 @@ async def on_message(message):
             prompt = message.content
             is_memory_on = await get_memory_flag_from_notion(thread_id)
 
+            # 履歴を一度だけ取得する
             history = gpt_thread_memory.get(thread_id, []) if is_memory_on else []
+
+            # APIに送るメッセージリストを作成 (履歴の安全なコピーを使用)
             messages_for_api = history.copy()
             messages_for_api.append({"role": "user", "content": prompt})
 
+            # ★★★ gpt-5を呼び出すように修正 ★★★
             full_prompt = "\n".join([f"{m['role']}: {m['content']}" for m in messages_for_api])
             reply = await ask_gpt5(full_prompt)
             await send_long_message(message.channel, reply)
 
+            # 履歴を更新して保存
             if is_memory_on:
                 history.append({"role": "user", "content": prompt})
                 history.append({"role": "assistant", "content": reply})
-                gpt_thread_memory[thread_id] = history[-10:]
+                gpt_thread_memory[thread_id] = history[-10:] # 常に最新の5往復分を保持
 
+            # Notionへのログ記録 (Bot名をgpt-5に)
             if is_admin and target_page_id:
                 log_blocks = [{"object": "block", "type": "paragraph", "paragraph": {"rich_text": [{"type": "text", "text": {"content": f"👤 {message.author.display_name}:\n{prompt}"}}]}}]
                 await log_to_notion(target_page_id, log_blocks)
@@ -411,7 +438,8 @@ async def on_message(message):
                 if is_admin and target_page_id: await log_response(target_page_id, reply, bot_name)
             return
         
-        # 高度なコマンド群 (!gpt-4o, !geminipro, etc.)
+        # ▼▼▼【ご指摘のあった関数群をここから再統合】▼▼▼
+        # 高度なコマンド群 (!gpt-5, !みんなで, !スライド, !ロジカル, etc.)
         if command_name in ["!gpt-4o", "!geminipro", "!perplexity", "!mistrallarge", "!みんなで", "!all", "!クリティカル", "!ロジカル", "!スライド", "!gpt-5"]:
             if command_name == "!みんなで" or command_name == "!all":
                 await message.channel.send("🌀 三AIが同時に応答します… (GPT, ジェミニ, ミストラル)")
