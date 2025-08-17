@@ -156,7 +156,7 @@ async def ask_llama(prompt: str) -> str:
 def _sync_call_claude(p_text: str):
     try:
         # Llamaが成功したのと同じ構造を維持（毎回initを呼ぶ）
-        vertexai.init(project="stunning-agency-469102-b5", location="us-east5")
+        vertexai.init(project="stunning-agency-469102-b5", location="asia-southeast1")
         model = GenerativeModel("publishers/anthropic/models/claude-3-5-sonnet@20240620")
         response = model.generate_content(p_text)
         return response.text
@@ -618,5 +618,6 @@ if __name__ == "__main__":
     # 少し待ってからBot起動（Cloud Runが起動確認できるようにする）
     time.sleep(2)
     run_discord_bot()
+
 
 
