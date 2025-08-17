@@ -13,7 +13,6 @@ import datetime
 
 # --- Vertex AI 用のライブラリを追加 ---
 import vertexai
-# --- 修正箇所：Llama 3.3の呼び出しに必要なライブラリをインポート ---
 from vertexai.generative_models import GenerativeModel
 
 
@@ -131,15 +130,13 @@ async def get_memory_flag_from_notion(thread_id: str) -> bool:
     return False
 
 # --- AIモデル呼び出し関数 ---
-
-# --- 修正箇所：ask_llama関数をLlama 3.3対応に全面的に書き換え ---
 def _sync_call_llama(p_text: str):
     try:
         # Vertex AIを初期化
         vertexai.init(project="stunning-agency-469102-b5", location="asia-northeast1")
         
-        # 正しいクラスと新しいモデル名でモデルを読み込み
-        model = GenerativeModel.from_pretrained("Llama-3.3-70b-instruct-maas")
+        # --- 修正箇所：モデル名をコンストラクタに直接渡す ---
+        model = GenerativeModel("Llama-3.3-70b-instruct-maas")
         
         # 応答を生成
         response = model.generate_content(p_text)
@@ -431,8 +428,6 @@ async def on_message(message):
             elif command_name == "!ミストラル": bot_name = "ミストラル"; reply = await ask_mistral_base(user_id, final_query)
             elif command_name == "!ポッド042": bot_name = "ポッド042"; reply = await ask_pod042(query)
             elif command_name == "!ポッド153": bot_name = "ポッド153"; reply = await ask_pod153(query)
-            # Llamaを呼び出すコマンドを追加
-            # --- 修正箇所：ボット名をLlama 3.3に変更 ---
             elif command_name == "!Llama": bot_name = "Llama 3.3"; reply = await ask_llama(final_query)
             # Claudeは一時的に無効化
             elif command_name == "!Claude": 
@@ -445,7 +440,6 @@ async def on_message(message):
             return
         
         # ▼▼▼【ご指摘のあった関数群をここから再統合】▼▼▼
-        # (このセクションの関数は変更ありません)
         if command_name in ["!gpt-4o", "!geminipro", "!perplexity", "!mistrallarge", "!みんなで", "!all", "!クリティカル", "!ロジカル", "!スライド", "!gpt-5"]:
             if command_name == "!みんなで" or command_name == "!all":
                 await message.channel.send("🌀 三AIが同時に応答します… (GPT, ジェミニ, ミストラル)")
