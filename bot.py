@@ -135,7 +135,7 @@ def _sync_call_llama(p_text: str):
         # Vertex AIを初期化
         vertexai.init(project="stunning-agency-469102-b5", location="asia-northeast1")
         
-        # --- 修正箇所：スクリーンショットの「モデルID」をそのまま使用 ---
+        # --- 修正箇所：スクリーンショットに記載の「モデルID」をそのまま使用 ---
         model = GenerativeModel("publishers/meta/models/llama-3.3-70b-instruct-maas")
         
         # 応答を生成
