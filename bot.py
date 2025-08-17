@@ -132,11 +132,11 @@ async def get_memory_flag_from_notion(thread_id: str) -> bool:
 # --- AIモデル呼び出し関数 ---
 def _sync_call_llama(p_text: str):
     try:
-        # Vertex AIを初期化
-        vertexai.init(project="stunning-agency-469102-b5", location="asia-northeast1")
+        # --- 修正箇所：locationをアイオワ（us-central1）に変更 ---
+        vertexai.init(project="stunning-agency-469102-b5", location="us-central1")
         
-        # --- 修正箇所：確実に動作する公式のLlama 3モデル名を使用 ---
-        model = GenerativeModel("meta/llama3-8b-instruct")
+        # --- ご指定のモデルIDを再度使用 ---
+        model = GenerativeModel("publishers/meta/models/llama-3.3-70b-instruct-maas")
         
         # 応答を生成
         response = model.generate_content(p_text)
@@ -144,18 +144,18 @@ def _sync_call_llama(p_text: str):
         return response.text
     
     except Exception as e:
-        error_message = f"🛑 Llama 3 呼び出しエラー: {e}"
+        error_message = f"🛑 Llama 3.3 呼び出しエラー: {e}"
         print(error_message)
         return error_message
 
 async def ask_llama(prompt: str) -> str:
-    """Vertex AI経由でMeta社のLlama 3を呼び出す。"""
+    """Vertex AI経由でMeta社のLlama 3.3を呼び出す。"""
     try:
         loop = asyncio.get_event_loop()
         reply = await loop.run_in_executor(None, _sync_call_llama, prompt)
         return reply
     except Exception as e:
-        error_message = f"🛑 Llama 3 非同期処理エラー: {e}"
+        error_message = f"🛑 Llama 3.3 非同期処理エラー: {e}"
         print(error_message)
         return error_message
 
@@ -428,8 +428,8 @@ async def on_message(message):
             elif command_name == "!ミストラル": bot_name = "ミストラル"; reply = await ask_mistral_base(user_id, final_query)
             elif command_name == "!ポッド042": bot_name = "ポッド042"; reply = await ask_pod042(query)
             elif command_name == "!ポッド153": bot_name = "ポッド153"; reply = await ask_pod153(query)
-            # --- 修正箇所：ボット名を標準のLlama 3に戻す ---
-            elif command_name == "!Llama": bot_name = "Llama 3"; reply = await ask_llama(final_query)
+            # --- 修正箇所：ボット名を再度Llama 3.3に戻す ---
+            elif command_name == "!Llama": bot_name = "Llama 3.3"; reply = await ask_llama(final_query)
             # Claudeは一時的に無効化
             elif command_name == "!Claude": 
                 await message.channel.send("現在Claudeモデルはメンテナンス中です。代わりに `!Llama` をお試しください。")
