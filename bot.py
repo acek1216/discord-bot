@@ -11,18 +11,9 @@ import io
 from PIL import Image
 import datetime
 
-# --- Claude (Vertex AI 経由) 呼び出し ---
-# These are added here as per your instructions.
-# Ensure you have files named 'claude_call.py' and 'persona_claude.py' available.
-try:
-    from claude_call import call_claude_opus
-    from persona_claude import claude_persona
-except ImportError as e:
-    print(f"⚠️ Claude imports failed. The !Claude command will not work: {e}")
-    # Define dummy functions/variables to prevent runtime errors if imports fail
-    def call_claude_opus(prompt): return "Claude module not found."
-    claude_persona = ""
-
+# --- Vertex AI (Claude) 用のライブラリを追加 ---
+import vertexai
+from vertexai.language_models import ChatModel
 
 # --- 環境変数の読み込み ---
 DISCORD_TOKEN = os.getenv("DISCORD_BOT_TOKEN")
@@ -141,18 +132,26 @@ async def get_memory_flag_from_notion(thread_id: str) -> bool:
 
 async def ask_claude(prompt: str) -> str:
     """
-    Handles the call to Claude via Vertex AI.
-    Since call_claude_opus is a synchronous function, it's run in an executor
-    to prevent blocking the bot's asynchronous operations.
+    安定版のClaude 3 SonnetをVertex AI経由で呼び出す関数。
+    起動時クラッシュを防ぐため、関数内でVertex AIを初期化する。
     """
-    full_prompt = f"{claude_persona}\n\n{prompt}"
-    loop = asyncio.get_event_loop()
+    def _sync_call_claude(p_text: str):
+        # 関数が呼ばれた時に初めて初期化とモデル読み込みを行う
+        vertexai.init(project="stunning-agency-469102-b5", location="us-central1")
+        model = ChatModel.from_pretrained("claude-3-sonnet@20240229")
+        chat = model.start_chat()
+        response = chat.send_message(p_text)
+        return response.text
+
     try:
-        # Run the synchronous function in a separate thread
-        reply_text = await loop.run_in_executor(None, call_claude_opus, full_prompt)
-        return reply_text
+        loop = asyncio.get_event_loop()
+        # 同期関数であるSDK呼び出しを別スレッドで実行する
+        reply = await loop.run_in_executor(None, _sync_call_claude, prompt)
+        return reply
     except Exception as e:
-        return f"🛑 Claude呼び出しエラー: {e}"
+        error_message = f"🛑 Claude Sonnet 呼び出しエラー: {e}"
+        print(error_message) # ログにエラーを出力
+        return error_message
 
 async def ask_gpt_base(user_id, prompt):
     history = gpt_base_memory.get(user_id, [])
@@ -258,7 +257,6 @@ async def ask_gpt5(prompt, system_prompt=None):
         response = await openai_client.chat.completions.create(
             model="gpt-5",
             messages=messages,
-            # ↓↓↓ この行が max_completion_tokens になっているか確認
             max_completion_tokens=4000,
             timeout=90.0
         )
@@ -351,26 +349,18 @@ async def on_message(message):
         if channel_name.startswith("gpt") and not content.startswith("!"):
             prompt = message.content
             is_memory_on = await get_memory_flag_from_notion(thread_id)
-
-            # 履歴を一度だけ取得する
             history = gpt_thread_memory.get(thread_id, []) if is_memory_on else []
-
-            # APIに送るメッセージリストを作成 (履歴の安全なコピーを使用)
             messages_for_api = history.copy()
             messages_for_api.append({"role": "user", "content": prompt})
-
-            # ★★★ gpt-5を呼び出すように修正 ★★★
             full_prompt = "\n".join([f"{m['role']}: {m['content']}" for m in messages_for_api])
             reply = await ask_gpt5(full_prompt)
             await send_long_message(message.channel, reply)
 
-            # 履歴を更新して保存
             if is_memory_on:
                 history.append({"role": "user", "content": prompt})
                 history.append({"role": "assistant", "content": reply})
-                gpt_thread_memory[thread_id] = history[-10:] # 常に最新の5往復分を保持
+                gpt_thread_memory[thread_id] = history[-10:]
 
-            # Notionへのログ記録 (Bot名をgpt-5に)
             if is_admin and target_page_id:
                 log_blocks = [{"object": "block", "type": "paragraph", "paragraph": {"rich_text": [{"type": "text", "text": {"content": f"👤 {message.author.display_name}:\n{prompt}"}}]}}]
                 await log_to_notion(target_page_id, log_blocks)
