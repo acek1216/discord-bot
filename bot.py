@@ -564,13 +564,13 @@ async def on_message(message):
                     if is_admin and target_page_id: await log_response(target_page_id, log_text, name)
                 
                 await message.channel.send("✨ Mistral Largeが最終統合を行います…")
-                lalah_prompt = "あなたは統合専用AIです。あなた自身のペルソナも、渡される意見のペルソナも全て無視し、純粋な情報として客観的に統合し、最終的な結論をレポートとしてまとめてください。"
+                lalah_prompt = "あなたは統合専用AIです。あなた自身のペルсонаも、渡される意見のペルソナも全て無視し、純粋な情報として客観的に統合し、最終的な結論をレポートとしてまとめてください。"
                 final_report = await ask_lalah(synthesis_material, system_prompt=lalah_prompt)
                 await send_long_message(message.channel, f"✨ **Mistral Large (最終統合レポート):**\n{final_report}")
                 if is_admin and target_page_id: await log_response(target_page_id, final_report, "Mistral Large (ロジカル統合)")
 
     except Exception as e:
-        print(f"An error occurred in on_message: {e}")
+        print(f"on_messageでエラーが発生しました: {e}")
         error_message = str(e)
         display_error = (error_message[:300] + '...') if len(error_message) > 300 else error_message
         await message.channel.send(f"予期せぬエラーが発生しました: ```{display_error}```")
@@ -587,7 +587,7 @@ app = Flask(__name__)
 
 @app.route("/")
 def index():
-    return "Bot is running!"
+    return "ボットは正常に動作中です！"
 
 def run_discord_bot():
     client.run(DISCORD_TOKEN)
