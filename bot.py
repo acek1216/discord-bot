@@ -132,10 +132,17 @@ async def get_memory_flag_from_notion(thread_id: str) -> bool:
 # --- AIモデル呼び出し関数 ---
 def _sync_call_llama(p_text: str):
     try:
+        # Vertex AIを初期化
         vertexai.init(project="stunning-agency-469102-b5", location="us-central1")
-        model = GenerativeModel("meta/llama3-8b-instruct")
+        
+        # --- 修正箇所：エラーが要求する「完全なリソース名」を使用 ---
+        model = GenerativeModel("publishers/meta/models/llama3-8b-instruct")
+        
+        # 応答を生成
         response = model.generate_content(p_text)
+        
         return response.text
+    
     except Exception as e:
         error_message = f"🛑 Llama 3 呼び出しエラー: {e}"
         print(error_message)
@@ -152,34 +159,6 @@ async def ask_llama(prompt: str) -> str:
         print(error_message)
         return error_message
 
-# --- ▼▼▼ ここにClaude関数を追加 ▼▼▼ ---
-async def ask_claude(prompt: str) -> str:
-    """Vertex AI経由でAnthropic社のClaude 3.5 Sonnetを呼び出す。"""
-    def _sync_call_claude(p_text: str):
-        try:
-            # Claude 3.5 Sonnetが利用可能なリージョン（例: アイオワ）
-            vertexai.init(project="stunning-agency-469102-b5", location="us-central1")
-            
-            # Claude 3.5 SonnetのモデルIDを指定
-            model = GenerativeModel("claude-3-5-sonnet@20240620")
-            
-            response = model.generate_content(p_text)
-            return response.text
-        
-        except Exception as e:
-            error_message = f"🛑 Claude 呼び出しエラー: {e}"
-            print(error_message)
-            return error_message
-
-    try:
-        loop = asyncio.get_event_loop()
-        reply = await loop.run_in_executor(None, _sync_call_claude, prompt)
-        return reply
-    except Exception as e:
-        error_message = f"🛑 Claude 非同期処理エラー: {e}"
-        print(error_message)
-        return error_message
-# --- ▲▲▲ Claude関数ここまで ▲▲▲ ---
 
 async def ask_gpt_base(user_id, prompt):
     history = gpt_base_memory.get(user_id, [])
@@ -450,10 +429,10 @@ async def on_message(message):
             elif command_name == "!ポッド042": bot_name = "ポッド042"; reply = await ask_pod042(query)
             elif command_name == "!ポッド153": bot_name = "ポッド153"; reply = await ask_pod153(query)
             elif command_name == "!Llama": bot_name = "Llama 3"; reply = await ask_llama(final_query)
-            # --- ▼▼▼ ここにClaudeコマンドを追加 ▼▼▼ ---
+            # Claudeは一時的に無効化
             elif command_name == "!Claude": 
-                bot_name = "Claude 3.5 Sonnet"
-                reply = await ask_claude(final_query)
+                await message.channel.send("現在Claudeモデルはメンテナンス中です。代わりに `!Llama` をお試しください。")
+                return
             
             if reply:
                 await send_long_message(message.channel, reply)
