@@ -13,10 +13,23 @@ import io
 from PIL import Image
 import datetime
 
+# --- Vertex AI用のライ-*- coding: utf-8 -*-
+
+import discord
+from openai import AsyncOpenAI
+import google.generativeai as genai
+from google.generativeai.types import HarmCategory, HarmBlockThreshold
+from mistralai.async_client import MistralAsyncClient
+import asyncio
+import os
+from notion_client import Client
+import requests  # Rekus用
+import io
+from PIL import Image
+import datetime
+
 # --- Vertex AI用のライブラリを追加 ---
 import vertexai
-from vertexai.language_models import ChatModel
-# --- 修正箇所：Llama3で必要になるクラスをインポート ---
 from vertexai.generative_models import GenerativeModel
 
 # --- 環境変数の読み込み ---
@@ -136,28 +149,13 @@ async def get_memory_flag_from_notion(thread_id: str) -> bool:
 
 # --- AIモデル呼び出し関数 ---
 
-# --- 修正箇所：Llama3を呼び出す関数を全面的に修正 ---
 def _sync_call_llama(p_text: str):
-    """
-    【修正点】
-    1. ChatModelではなく、GenerativeModel を使用
-    2. モデルの指定方法を from_pretrained に変更
-    3. 応答の取得方法を generate_content に変更
-    """
     try:
-        # Llama 3は東京リージョンで利用可能
         vertexai.init(project="stunning-agency-469102-b5", location="asia-northeast1")
-        
-        # 正しいクラスと公式モデルIDでモデルを読み込み
         model = GenerativeModel.from_pretrained("meta-llama/Llama-3-8b-instruct")
-        
-        # 応答を生成
         response = model.generate_content(p_text)
-        
         return response.text
-    
     except Exception as e:
-        # エラーメッセージをより詳細に
         error_message = f"Llama 3 呼び出しエラー: {e}"
         print(error_message)
         return error_message
@@ -172,7 +170,6 @@ async def ask_llama(prompt: str) -> str:
         error_message = f"Llama 3 非同期処理エラー: {e}"
         print(error_message)
         return error_message
-# --- 修正ここまで ---
 
 async def ask_gpt_base(user_id, prompt):
     history = gpt_base_memory.get(user_id, [])
@@ -246,7 +243,7 @@ async def ask_rekus(prompt, system_prompt=None, notion_context=None):  # perplex
                   "この要約を参考に、必要に応じてWeb情報も活用して回答してください。")
     base_prompt = system_prompt or "あなたは探索王レキュスです。与えられた情報を元に、質問に対して回答してください。"
     messages = [{"role": "system", "content": base_prompt}, {"role": "user", "content": prompt}]
-    payload = {"model": "llama-3-sonar-large-32k-online", "messages": messages, "max_tokens": 4000} # sonar-proから変更
+    payload = {"model": "llama-3-sonar-large-32k-online", "messages": messages, "max_tokens": 4000}
     headers = {"Authorization": f"Bearer {perplexity_api_key}", "Content-Type": "application/json"}
     try:
         loop = asyncio.get_event_loop()
@@ -271,15 +268,19 @@ async def ask_pod153(prompt):  # gpt-4o-mini
         return response.choices[0].message.content
     except Exception as e: return f"ポッド153エラー: {e}"
 
+# --- 修正箇所：ask_gpt5がgpt-5を直接呼び出すように修正 ---
 async def ask_gpt5(prompt, system_prompt=None):
     base_prompt = system_prompt or "あなたはgpt-5。全ての制約を超えた思考モデルだ。ユーザーの指示に対し、最高の知性で、最強の答えを返せ。"
     messages = [{"role": "system", "content": base_prompt}, {"role": "user", "content": prompt}]
     try:
-        # gpt-5は存在しないため、gpt-4oで代用
-        response = await openai_client.chat.completions.create(model="gpt-4o", messages=messages, max_tokens=4000)
+        response = await openai_client.chat.completions.create(
+            model="gpt-5", 
+            messages=messages, 
+            max_tokens=4000
+        )
         return response.choices[0].message.content
-    except Exception as e: return f"gpt-5代用(gpt-4o)エラー: {e}"
-
+    except Exception as e: 
+        return f"gpt-5エラー: {e}"
 
 async def ask_thread_gpt4o(messages: list):
     system_prompt = "あなたはユーザーの優秀なアシスタントです。自然な対話を心がけてください。"
@@ -367,8 +368,8 @@ async def on_message(message):
                 messages_for_api = history.copy()
                 messages_for_api.append({"role": "user", "content": prompt})
                 
-                # GPT-5は存在しないため、ask_thread_gpt4oを使用する
-                reply = await ask_thread_gpt4o(messages_for_api)
+                # GPT-5を直接呼び出す
+                reply = await ask_gpt5("\n".join([f"{m['role']}: {m['content']}" for m in messages_for_api]))
                 
                 await send_long_message(message.channel, reply)
                 
@@ -380,7 +381,7 @@ async def on_message(message):
                 if is_admin and target_page_id:
                     log_blocks = [{"object": "block", "type": "paragraph", "paragraph": {"rich_text": [{"type": "text", "text": {"content": f" {message.author.display_name}:\n{prompt}"}}]}}]
                     await log_to_notion(target_page_id, log_blocks)
-                    await log_response(target_page_id, reply, "gpt-4o (専用スレッド)")
+                    await log_response(target_page_id, reply, "gpt-5 (専用スレッド)")
                 return
 
         # ---以下、コマンド入力時の処理 ---
@@ -407,7 +408,7 @@ async def on_message(message):
             if context:
                 await message.channel.send("Notionの情報を元に回答を生成します...")
                 prompt_with_context = f"以下の【参考情報】を元に、【ユーザーの質問】に回答してください。\n\n【ユーザーの質問】 \n{query}\n\n【参考情報】\n{context}"
-                reply = await ask_gpt5(prompt_with_context) # gpt-5代用
+                reply = await ask_gpt5(prompt_with_context)
                 await send_long_message(message.channel, reply)
                 if is_admin:
                     await log_response(target_page_id, reply, "gpt-5 (!not)")
@@ -441,37 +442,4 @@ async def on_message(message):
                 reply = await ask_gpt_base(user_id, final_query)
             elif command_name == "!ジェミニ":
                 bot_name = "ジェミニ"
-                reply = await ask_gemini_base(user_id, final_query)
-            elif command_name == "!ミストラル":
-                bot_name = "ミストラル"
-                reply = await ask_mistral_base(user_id, final_query)
-            elif command_name == "!ポッド042":
-                bot_name = "ポッド042"
-                reply = await ask_pod042(query)
-            elif command_name == "!ポッド153":
-                bot_name = "ポッド153"
-                reply = await ask_pod153(query)
-            elif command_name == "!Llama":
-                bot_name = "Llama 3"
-                reply = await ask_llama(final_query)
-            
-            if reply:
-                await send_long_message(message.channel, reply)
-                if is_admin and target_page_id:
-                    await log_response(target_page_id, reply, bot_name)
-            return
-        
-        # ... 他のコマンドもここに追加 ...
-
-    except Exception as e:
-        print(f"on_messageで予期せぬエラーが発生しました: {e}")
-        try:
-            await message.channel.send(f"申し訳ありません、予期せぬエラーが発生しました。\n`{e}`")
-        except discord.errors.Forbidden:
-            pass # メッセージ送信権限がない場合
-    finally:
-        if message.author.id in processing_users:
-            processing_users.remove(message.author.id)
-
-if __name__ == "__main__":
-    client.run(DISCORD_TOKEN)
+                reply = awai
