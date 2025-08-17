@@ -135,8 +135,8 @@ def _sync_call_llama(p_text: str):
         # Vertex AIを初期化
         vertexai.init(project="stunning-agency-469102-b5", location="asia-northeast1")
         
-        # --- 修正箇所：SDK用の正しいモデル識別子を使用 ---
-        model = GenerativeModel("meta/llama3.3-70b-instruct-maas")
+        # --- 修正箇所：SDK用の正しいモデル識別子（ハイフン）を使用 ---
+        model = GenerativeModel("meta/llama-3.3-70b-instruct-maas")
         
         # 応答を生成
         response = model.generate_content(p_text)
@@ -564,7 +564,7 @@ async def on_message(message):
                     if is_admin and target_page_id: await log_response(target_page_id, log_text, name)
                 
                 await message.channel.send("✨ Mistral Largeが最終統合を行います…")
-                lalah_prompt = "あなたは統合専用AIです。あなた自身のペルсонаも、渡される意見のペルソナも全て無視し、純粋な情報として客観的に統合し、最終的な結論をレポートとしてまとめてください。"
+                lalah_prompt = "あなたは統合専用AIです。あなた自身のペルソナも、渡される意見のペルソナも全て無視し、純粋な情報として客観的に統合し、最終的な結論をレポートとしてまとめてください。"
                 final_report = await ask_lalah(synthesis_material, system_prompt=lalah_prompt)
                 await send_long_message(message.channel, f"✨ **Mistral Large (最終統合レポート):**\n{final_report}")
                 if is_admin and target_page_id: await log_response(target_page_id, final_report, "Mistral Large (ロジカル統合)")
