@@ -157,30 +157,6 @@ async def ask_llama(prompt: str) -> str:
         print(error_message)
         return error_message
 
-# ▼▼▼【ここから安全なClaude関数を追加】▼▼▼
-def _sync_call_claude(p_text: str):
-    try:
-        # 初期化は最初に一度だけ行うため、ここでは実行しない
-        model = GenerativeModel("claude-3-5-sonnet@20240620")
-        response = model.generate_content(p_text)
-        return response.text
-    except Exception as e:
-        error_message = f"🛑 Claude 呼び出しエラー: {e}"
-        print(error_message)
-        return error_message
-
-async def ask_claude(prompt: str) -> str:
-    """Vertex AI経由でAnthropic社のClaude 3.5 Sonnetを呼び出す。"""
-    try:
-        loop = asyncio.get_event_loop()
-        reply = await loop.run_in_executor(None, _sync_call_claude, prompt)
-        return reply
-    except Exception as e:
-        error_message = f"🛑 Claude 非同期処理エラー: {e}"
-        print(error_message)
-        return error_message
-# ▲▲▲【Claude関数の追加ここまで】▲▲▲
-
 
 async def ask_gpt_base(user_id, prompt):
     history = gpt_base_memory.get(user_id, [])
@@ -450,12 +426,11 @@ async def on_message(message):
             elif command_name == "!ミストラル": bot_name = "ミストラル"; reply = await ask_mistral_base(user_id, final_query)
             elif command_name == "!ポッド042": bot_name = "ポッド042"; reply = await ask_pod042(query)
             elif command_name == "!ポッド153": bot_name = "ポッド153"; reply = await ask_pod153(query)
-            
-            # ▼▼▼【ここからClaudeコマンドを追加】▼▼▼
-            elif command_name == "!Claude": bot_name = "Claude 3.5 Sonnet"; reply = await ask_claude(final_query)
-            # ▲▲▲【Claudeコマンドの追加ここまで】▲▲▲
-
             elif command_name == "!Llama": bot_name = "Llama 3"; reply = await ask_llama(final_query)
+            # Claudeは一時的に無効化
+            elif command_name == "!Claude": 
+                await message.channel.send("現在Claudeモデルはメンテナンス中です。代わりに `!Llama` をお試しください。")
+                return
             
             if reply:
                 await send_long_message(message.channel, reply)
