@@ -13,7 +13,9 @@ import datetime
 
 # --- Vertex AI 用のライブラリを追加 ---
 import vertexai
-from vertexai.language_models import ChatModel
+# --- 修正箇所：Llama 3.3の呼び出しに必要なライブラリをインポート ---
+from vertexai.generative_models import GenerativeModel
+
 
 # --- 環境変数の読み込み ---
 DISCORD_TOKEN = os.getenv("DISCORD_BOT_TOKEN")
@@ -70,7 +72,6 @@ async def send_long_message(channel, text):
             await channel.send(text[i:i+2000])
 
 # --- Notion連携関数 ---
-# (このセクションの関数は変更ありません)
 def _sync_get_notion_page_text(page_id):
     all_text_blocks = []
     next_cursor = None
@@ -131,29 +132,37 @@ async def get_memory_flag_from_notion(thread_id: str) -> bool:
 
 # --- AIモデル呼び出し関数 ---
 
-async def ask_llama(prompt: str) -> str:
-    """
-    Vertex AI経由でMeta社のLlama 3を呼び出す。
-    """
-    def _sync_call_llama(p_text: str):
-        # Llama 3は東京リージョンで利用可能
+# --- 修正箇所：ask_llama関数をLlama 3.3対応に全面的に書き換え ---
+def _sync_call_llama(p_text: str):
+    try:
+        # Vertex AIを初期化
         vertexai.init(project="stunning-agency-469102-b5", location="asia-northeast1")
-        # モデル名をLlama 3に変更
-        model = ChatModel.from_pretrained("Llama3-8B")
-        chat = model.start_chat()
-        response = chat.send_message(p_text)
+        
+        # 正しいクラスと新しいモデル名でモデルを読み込み
+        model = GenerativeModel.from_pretrained("Llama-3.3-70b-instruct-maas")
+        
+        # 応答を生成
+        response = model.generate_content(p_text)
+        
         return response.text
+    
+    except Exception as e:
+        error_message = f"🛑 Llama 3.3 呼び出しエラー: {e}"
+        print(error_message)
+        return error_message
 
+async def ask_llama(prompt: str) -> str:
+    """Vertex AI経由でMeta社のLlama 3.3を呼び出す。"""
     try:
         loop = asyncio.get_event_loop()
         reply = await loop.run_in_executor(None, _sync_call_llama, prompt)
         return reply
     except Exception as e:
-        error_message = f"🛑 Llama 3 呼び出しエラー: {e}"
+        error_message = f"🛑 Llama 3.3 非同期処理エラー: {e}"
         print(error_message)
         return error_message
 
-# ... (ask_gpt_base から ask_thread_gpt4o までの他のAI関数は変更なし) ...
+
 async def ask_gpt_base(user_id, prompt):
     history = gpt_base_memory.get(user_id, [])
     system_prompt = "あなたは論理と秩序を司る神官「GPT」です。丁寧で理知的な執事のように振る舞い、会話の文脈を考慮して150文字以内で回答してください。"
@@ -423,7 +432,8 @@ async def on_message(message):
             elif command_name == "!ポッド042": bot_name = "ポッド042"; reply = await ask_pod042(query)
             elif command_name == "!ポッド153": bot_name = "ポッド153"; reply = await ask_pod153(query)
             # Llamaを呼び出すコマンドを追加
-            elif command_name == "!Llama": bot_name = "Llama 3"; reply = await ask_llama(final_query)
+            # --- 修正箇所：ボット名をLlama 3.3に変更 ---
+            elif command_name == "!Llama": bot_name = "Llama 3.3"; reply = await ask_llama(final_query)
             # Claudeは一時的に無効化
             elif command_name == "!Claude": 
                 await message.channel.send("現在Claudeモデルはメンテナンス中です。代わりに `!Llama` をお試しください。")
