@@ -11,7 +11,7 @@ import io
 from PIL import Image
 import datetime
 
-# --- Vertex AI (Claude) 用のライブラリを追加 ---
+# --- Vertex AI 用のライブラリを追加 ---
 import vertexai
 from vertexai.language_models import ChatModel
 
@@ -70,6 +70,7 @@ async def send_long_message(channel, text):
             await channel.send(text[i:i+2000])
 
 # --- Notion連携関数 ---
+# (このセクションの関数は変更ありません)
 def _sync_get_notion_page_text(page_id):
     all_text_blocks = []
     next_cursor = None
@@ -130,29 +131,29 @@ async def get_memory_flag_from_notion(thread_id: str) -> bool:
 
 # --- AIモデル呼び出し関数 ---
 
-async def ask_claude(prompt: str) -> str:
+async def ask_llama(prompt: str) -> str:
     """
-    安定版のClaude 3 SonnetをVertex AI経由で呼び出す関数。
-    起動時クラッシュを防ぐため、関数内でVertex AIを初期化する。
+    Vertex AI経由でMeta社のLlama 3を呼び出す。
     """
-    def _sync_call_claude(p_text: str):
-        # 関数が呼ばれた時に初めて初期化とモデル読み込みを行う
-        vertexai.init(project="stunning-agency-469102-b5", location="us-central1")
-        model = ChatModel.from_pretrained("claude-3-sonnet@20240229")
+    def _sync_call_llama(p_text: str):
+        # Llama 3は東京リージョンで利用可能
+        vertexai.init(project="stunning-agency-469102-b5", location="asia-northeast1")
+        # モデル名をLlama 3に変更
+        model = ChatModel.from_pretrained("meta/llama3-8b-8192")
         chat = model.start_chat()
         response = chat.send_message(p_text)
         return response.text
 
     try:
         loop = asyncio.get_event_loop()
-        # 同期関数であるSDK呼び出しを別スレッドで実行する
-        reply = await loop.run_in_executor(None, _sync_call_claude, prompt)
+        reply = await loop.run_in_executor(None, _sync_call_llama, prompt)
         return reply
     except Exception as e:
-        error_message = f"🛑 Claude Sonnet 呼び出しエラー: {e}"
-        print(error_message) # ログにエラーを出力
+        error_message = f"🛑 Llama 3 呼び出しエラー: {e}"
+        print(error_message)
         return error_message
 
+# ... (ask_gpt_base から ask_thread_gpt4o までの他のAI関数は変更なし) ...
 async def ask_gpt_base(user_id, prompt):
     history = gpt_base_memory.get(user_id, [])
     system_prompt = "あなたは論理と秩序を司る神官「GPT」です。丁寧で理知的な執事のように振る舞い、会話の文脈を考慮して150文字以内で回答してください。"
@@ -414,14 +415,19 @@ async def on_message(message):
              await log_to_notion(target_page_id, log_blocks)
         
         # 基本AIコマンド
-        if command_name in ["!gpt", "!ジェミニ", "!ミストラル", "!ポッド042", "!ポッド153", "!Claude"]:
+        if command_name in ["!gpt", "!ジェミニ", "!ミストラル", "!ポッド042", "!ポッド153", "!Claude", "!Llama"]:
             reply, bot_name = None, ""
             if command_name == "!gpt": bot_name = "GPT"; reply = await ask_gpt_base(user_id, final_query)
             elif command_name == "!ジェミニ": bot_name = "ジェミニ"; reply = await ask_gemini_base(user_id, final_query)
             elif command_name == "!ミストラル": bot_name = "ミストラル"; reply = await ask_mistral_base(user_id, final_query)
             elif command_name == "!ポッド042": bot_name = "ポッド042"; reply = await ask_pod042(query)
             elif command_name == "!ポッド153": bot_name = "ポッド153"; reply = await ask_pod153(query)
-            elif command_name == "!Claude": bot_name = "Claude"; reply = await ask_claude(final_query)
+            # Llamaを呼び出すコマンドを追加
+            elif command_name == "!Llama": bot_name = "Llama 3"; reply = await ask_llama(final_query)
+            # Claudeは一時的に無効化
+            elif command_name == "!Claude": 
+                await message.channel.send("現在Claudeモデルはメンテナンス中です。代わりに `!Llama` をお試しください。")
+                return
             
             if reply:
                 await send_long_message(message.channel, reply)
@@ -429,7 +435,7 @@ async def on_message(message):
             return
         
         # ▼▼▼【ご指摘のあった関数群をここから再統合】▼▼▼
-        # 高度なコマンド群 (!gpt-5, !みんなで, !スライド, !ロジカル, etc.)
+        # (このセクションの関数は変更ありません)
         if command_name in ["!gpt-4o", "!geminipro", "!perplexity", "!mistrallarge", "!みんなで", "!all", "!クリティカル", "!ロジカル", "!スライド", "!gpt-5"]:
             if command_name == "!みんなで" or command_name == "!all":
                 await message.channel.send("🌀 三AIが同時に応答します… (GPT, ジェミニ, ミストラル)")
