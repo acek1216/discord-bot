@@ -1,6 +1,6 @@
 import discord
 from openai import AsyncOpenAI
-import google.generativeai as genai
+import google.generai as genai
 from google.generativeai.types import HarmCategory, HarmBlockThreshold
 from mistralai.async_client import MistralAsyncClient
 import asyncio
@@ -44,6 +44,13 @@ openai_client = AsyncOpenAI(api_key=openai_api_key)
 genai.configure(api_key=gemini_api_key)
 mistral_client = MistralAsyncClient(api_key=MISTRAL_API_KEY)
 notion = Client(auth=notion_api_key)
+
+# --- ★★★★★ 最終修正箇所 ★★★★★ ---
+# Vertex AIの初期化は、ここで一度だけ行います。
+# ClaudeとLlamaの両方が使えるように、リージョンは us-central1 を指定します。
+vertexai.init(project="stunning-agency-469102-b5", location="us-central1")
+
+
 safety_settings = {
     HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
     HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
@@ -70,7 +77,7 @@ async def send_long_message(channel, text):
         for i in range(0, len(text), 2000):
             await channel.send(text[i:i+2000])
 
-# --- Notion連携関数 ---
+# --- Notion連携関数 (変更なし) ---
 def _sync_get_notion_page_text(page_id):
     all_text_blocks = []
     next_cursor = None
@@ -132,17 +139,10 @@ async def get_memory_flag_from_notion(thread_id: str) -> bool:
 # --- AIモデル呼び出し関数 ---
 def _sync_call_llama(p_text: str):
     try:
-        # Vertex AIを初期化
-        vertexai.init(project="stunning-agency-469102-b5", location="us-central1")
-        
-        # --- 修正箇所：エラーが要求する「完全なリソース名」を使用 ---
-        model = GenerativeModel("publishers/meta/models/llama3-8b-instruct")
-        
-        # 応答を生成
+        # 初期化処理は削除
+        model = GenerativeModel("meta/llama3-8b-instruct")
         response = model.generate_content(p_text)
-        
         return response.text
-    
     except Exception as e:
         error_message = f"🛑 Llama 3 呼び出しエラー: {e}"
         print(error_message)
@@ -159,6 +159,27 @@ async def ask_llama(prompt: str) -> str:
         print(error_message)
         return error_message
 
+def _sync_call_claude(p_text: str):
+    try:
+        # 初期化処理は削除
+        model = GenerativeModel("claude-3-5-sonnet@20240620")
+        response = model.generate_content(p_text)
+        return response.text
+    except Exception as e:
+        error_message = f"🛑 Claude 呼び出しエラー: {e}"
+        print(error_message)
+        return error_message
+
+async def ask_claude(prompt: str) -> str:
+    """Vertex AI経由でAnthropic社のClaude 3.5 Sonnetを呼び出す。"""
+    try:
+        loop = asyncio.get_event_loop()
+        reply = await loop.run_in_executor(None, _sync_call_claude, prompt)
+        return reply
+    except Exception as e:
+        error_message = f"🛑 Claude 非同期処理エラー: {e}"
+        print(error_message)
+        return error_message
 
 async def ask_gpt_base(user_id, prompt):
     history = gpt_base_memory.get(user_id, [])
@@ -429,10 +450,7 @@ async def on_message(message):
             elif command_name == "!ポッド042": bot_name = "ポッド042"; reply = await ask_pod042(query)
             elif command_name == "!ポッド153": bot_name = "ポッド153"; reply = await ask_pod153(query)
             elif command_name == "!Llama": bot_name = "Llama 3"; reply = await ask_llama(final_query)
-            # Claudeは一時的に無効化
-            elif command_name == "!Claude": 
-                await message.channel.send("現在Claudeモデルはメンテナンス中です。代わりに `!Llama` をお試しください。")
-                return
+            elif command_name == "!Claude": bot_name = "Claude 3.5 Sonnet"; reply = await ask_claude(final_query)
             
             if reply:
                 await send_long_message(message.channel, reply)
