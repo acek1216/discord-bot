@@ -139,7 +139,7 @@ async def ask_llama(prompt: str) -> str:
         # Llama 3は東京リージョンで利用可能
         vertexai.init(project="stunning-agency-469102-b5", location="asia-northeast1")
         # モデル名をLlama 3に変更
-        model = ChatModel.from_pretrained("meta/llama3-8b-8192")
+        model = ChatModel.from_pretrained("Llama3-8B")
         chat = model.start_chat()
         response = chat.send_message(p_text)
         return response.text
@@ -597,3 +597,4 @@ if __name__ == "__main__":
     # 少し待ってからBot起動（Cloud Runが起動確認できるようにする）
     time.sleep(2)
     run_discord_bot()
+
