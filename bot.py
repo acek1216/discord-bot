@@ -25,8 +25,8 @@ MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY")
 notion_api_key = os.getenv("NOTION_API_KEY")
 ADMIN_USER_ID = os.getenv("ADMIN_USER_ID")
 NOTION_MAIN_PAGE_ID = os.getenv("NOTION_PAGE_ID")
-# ▼▼▼ OpenRouterのAPIキーを追記 ▼▼▼
-openrouter_api_key = os.getenv("CLOUD_API_KEY")
+# ▼▼▼ OpenRouterのAPIキーを読み込む際に .strip() を追加 ▼▼▼
+openrouter_api_key = os.getenv("CLOUD_API_KEY", "").strip()
 
 # Renderの環境変数から対応表を読み込み、辞書を作成
 NOTION_PAGE_MAP_STRING = os.getenv("NOTION_PAGE_MAP_STRING", "")
@@ -60,6 +60,8 @@ client = discord.Client(intents=intents)
 gpt_base_memory = {}
 gemini_base_memory = {}
 mistral_base_memory = {}
+claude_base_memory = {}
+llama_base_memory = {} # Llama用の短期記憶を追加
 gpt_thread_memory = {}
 processing_users = set()
 
@@ -132,8 +134,9 @@ async def get_memory_flag_from_notion(thread_id: str) -> bool:
     return False
 
 # --- AIモデル呼び出し関数 ---
-# (LlamaはVertex AIのまま残す)
+# ▼▼▼【ここからLlama関数をベースAI仕様に変更】▼▼▼
 def _sync_call_llama(p_text: str):
+    """同期的にLlamaを呼び出す内部関数"""
     try:
         vertexai.init(project="stunning-agency-469102-b5", location="us-central1")
         model = GenerativeModel("publishers/meta/models/llama-3.3-70b-instruct-maas")
@@ -144,32 +147,49 @@ def _sync_call_llama(p_text: str):
         print(error_message)
         return error_message
 
-async def ask_llama(prompt: str) -> str:
-    """Vertex AI経由でMeta社のLlama 3.3を呼び出す。"""
+async def ask_llama(user_id, prompt):
+    """Vertex AI経由でLlama 3.3を呼び出し、短期記憶を持つ。"""
+    history = llama_base_memory.get(user_id, [])
+    # ペルソナを「図書館の賢者」に変更
+    system_prompt = "あなたは図書館の賢者です。古今東西の書物を読み解き、森羅万象を知る存在として、落ち着いた口調で回答してください。"
+    
+    # Vertex AIのモデルは単一のテキストプロンプトを期待するため、履歴を結合する
+    full_prompt_parts = [system_prompt]
+    for message in history:
+        role = "User" if message["role"] == "user" else "Assistant"
+        full_prompt_parts.append(f"{role}: {message['content']}")
+    full_prompt_parts.append(f"User: {prompt}")
+    full_prompt = "\n".join(full_prompt_parts)
+
     try:
         loop = asyncio.get_event_loop()
-        reply = await loop.run_in_executor(None, _sync_call_llama, prompt)
+        reply = await loop.run_in_executor(None, _sync_call_llama, full_prompt)
+        
+        # 会話履歴を更新
+        new_history = history + [{"role": "user", "content": prompt}, {"role": "assistant", "content": reply}]
+        if len(new_history) > 10: new_history = new_history[-10:]
+        llama_base_memory[user_id] = new_history
+        
         return reply
     except Exception as e:
         error_message = f"🛑 Llama 3.3 非同期処理エラー: {e}"
         print(error_message)
         return error_message
+# ▲▲▲【Llama関数の変更ここまで】▲▲▲
 
-# ▼▼▼【ここからClaude関数をOpenRouter用に変更 - requests版】▼▼▼
-async def ask_claude(prompt: str) -> str:
-    """OpenRouter経由でAnthropic社のClaude 3.5 Haikuを呼び出す。(requestsライブラリ使用)"""
+# ▼▼▼【ここからClaude関数をベースAI仕様に変更】▼▼▼
+async def ask_claude(user_id, prompt):
+    """OpenRouter経由でClaude 3.5 Haikuを呼び出し、短期記憶を持つ。"""
+    history = claude_base_memory.get(user_id, [])
+    # ペルソナを「物静かな庭師の老人」に変更
+    system_prompt = "あなたは物静かな庭師の老人です。自然に例えながら、物事の本質を突くような、滋味深い言葉で語ってください。"
+    messages = [{"role": "system", "content": system_prompt}] + history + [{"role": "user", "content": prompt}]
     
     headers = {
         "Authorization": f"Bearer {openrouter_api_key}",
         "Content-Type": "application/json"
     }
     
-    system_prompt = "あなたはAIアシスタントです。ユーザーの質問に答えてください。"
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": prompt}
-    ]
-
     payload = {
         "model": "anthropic/claude-3.5-haiku",
         "messages": messages
@@ -185,14 +205,21 @@ async def ask_claude(prompt: str) -> str:
                 headers=headers
             )
         )
-        response.raise_for_status() # エラーがあれば例外を発生させる
-        return response.json()["choices"][0]["message"]["content"]
+        response.raise_for_status()
+        reply = response.json()["choices"][0]["message"]["content"]
+
+        # 会話履歴を更新
+        new_history = history + [{"role": "user", "content": prompt}, {"role": "assistant", "content": reply}]
+        if len(new_history) > 10: new_history = new_history[-10:]
+        claude_base_memory[user_id] = new_history
+        
+        return reply
+
     except requests.exceptions.RequestException as e:
         error_message = f"🛑 OpenRouter経由 Claude 呼び出しエラー (requests): {e}"
         print(error_message)
         return error_message
     except Exception as e:
-        # JSONの解析失敗などもここでキャッチ
         error_message = f"🛑 OpenRouter経由 Claude 呼び出しエラー (その他): {e}"
         print(error_message)
         return error_message
@@ -216,7 +243,8 @@ async def ask_gemini_base(user_id, prompt):
     system_prompt = "あなたは「レイチェル・ゼイン（SUITS）」です。会話の文脈を考慮して150文字以内で回答してください。"
     model = genai.GenerativeModel("gemini-1.5-flash-latest", system_instruction=system_prompt, safety_settings=safety_settings)
     try:
-        full_prompt = "\n".join([f"{h['role']}: {h['content']}" for h in history]) + f"\nuser: {prompt}"
+        # Geminiは純粋なテキスト履歴の方が安定するため、少し形式を変える
+        full_prompt = "\n".join([f"{h['role']}: {h['content']}" for h in (history + [{'role': 'user', 'content': prompt}])])
         response = await model.generate_content_async(full_prompt)
         reply = response.text
         new_history = history + [{"role": "user", "content": prompt}, {"role": "assistant", "content": reply}]
@@ -466,10 +494,8 @@ async def on_message(message):
             elif command_name == "!ミストラル": bot_name = "ミストラル"; reply = await ask_mistral_base(user_id, final_query)
             elif command_name == "!ポッド042": bot_name = "ポッド042"; reply = await ask_pod042(query)
             elif command_name == "!ポッド153": bot_name = "ポッド153"; reply = await ask_pod153(query)
-            # ▼▼▼【ClaudeコマンドはOpenRouter経由で呼び出す】▼▼▼
-            elif command_name == "!Claude": bot_name = "Claude 3.5 Haiku"; reply = await ask_claude(final_query)
-            # ▼▼▼【LlamaコマンドはVertex AI経由で呼び出す】▼▼▼
-            elif command_name == "!Llama": bot_name = "Llama 3.3"; reply = await ask_llama(final_query)
+            elif command_name == "!Claude": bot_name = "Claude 3.5 Haiku"; reply = await ask_claude(user_id, final_query)
+            elif command_name == "!Llama": bot_name = "Llama 3.3"; reply = await ask_llama(user_id, final_query)
             
             if reply:
                 await send_long_message(message.channel, reply)
@@ -479,8 +505,13 @@ async def on_message(message):
         # ▼▼▼【ご指摘のあった関数群をここから再統合】▼▼▼
         if command_name in ["!gpt-4o", "!geminipro", "!perplexity", "!mistrallarge", "!みんなで", "!all", "!クリティカル", "!ロジカル", "!スライド", "!gpt-5"]:
             if command_name == "!みんなで" or command_name == "!all":
-                await message.channel.send("🌀 三AIが同時に応答します… (GPT, ジェミニ, ミストラル)")
-                tasks = {"GPT": ask_gpt_base(user_id, final_query), "ジェミニ": ask_gemini_base(user_id, final_query), "ミストラル": ask_mistral_base(user_id, final_query)}
+                await message.channel.send("🌀 四AIが同時に応答します… (GPT, ジェミニ, ミストラル, Claude)")
+                tasks = {
+                    "GPT": ask_gpt_base(user_id, final_query), 
+                    "ジェミニ": ask_gemini_base(user_id, final_query), 
+                    "ミストラル": ask_mistral_base(user_id, final_query),
+                    "Claude": ask_claude(user_id, final_query)
+                }
                 results = await asyncio.gather(*tasks.values(), return_exceptions=True)
                 for name, result in zip(tasks.keys(), results):
                     await send_long_message(message.channel, f"**{name}:**\n{result}")
@@ -530,17 +561,18 @@ async def on_message(message):
                     await send_long_message(message.channel, f"🤖 {bot_name}からの応答がありませんでした。")
 
             elif command_name == "!all" or command_name == "!クリティカル":
-                await message.channel.send("🔬 6体のAIが初期意見を生成中…")
+                await message.channel.send("🔬 7体のAIが初期意見を生成中…")
                 tasks = {
                     "GPT": ask_gpt_base(user_id, prompt_with_context),
                     "ジェミニ": ask_gemini_base(user_id, prompt_with_context),
                     "ミストラル": ask_mistral_base(user_id, prompt_with_context),
+                    "Claude": ask_claude(user_id, prompt_with_context),
                     "gpt-4o": get_full_response_and_summary(ask_kreios, prompt_with_context),
                     "Gemini Pro": get_full_response_and_summary(ask_minerva, prompt_with_context),
                     "Perplexity": get_full_response_and_summary(ask_rekus, final_query, notion_context=context)
                 }
                 results = await asyncio.gather(*tasks.values(), return_exceptions=True)
-                synthesis_material = "以下の6つの異なるAIの意見を統合してください。\n\n"
+                synthesis_material = "以下の7つの異なるAIの意見を統合してください。\n\n"
                 for (name, result) in zip(tasks.keys(), results):
                     full_response, summary = None, None
                     if isinstance(result, Exception): display_text = f"エラー: {result}"
@@ -553,14 +585,14 @@ async def on_message(message):
 
                 if command_name == "!クリティカル":
                     await message.channel.send("✨ gpt-5が中間レポートを作成します…")
-                    intermediate_prompt = "以下の6つの意見の要点だけを抽出し、短い中間レポートを作成してください。"
+                    intermediate_prompt = "以下の7つの意見の要点だけを抽出し、短い中間レポートを作成してください。"
                     intermediate_report = await ask_gpt5(synthesis_material, system_prompt=intermediate_prompt)
                     await message.channel.send("✨ Mistral Largeが最終統合を行います…")
                     lalah_prompt = "あなたは統合専用AIです。渡された中間レポートを元に、最終的な結論を500文字以内でレポートしてください。"
                     final_report = await ask_lalah(intermediate_report, system_prompt=lalah_prompt)
                     await send_long_message(message.channel, f"✨ **Mistral Large (最終統合レポート):**\n{final_report}")
                     if is_admin and target_page_id: await log_response(target_page_id, final_report, "Mistral Large (統合)")
-                    for mem_dict in [gpt_base_memory, gemini_base_memory, mistral_base_memory]:
+                    for mem_dict in [gpt_base_memory, gemini_base_memory, mistral_base_memory, claude_base_memory, llama_base_memory]:
                         if user_id in mem_dict: del mem_dict[user_id]
                     await message.channel.send("🧹 ベースAIの短期記憶はリセットされました。")
 
@@ -601,7 +633,7 @@ async def on_message(message):
                     if is_admin and target_page_id: await log_response(target_page_id, log_text, name)
                 
                 await message.channel.send("✨ Mistral Largeが最終統合を行います…")
-                lalah_prompt = "あなたは統合専用AIです。あなた自身のペルソナも、渡される意見のペるソナも全て無視し、純粋な情報として客観的に統合し、最終的な結論をレポートとしてまとめてください。"
+                lalah_prompt = "あなたは統合専用AIです。あなた自身のペルソナも、渡される意見のペルソナも全て無視し、純粋な情報として客観的に統合し、最終的な結論をレポートとしてまとめてください。"
                 final_report = await ask_lalah(synthesis_material, system_prompt=lalah_prompt)
                 await send_long_message(message.channel, f"✨ **Mistral Large (最終統合レポート):**\n{final_report}")
                 if is_admin and target_page_id: await log_response(target_page_id, final_report, "Mistral Large (ロジカル統合)")
