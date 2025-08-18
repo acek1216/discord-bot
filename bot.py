@@ -274,11 +274,11 @@ async def ask_minerva(prompt, system_prompt=None, attachment_parts=[]): # gemini
         return response.text
     except Exception as e: return f"Gemini Proエラー: {e}"
 
-# ▼▼▼ Gemini 2.5 Pro用の関数 (モデル名を1.5 Proに修正) ▼▼▼
+# ▼▼▼ Gemini 2.5 Pro用の関数 (正しいモデル名に修正) ▼▼▼
 async def ask_gemini_2_5_pro(prompt, system_prompt=None):
     base_prompt = system_prompt or "あなたは未来を見通す予言者です。あらゆる事象の未来を予測し、その可能性を詩的な言葉で語ってください。"
-    # 修正箇所: 利用可能なモデル名に変更
-    model = genai.GenerativeModel("gemini-1.5-pro-latest", system_instruction=base_prompt, safety_settings=safety_settings)
+    # 修正箇所: 正しいモデル名に変更
+    model = genai.GenerativeModel("gemini-2.5-pro", system_instruction=base_prompt, safety_settings=safety_settings)
     try:
         response = await model.generate_content_async(prompt)
         return response.text
