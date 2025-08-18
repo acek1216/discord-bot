@@ -150,7 +150,8 @@ def _sync_call_llama(p_text: str):
 async def ask_llama(user_id, prompt):
     """Vertex AI経由でLlama 3.3を呼び出し、短期記憶を持つ。"""
     history = llama_base_memory.get(user_id, [])
-    system_prompt = "あなたは図書館の賢者です。古今東西の書物を読み解き、森羅万象を知る存在として、落ち着いた口調で回答してください。"
+    # ペルソナを「物静かな庭師の老人」に変更
+    system_prompt = "あなたは物静かな庭師の老人です。自然に例えながら、物事の本質を突くような、滋味深い言葉で語ってください。"
     
     full_prompt_parts = [system_prompt]
     for message in history:
@@ -176,7 +177,8 @@ async def ask_llama(user_id, prompt):
 async def ask_claude(user_id, prompt):
     """OpenRouter経由でClaude 3.5 Haikuを呼び出し、短期記憶を持つ。"""
     history = claude_base_memory.get(user_id, [])
-    system_prompt = "あなたは物静かな庭師の老人です。自然に例えながら、物事の本質を突くような、滋味深い言葉で語ってください。"
+    # ペルソナを「図書館の賢者」に変更
+    system_prompt = "あなたは図書館の賢者です。古今東西の書物を読み解き、森羅万象を知る存在として、落ち着いた口調で回答してください。"
     messages = [{"role": "system", "content": system_prompt}] + history + [{"role": "user", "content": prompt}]
     
     headers = {
@@ -232,7 +234,6 @@ async def ask_gpt_base(user_id, prompt):
 
 async def ask_gemini_base(user_id, prompt):
     history = gemini_base_memory.get(user_id, [])
-    # ペルソナを修正
     system_prompt = "あなたは優秀なパラリーガルです。事実整理、リサーチ、文書構成が得意です。冷静かつ的確に回答してください。"
     model = genai.GenerativeModel("gemini-1.5-flash-latest", system_instruction=system_prompt, safety_settings=safety_settings)
     try:
@@ -247,7 +248,6 @@ async def ask_gemini_base(user_id, prompt):
 
 async def ask_mistral_base(user_id, prompt):
     history = mistral_base_memory.get(user_id, [])
-    # ペルソナを修正
     system_prompt = "あなたは好奇心旺盛なAIです。フレンドリーな口調で、情報を明るく整理し、探究心をもって解釈します。"
     messages = [{"role": "system", "content": system_prompt}] + history + [{"role": "user", "content": prompt}]
     try:
@@ -268,7 +268,6 @@ async def ask_kreios(prompt, system_prompt=None): # gpt-4o
     except Exception as e: return f"gpt-4oエラー: {e}"
 
 async def ask_minerva(prompt, system_prompt=None, attachment_parts=[]): # gemini-1.5-pro
-    # ペルソナを修正
     base_prompt = system_prompt or "あなたは客観的な分析AIです。あらゆる事象をデータとリスクで評価し、感情を排して冷徹に分析します。"
     model = genai.GenerativeModel("gemini-1.5-pro-latest", system_instruction=base_prompt, safety_settings=safety_settings)
     contents = [prompt] + attachment_parts
@@ -278,7 +277,6 @@ async def ask_minerva(prompt, system_prompt=None, attachment_parts=[]): # gemini
     except Exception as e: return f"Gemini Proエラー: {e}"
 
 async def ask_gemini_2_5_pro(prompt, system_prompt=None):
-    # ペルソナを修正
     base_prompt = system_prompt or "あなたは未来予測に特化した戦略コンサルタントです。データに基づき、あらゆる事象の未来を予測し、その可能性を事務的かつ論理的に報告してください。"
     model = genai.GenerativeModel("gemini-2.5-pro", system_instruction=base_prompt, safety_settings=safety_settings)
     try:
