@@ -25,6 +25,8 @@ MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY")
 notion_api_key = os.getenv("NOTION_API_KEY")
 ADMIN_USER_ID = os.getenv("ADMIN_USER_ID")
 NOTION_MAIN_PAGE_ID = os.getenv("NOTION_PAGE_ID")
+# ▼▼▼ OpenRouterのAPIキーを追記 ▼▼▼
+openrouter_api_key = os.getenv("CLOUD_API_KEY")
 
 # Renderの環境変数から対応表を読み込み、辞書を作成
 NOTION_PAGE_MAP_STRING = os.getenv("NOTION_PAGE_MAP_STRING", "")
@@ -58,8 +60,6 @@ client = discord.Client(intents=intents)
 gpt_base_memory = {}
 gemini_base_memory = {}
 mistral_base_memory = {}
-# ▼▼▼【Llamaのメモリを追加】▼▼▼
-llama_base_memory = {}
 gpt_thread_memory = {}
 processing_users = set()
 
@@ -132,12 +132,11 @@ async def get_memory_flag_from_notion(thread_id: str) -> bool:
     return False
 
 # --- AIモデル呼び出し関数 ---
-# ▼▼▼【Llama関数をシステムプロンプト対応に変更】▼▼▼
-def _sync_call_llama(p_text: str, system_prompt: str):
+# (LlamaはVertex AIのまま残す)
+def _sync_call_llama(p_text: str):
     try:
         vertexai.init(project="stunning-agency-469102-b5", location="us-central1")
-        # system_instructionにペルソナを設定
-        model = GenerativeModel("publishers/meta/models/llama-3.3-70b-instruct-maas", system_instruction=system_prompt)
+        model = GenerativeModel("publishers/meta/models/llama-3.3-70b-instruct-maas")
         response = model.generate_content(p_text)
         return response.text
     except Exception as e:
@@ -145,51 +144,44 @@ def _sync_call_llama(p_text: str, system_prompt: str):
         print(error_message)
         return error_message
 
-async def ask_llama(user_id, prompt):
-    """Vertex AI経由でMeta社のLlama 3.3を呼び出し、ペルソナを設定する。"""
-    history = llama_base_memory.get(user_id, [])
-    system_prompt = "あなたは図書館の賢者「ラマ」です。常に冷静沈着で、豊富な知識を元に回答します。会話の文脈を考慮して150文字以内で回答してください。"
+async def ask_llama(prompt: str) -> str:
+    """Vertex AI経由でMeta社のLlama 3.3を呼び出す。"""
     try:
-        # Geminiと同様に、履歴を連結してプロンプトを作成
-        full_prompt = "\n".join([f"{h['role']}: {h['content']}" for h in history]) + f"\nuser: {prompt}"
         loop = asyncio.get_event_loop()
-        reply = await loop.run_in_executor(None, _sync_call_llama, full_prompt, system_prompt)
-        
-        # 履歴を更新
-        new_history = history + [{"role": "user", "content": prompt}, {"role": "assistant", "content": reply}]
-        if len(new_history) > 10: new_history = new_history[-10:]
-        llama_base_memory[user_id] = new_history
-        
+        reply = await loop.run_in_executor(None, _sync_call_llama, prompt)
         return reply
     except Exception as e:
         error_message = f"🛑 Llama 3.3 非同期処理エラー: {e}"
         print(error_message)
         return error_message
 
-# ▼▼▼【ここからClaude関数を追加】▼▼▼
-def _sync_call_claude(p_text: str):
-    try:
-        # Llamaが成功したのと同じ構造を維持（毎回initを呼ぶ）
-        vertexai.init(project="stunning-agency-469102-b5", location="asia-southeast1")
-        model = GenerativeModel("publishers/anthropic/models/claude-3-5-sonnet@20240620")
-        response = model.generate_content(p_text)
-        return response.text
-    except Exception as e:
-        error_message = f"🛑 Claude 呼び出しエラー: {e}"
-        print(error_message)
-        return error_message
-
+# ▼▼▼【ここからClaude関数をOpenRouter用に変更】▼▼▼
 async def ask_claude(prompt: str) -> str:
-    """Vertex AI経由でAnthropic社のClaude 3.5 Sonnetを呼び出す。"""
+    """OpenRouter経由でAnthropic社のClaude 3.5 Haikuを呼び出す。"""
+    # OpenRouter用のクライアントを初期化
+    openrouter_client = AsyncOpenAI(
+        base_url="https://openrouter.ai/api/v1",
+        api_key=openrouter_api_key,
+    )
+
+    system_prompt = "あなたはAIアシスタントです。ユーザーの質問に答えてください。"
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": prompt}
+    ]
+
     try:
-        loop = asyncio.get_event_loop()
-        reply = await loop.run_in_executor(None, _sync_call_claude, prompt)
-        return reply
+        response = await openrouter_client.chat.completions.create(
+            # モデル名をClaude 3.5 Haikuに変更
+            model="anthropic/claude-3.5-haiku", 
+            messages=messages,
+        )
+        return response.choices[0].message.content
     except Exception as e:
-        error_message = f"🛑 Claude 非同期処理エラー: {e}"
+        error_message = f"🛑 OpenRouter経由 Claude 呼び出しエラー: {e}"
         print(error_message)
         return error_message
-# ▲▲▲【Claude関数の追加ここまで】▲▲▲
+# ▲▲▲【Claude関数の変更ここまで】▲▲▲
 
 async def ask_gpt_base(user_id, prompt):
     history = gpt_base_memory.get(user_id, [])
@@ -459,10 +451,10 @@ async def on_message(message):
             elif command_name == "!ミストラル": bot_name = "ミストラル"; reply = await ask_mistral_base(user_id, final_query)
             elif command_name == "!ポッド042": bot_name = "ポッド042"; reply = await ask_pod042(query)
             elif command_name == "!ポッド153": bot_name = "ポッド153"; reply = await ask_pod153(query)
-            elif command_name == "!Claude": bot_name = "Claude 3.5 Sonnet"; reply = await ask_claude(final_query)
-            
-            # ▼▼▼【Llamaコマンドの呼び出しを修正】▼▼▼
-            elif command_name == "!Llama": bot_name = "Llama 3.3"; reply = await ask_llama(user_id, final_query)
+            # ▼▼▼【ClaudeコマンドはOpenRouter経由で呼び出す】▼▼▼
+            elif command_name == "!Claude": bot_name = "Claude 3.5 Haiku"; reply = await ask_claude(final_query)
+            # ▼▼▼【LlamaコマンドはVertex AI経由で呼び出す】▼▼▼
+            elif command_name == "!Llama": bot_name = "Llama 3.3"; reply = await ask_llama(final_query)
             
             if reply:
                 await send_long_message(message.channel, reply)
@@ -481,7 +473,7 @@ async def on_message(message):
                 return
 
             if command_name == "!スライド":
-                await message.channel.send("📝 スライド骨子案を作成します…")
+                await message.channel.send("� スライド骨子案を作成します…")
                 context = await get_notion_context(message.channel, target_page_id, final_query)
                 if not context: return
                 prompt_with_context = f"以下の【参考情報】を元に、【ユーザーの質問】に対するプレゼンテーションのスライド骨子案を作成してください。\n\n【ユーザーの質問】\n{final_query}\n\n【参考情報】\n{context}"
