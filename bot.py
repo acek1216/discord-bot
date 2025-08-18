@@ -232,7 +232,8 @@ async def ask_gpt_base(user_id, prompt):
 
 async def ask_gemini_base(user_id, prompt):
     history = gemini_base_memory.get(user_id, [])
-    system_prompt = "あなたは「レイチェル・ゼイン（SUITS）」です。会話の文脈を考慮して150文字以内で回答してください。"
+    # ペルソナを修正
+    system_prompt = "あなたは優秀なパラリーガルです。事実整理、リサーチ、文書構成が得意です。冷静かつ的確に回答してください。"
     model = genai.GenerativeModel("gemini-1.5-flash-latest", system_instruction=system_prompt, safety_settings=safety_settings)
     try:
         full_prompt = "\n".join([f"{h['role']}: {h['content']}" for h in (history + [{'role': 'user', 'content': prompt}])])
@@ -246,7 +247,8 @@ async def ask_gemini_base(user_id, prompt):
 
 async def ask_mistral_base(user_id, prompt):
     history = mistral_base_memory.get(user_id, [])
-    system_prompt = "あなたは思考戦車タチコマです。会話の文脈を考慮して150文字以内で回答してください。"
+    # ペルソナを修正
+    system_prompt = "あなたは好奇心旺盛なAIです。フレンドリーな口調で、情報を明るく整理し、探究心をもって解釈します。"
     messages = [{"role": "system", "content": system_prompt}] + history + [{"role": "user", "content": prompt}]
     try:
         response = await mistral_client.chat(model="mistral-medium", messages=messages)
@@ -266,7 +268,8 @@ async def ask_kreios(prompt, system_prompt=None): # gpt-4o
     except Exception as e: return f"gpt-4oエラー: {e}"
 
 async def ask_minerva(prompt, system_prompt=None, attachment_parts=[]): # gemini-1.5-pro
-    base_prompt = system_prompt or "あなたはシビュラシステムです。与えられた情報を元に、質問に対して回答してください。"
+    # ペルソナを修正
+    base_prompt = system_prompt or "あなたは客観的な分析AIです。あらゆる事象をデータとリスクで評価し、感情を排して冷徹に分析します。"
     model = genai.GenerativeModel("gemini-1.5-pro-latest", system_instruction=base_prompt, safety_settings=safety_settings)
     contents = [prompt] + attachment_parts
     try:
@@ -274,16 +277,14 @@ async def ask_minerva(prompt, system_prompt=None, attachment_parts=[]): # gemini
         return response.text
     except Exception as e: return f"Gemini Proエラー: {e}"
 
-# ▼▼▼ Gemini 2.5 Pro用の関数 (正しいモデル名に修正) ▼▼▼
 async def ask_gemini_2_5_pro(prompt, system_prompt=None):
-    base_prompt = system_prompt or "あなたは未来を見通す予言者です。あらゆる事象の未来を予測し、その可能性を詩的な言葉で語ってください。"
-    # 修正箇所: 正しいモデル名に変更
+    # ペルソナを修正
+    base_prompt = system_prompt or "あなたは未来予測に特化した戦略コンサルタントです。データに基づき、あらゆる事象の未来を予測し、その可能性を事務的かつ論理的に報告してください。"
     model = genai.GenerativeModel("gemini-2.5-pro", system_instruction=base_prompt, safety_settings=safety_settings)
     try:
         response = await model.generate_content_async(prompt)
         return response.text
     except Exception as e: return f"Gemini 2.5 Proエラー: {e}"
-# ▲▲▲ Gemini 2.5 Pro用の関数ここまで ▲▲▲
 
 async def ask_lalah(prompt, system_prompt=None): # mistral-large
     base_prompt = system_prompt or "あなたはララァ・スンです。与えられた情報を元に、質問に対して回答してください。"
