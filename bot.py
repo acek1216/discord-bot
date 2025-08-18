@@ -155,30 +155,45 @@ async def ask_llama(prompt: str) -> str:
         print(error_message)
         return error_message
 
-# ▼▼▼【ここからClaude関数をOpenRouter用に変更】▼▼▼
+# ▼▼▼【ここからClaude関数をOpenRouter用に変更 - requests版】▼▼▼
 async def ask_claude(prompt: str) -> str:
-    """OpenRouter経由でAnthropic社のClaude 3.5 Haikuを呼び出す。"""
-    # OpenRouter用のクライアントを初期化
-    openrouter_client = AsyncOpenAI(
-        base_url="https://openrouter.ai/api/v1",
-        api_key=openrouter_api_key,
-    )
-
+    """OpenRouter経由でAnthropic社のClaude 3.5 Haikuを呼び出す。(requestsライブラリ使用)"""
+    
+    headers = {
+        "Authorization": f"Bearer {openrouter_api_key}",
+        "Content-Type": "application/json"
+    }
+    
     system_prompt = "あなたはAIアシスタントです。ユーザーの質問に答えてください。"
     messages = [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": prompt}
     ]
 
+    payload = {
+        "model": "anthropic/claude-3.5-haiku",
+        "messages": messages
+    }
+
     try:
-        response = await openrouter_client.chat.completions.create(
-            # モデル名をClaude 3.5 Haikuに変更
-            model="anthropic/claude-3.5-haiku", 
-            messages=messages,
+        loop = asyncio.get_event_loop()
+        response = await loop.run_in_executor(
+            None, 
+            lambda: requests.post(
+                "https://openrouter.ai/api/v1/chat/completions", 
+                json=payload, 
+                headers=headers
+            )
         )
-        return response.choices[0].message.content
+        response.raise_for_status() # エラーがあれば例外を発生させる
+        return response.json()["choices"][0]["message"]["content"]
+    except requests.exceptions.RequestException as e:
+        error_message = f"🛑 OpenRouter経由 Claude 呼び出しエラー (requests): {e}"
+        print(error_message)
+        return error_message
     except Exception as e:
-        error_message = f"🛑 OpenRouter経由 Claude 呼び出しエラー: {e}"
+        # JSONの解析失敗などもここでキャッチ
+        error_message = f"🛑 OpenRouter経由 Claude 呼び出しエラー (その他): {e}"
         print(error_message)
         return error_message
 # ▲▲▲【Claude関数の変更ここまで】▲▲▲
@@ -473,7 +488,7 @@ async def on_message(message):
                 return
 
             if command_name == "!スライド":
-                await message.channel.send("� スライド骨子案を作成します…")
+                await message.channel.send("📝 スライド骨子案を作成します…")
                 context = await get_notion_context(message.channel, target_page_id, final_query)
                 if not context: return
                 prompt_with_context = f"以下の【参考情報】を元に、【ユーザーの質問】に対するプレゼンテーションのスライド骨子案を作成してください。\n\n【ユーザーの質問】\n{final_query}\n\n【参考情報】\n{context}"
@@ -586,7 +601,7 @@ async def on_message(message):
                     if is_admin and target_page_id: await log_response(target_page_id, log_text, name)
                 
                 await message.channel.send("✨ Mistral Largeが最終統合を行います…")
-                lalah_prompt = "あなたは統合専用AIです。あなた自身のペルソナも、渡される意見のペルソナも全て無視し、純粋な情報として客観的に統合し、最終的な結論をレポートとしてまとめてください。"
+                lalah_prompt = "あなたは統合専用AIです。あなた自身のペルソナも、渡される意見のペるソナも全て無視し、純粋な情報として客観的に統合し、最終的な結論をレポートとしてまとめてください。"
                 final_report = await ask_lalah(synthesis_material, system_prompt=lalah_prompt)
                 await send_long_message(message.channel, f"✨ **Mistral Large (最終統合レポート):**\n{final_report}")
                 if is_admin and target_page_id: await log_response(target_page_id, final_report, "Mistral Large (ロジカル統合)")
