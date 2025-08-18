@@ -58,6 +58,8 @@ client = discord.Client(intents=intents)
 gpt_base_memory = {}
 gemini_base_memory = {}
 mistral_base_memory = {}
+# ▼▼▼【Llamaのメモリを追加】▼▼▼
+llama_base_memory = {}
 gpt_thread_memory = {}
 processing_users = set()
 
@@ -130,10 +132,12 @@ async def get_memory_flag_from_notion(thread_id: str) -> bool:
     return False
 
 # --- AIモデル呼び出し関数 ---
-def _sync_call_llama(p_text: str):
+# ▼▼▼【Llama関数をシステムプロンプト対応に変更】▼▼▼
+def _sync_call_llama(p_text: str, system_prompt: str):
     try:
         vertexai.init(project="stunning-agency-469102-b5", location="us-central1")
-        model = GenerativeModel("publishers/meta/models/llama-3.3-70b-instruct-maas")
+        # system_instructionにペルソナを設定
+        model = GenerativeModel("publishers/meta/models/llama-3.3-70b-instruct-maas", system_instruction=system_prompt)
         response = model.generate_content(p_text)
         return response.text
     except Exception as e:
@@ -141,11 +145,21 @@ def _sync_call_llama(p_text: str):
         print(error_message)
         return error_message
 
-async def ask_llama(prompt: str) -> str:
-    """Vertex AI経由でMeta社のLlama 3.3を呼び出す。"""
+async def ask_llama(user_id, prompt):
+    """Vertex AI経由でMeta社のLlama 3.3を呼び出し、ペルソナを設定する。"""
+    history = llama_base_memory.get(user_id, [])
+    system_prompt = "あなたは図書館の賢者「ラマ」です。常に冷静沈着で、豊富な知識を元に回答します。会話の文脈を考慮して150文字以内で回答してください。"
     try:
+        # Geminiと同様に、履歴を連結してプロンプトを作成
+        full_prompt = "\n".join([f"{h['role']}: {h['content']}" for h in history]) + f"\nuser: {prompt}"
         loop = asyncio.get_event_loop()
-        reply = await loop.run_in_executor(None, _sync_call_llama, prompt)
+        reply = await loop.run_in_executor(None, _sync_call_llama, full_prompt, system_prompt)
+        
+        # 履歴を更新
+        new_history = history + [{"role": "user", "content": prompt}, {"role": "assistant", "content": reply}]
+        if len(new_history) > 10: new_history = new_history[-10:]
+        llama_base_memory[user_id] = new_history
+        
         return reply
     except Exception as e:
         error_message = f"🛑 Llama 3.3 非同期処理エラー: {e}"
@@ -445,11 +459,10 @@ async def on_message(message):
             elif command_name == "!ミストラル": bot_name = "ミストラル"; reply = await ask_mistral_base(user_id, final_query)
             elif command_name == "!ポッド042": bot_name = "ポッド042"; reply = await ask_pod042(query)
             elif command_name == "!ポッド153": bot_name = "ポッド153"; reply = await ask_pod153(query)
-
-            # ▼▼▼【ここからClaudeコマンドを有効化】▼▼▼
             elif command_name == "!Claude": bot_name = "Claude 3.5 Sonnet"; reply = await ask_claude(final_query)
             
-            elif command_name == "!Llama": bot_name = "Llama 3.3"; reply = await ask_llama(final_query)
+            # ▼▼▼【Llamaコマンドの呼び出しを修正】▼▼▼
+            elif command_name == "!Llama": bot_name = "Llama 3.3"; reply = await ask_llama(user_id, final_query)
             
             if reply:
                 await send_long_message(message.channel, reply)
@@ -618,6 +631,3 @@ if __name__ == "__main__":
     # 少し待ってからBot起動（Cloud Runが起動確認できるようにする）
     time.sleep(2)
     run_discord_bot()
-
-
-
