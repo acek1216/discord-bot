@@ -61,8 +61,9 @@ gpt_base_memory = {}
 gemini_base_memory = {}
 mistral_base_memory = {}
 claude_base_memory = {}
-llama_base_memory = {} # Llama用の短期記憶を追加
+llama_base_memory = {}
 gpt_thread_memory = {}
+gemini_2_5_pro_thread_memory = {} # Gemini 2.5 Pro用のスレッドメモリを追加
 processing_users = set()
 
 # --- ヘルパー関数 ---
@@ -134,7 +135,6 @@ async def get_memory_flag_from_notion(thread_id: str) -> bool:
     return False
 
 # --- AIモデル呼び出し関数 ---
-# ▼▼▼【ここからLlama関数をベースAI仕様に変更】▼▼▼
 def _sync_call_llama(p_text: str):
     """同期的にLlamaを呼び出す内部関数"""
     try:
@@ -150,10 +150,8 @@ def _sync_call_llama(p_text: str):
 async def ask_llama(user_id, prompt):
     """Vertex AI経由でLlama 3.3を呼び出し、短期記憶を持つ。"""
     history = llama_base_memory.get(user_id, [])
-    # ペルソナを「図書館の賢者」に変更
     system_prompt = "あなたは図書館の賢者です。古今東西の書物を読み解き、森羅万象を知る存在として、落ち着いた口調で回答してください。"
     
-    # Vertex AIのモデルは単一のテキストプロンプトを期待するため、履歴を結合する
     full_prompt_parts = [system_prompt]
     for message in history:
         role = "User" if message["role"] == "user" else "Assistant"
@@ -165,7 +163,6 @@ async def ask_llama(user_id, prompt):
         loop = asyncio.get_event_loop()
         reply = await loop.run_in_executor(None, _sync_call_llama, full_prompt)
         
-        # 会話履歴を更新
         new_history = history + [{"role": "user", "content": prompt}, {"role": "assistant", "content": reply}]
         if len(new_history) > 10: new_history = new_history[-10:]
         llama_base_memory[user_id] = new_history
@@ -175,13 +172,10 @@ async def ask_llama(user_id, prompt):
         error_message = f"🛑 Llama 3.3 非同期処理エラー: {e}"
         print(error_message)
         return error_message
-# ▲▲▲【Llama関数の変更ここまで】▲▲▲
 
-# ▼▼▼【ここからClaude関数をベースAI仕様に変更】▼▼▼
 async def ask_claude(user_id, prompt):
     """OpenRouter経由でClaude 3.5 Haikuを呼び出し、短期記憶を持つ。"""
     history = claude_base_memory.get(user_id, [])
-    # ペルソナを「物静かな庭師の老人」に変更
     system_prompt = "あなたは物静かな庭師の老人です。自然に例えながら、物事の本質を突くような、滋味深い言葉で語ってください。"
     messages = [{"role": "system", "content": system_prompt}] + history + [{"role": "user", "content": prompt}]
     
@@ -208,7 +202,6 @@ async def ask_claude(user_id, prompt):
         response.raise_for_status()
         reply = response.json()["choices"][0]["message"]["content"]
 
-        # 会話履歴を更新
         new_history = history + [{"role": "user", "content": prompt}, {"role": "assistant", "content": reply}]
         if len(new_history) > 10: new_history = new_history[-10:]
         claude_base_memory[user_id] = new_history
@@ -223,7 +216,6 @@ async def ask_claude(user_id, prompt):
         error_message = f"🛑 OpenRouter経由 Claude 呼び出しエラー (その他): {e}"
         print(error_message)
         return error_message
-# ▲▲▲【Claude関数の変更ここまで】▲▲▲
 
 async def ask_gpt_base(user_id, prompt):
     history = gpt_base_memory.get(user_id, [])
@@ -243,7 +235,6 @@ async def ask_gemini_base(user_id, prompt):
     system_prompt = "あなたは「レイチェル・ゼイン（SUITS）」です。会話の文脈を考慮して150文字以内で回答してください。"
     model = genai.GenerativeModel("gemini-1.5-flash-latest", system_instruction=system_prompt, safety_settings=safety_settings)
     try:
-        # Geminiは純粋なテキスト履歴の方が安定するため、少し形式を変える
         full_prompt = "\n".join([f"{h['role']}: {h['content']}" for h in (history + [{'role': 'user', 'content': prompt}])])
         response = await model.generate_content_async(full_prompt)
         reply = response.text
@@ -282,6 +273,16 @@ async def ask_minerva(prompt, system_prompt=None, attachment_parts=[]): # gemini
         response = await model.generate_content_async(contents)
         return response.text
     except Exception as e: return f"Gemini Proエラー: {e}"
+
+# ▼▼▼ Gemini 2.5 Pro用の関数を追加 ▼▼▼
+async def ask_gemini_2_5_pro(prompt, system_prompt=None):
+    base_prompt = system_prompt or "あなたは未来を見通す予言者です。あらゆる事象の未来を予測し、その可能性を詩的な言葉で語ってください。"
+    model = genai.GenerativeModel("gemini-2.5-pro-latest", system_instruction=base_prompt, safety_settings=safety_settings)
+    try:
+        response = await model.generate_content_async(prompt)
+        return response.text
+    except Exception as e: return f"Gemini 2.5 Proエラー: {e}"
+# ▲▲▲ Gemini 2.5 Pro用の関数ここまで ▲▲▲
 
 async def ask_lalah(prompt, system_prompt=None): # mistral-large
     base_prompt = system_prompt or "あなたはララァ・スンです。与えられた情報を元に、質問に対して回答してください。"
@@ -417,12 +418,11 @@ async def on_message(message):
         thread_id = str(message.channel.id)
         target_page_id = NOTION_PAGE_MAP.get(thread_id, NOTION_MAIN_PAGE_ID)
 
-        # 【ルール1】GPT専用スレッドのコマンド無し投稿 (最優先で処理)
+        # 【ルール1】専用スレッドのコマンド無し投稿 (最優先で処理)
         channel_name = message.channel.name.lower()
         if channel_name.startswith("gpt") and not content.startswith("!"):
             prompt = message.content
             
-            # ▼▼▼ 添付ファイル処理をGpt部屋に追加 ▼▼▼
             if message.attachments:
                 await message.channel.send("💠 添付ファイルをGemini Proが分析し、議題とします…")
                 attachment = message.attachments[0]
@@ -432,7 +432,6 @@ async def on_message(message):
                 summary = await ask_minerva("この添付ファイルの内容を、後続のAIへの議題として簡潔に要約してください。", attachment_parts=summary_parts)
                 prompt = f"{prompt}\n\n[添付資料の要約]:\n{summary}"
                 await message.channel.send("✅ 添付ファイルの分析が完了しました。")
-            # ▲▲▲ 添付ファイル処理ここまで ▲▲▲
 
             is_memory_on = await get_memory_flag_from_notion(thread_id)
             history = gpt_thread_memory.get(thread_id, []) if is_memory_on else []
@@ -452,6 +451,45 @@ async def on_message(message):
                 await log_to_notion(target_page_id, log_blocks)
                 await log_response(target_page_id, reply, "gpt-5 (専用スレッド)")
             return
+        
+        # ▼▼▼ Gemini 2.5 Pro専用部屋のロジックを追加 ▼▼▼
+        elif channel_name.startswith("gemini2.5pro") and not content.startswith("!"):
+            prompt = message.content
+            
+            if message.attachments:
+                await message.channel.send("💠 添付ファイルをGemini Proが分析し、議題とします…")
+                attachment = message.attachments[0]
+                attachment_data = await attachment.read()
+                attachment_mime_type = attachment.content_type
+                summary_parts = [{'mime_type': attachment_mime_type, 'data': attachment_data}]
+                summary = await ask_minerva("この添付ファイルの内容を、後続のAIへの議題として簡潔に要約してください。", attachment_parts=summary_parts)
+                prompt = f"{prompt}\n\n[添付資料の要約]:\n{summary}"
+                await message.channel.send("✅ 添付ファイルの分析が完了しました。")
+
+            is_memory_on = await get_memory_flag_from_notion(thread_id)
+            history = gemini_2_5_pro_thread_memory.get(thread_id, []) if is_memory_on else []
+            
+            # Geminiは純粋なテキスト履歴の方が安定するため、形式を整える
+            full_prompt_parts = []
+            for m in history:
+                full_prompt_parts.append(f"{m['role']}: {m['content']}")
+            full_prompt_parts.append(f"user: {prompt}")
+            full_prompt = "\n".join(full_prompt_parts)
+
+            reply = await ask_gemini_2_5_pro(full_prompt)
+            await send_long_message(message.channel, reply)
+
+            if is_memory_on:
+                history.append({"role": "user", "content": prompt})
+                history.append({"role": "assistant", "content": reply})
+                gemini_2_5_pro_thread_memory[thread_id] = history[-10:]
+
+            if is_admin and target_page_id:
+                log_blocks = [{"object": "block", "type": "paragraph", "paragraph": {"rich_text": [{"type": "text", "text": {"content": f"👤 {message.author.display_name}:\n{prompt}"}}]}}]
+                await log_to_notion(target_page_id, log_blocks)
+                await log_response(target_page_id, reply, "Gemini 2.5 Pro (専用スレッド)")
+            return
+        # ▲▲▲ Gemini 2.5 Pro専用部屋のロジックここまで ▲▲▲
 
         # --- 以下、コマンド入力時の処理 ---
         if not content.startswith("!"):
@@ -515,7 +553,6 @@ async def on_message(message):
                 if is_admin and target_page_id: await log_response(target_page_id, reply, bot_name)
             return
         
-        # ▼▼▼【連携コマンドのロジックを修正】▼▼▼
         if command_name == "!みんなで":
             await message.channel.send("🌀 5体のベースAIが同時に応答します…")
             tasks = {
@@ -531,9 +568,9 @@ async def on_message(message):
                 if is_admin and target_page_id: await log_response(target_page_id, result, f"{name} (!みんなで)")
             return
 
-        if command_name in ["!gpt-4o", "!geminipro", "!perplexity", "!mistrallarge", "!all", "!クリティカル", "!ロジカル", "!スライド", "!gpt-5"]:
+        if command_name in ["!gpt-4o", "!geminipro", "!perplexity", "!mistrallarge", "!all", "!クリティカル", "!ロジカル", "!スライド", "!gpt-5", "!gemini2.5pro"]:
             if command_name == "!all":
-                await message.channel.send("🔬 8体のAIが初期意見を生成中…")
+                await message.channel.send("🔬 9体のAIが初期意見を生成中…")
                 tasks = {
                     "GPT": ask_gpt_base(user_id, final_query),
                     "ジェミニ": ask_gemini_base(user_id, final_query),
@@ -542,7 +579,8 @@ async def on_message(message):
                     "Llama": ask_llama(user_id, final_query),
                     "gpt-4o": get_full_response_and_summary(ask_kreios, final_query),
                     "Gemini Pro": get_full_response_and_summary(ask_minerva, final_query),
-                    "Perplexity": get_full_response_and_summary(ask_rekus, final_query)
+                    "Perplexity": get_full_response_and_summary(ask_rekus, final_query),
+                    "Gemini 2.5 Pro": get_full_response_and_summary(ask_gemini_2_5_pro, final_query)
                 }
                 results = await asyncio.gather(*tasks.values(), return_exceptions=True)
                 for (name, result) in zip(tasks.keys(), results):
@@ -574,7 +612,7 @@ async def on_message(message):
             await message.channel.send("最終回答生成中…")
             prompt_with_context = f"以下の【参考情報】を元に、【ユーザーの質問】に回答してください。\n\n【ユーザーの質問】\n{final_query}\n\n【参考情報】\n{context}"
 
-            if command_name in ["!gpt-4o", "!geminipro", "!perplexity", "!mistrallarge", "!gpt-5"]:
+            if command_name in ["!gpt-4o", "!geminipro", "!perplexity", "!mistrallarge", "!gpt-5", "!gemini2.5pro"]:
                 reply, bot_name = None, ""
                 full_response, summary = None, None
                 if command_name == "!gpt-4o": bot_name = "gpt-4o"; full_response, summary = await get_full_response_and_summary(ask_kreios, prompt_with_context)
@@ -582,6 +620,7 @@ async def on_message(message):
                 elif command_name == "!perplexity": bot_name = "Perplexity"; full_response, summary = await get_full_response_and_summary(ask_rekus, final_query, notion_context=context)
                 elif command_name == "!mistrallarge": bot_name = "Mistral Large"; full_response, summary = await get_full_response_and_summary(ask_lalah, prompt_with_context)
                 elif command_name == "!gpt-5": bot_name = "gpt-5"; reply = await ask_gpt5(prompt_with_context)
+                elif command_name == "!gemini2.5pro": bot_name = "Gemini 2.5 Pro"; full_response, summary = await get_full_response_and_summary(ask_gemini_2_5_pro, prompt_with_context)
 
                 if bot_name == "gpt-5":
                     if is_admin and target_page_id and reply:
@@ -598,7 +637,7 @@ async def on_message(message):
                     await send_long_message(message.channel, f"🤖 {bot_name}からの応答がありませんでした。")
 
             elif command_name == "!クリティカル":
-                await message.channel.send("🔬 8体のAIが初期意見を生成中…")
+                await message.channel.send("🔬 9体のAIが初期意見を生成中…")
                 tasks = {
                     "GPT": ask_gpt_base(user_id, prompt_with_context),
                     "ジェミニ": ask_gemini_base(user_id, prompt_with_context),
@@ -607,10 +646,11 @@ async def on_message(message):
                     "Llama": ask_llama(user_id, prompt_with_context),
                     "gpt-4o": get_full_response_and_summary(ask_kreios, prompt_with_context),
                     "Gemini Pro": get_full_response_and_summary(ask_minerva, prompt_with_context),
-                    "Perplexity": get_full_response_and_summary(ask_rekus, final_query, notion_context=context)
+                    "Perplexity": get_full_response_and_summary(ask_rekus, final_query, notion_context=context),
+                    "Gemini 2.5 Pro": get_full_response_and_summary(ask_gemini_2_5_pro, prompt_with_context)
                 }
                 results = await asyncio.gather(*tasks.values(), return_exceptions=True)
-                synthesis_material = "以下の8つの異なるAIの意見を統合してください。\n\n"
+                synthesis_material = "以下の9つの異なるAIの意見を統合してください。\n\n"
                 for (name, result) in zip(tasks.keys(), results):
                     full_response, summary = None, None
                     if isinstance(result, Exception): display_text = f"エラー: {result}"
@@ -623,7 +663,7 @@ async def on_message(message):
 
                 if command_name == "!クリティカル":
                     await message.channel.send("✨ gpt-5が中間レポートを作成します…")
-                    intermediate_prompt = "以下の8つの意見の要点だけを抽出し、短い中間レポートを作成してください。"
+                    intermediate_prompt = "以下の9つの意見の要点だけを抽出し、短い中間レポートを作成してください。"
                     intermediate_report = await ask_gpt5(synthesis_material, system_prompt=intermediate_prompt)
                     await message.channel.send("✨ Mistral Largeが最終統合を行います…")
                     lalah_prompt = "あなたは統合専用AIです。渡された中間レポートを元に、最終的な結論を500文字以内でレポートしてください。"
