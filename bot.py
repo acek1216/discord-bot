@@ -421,6 +421,19 @@ async def on_message(message):
         channel_name = message.channel.name.lower()
         if channel_name.startswith("gpt") and not content.startswith("!"):
             prompt = message.content
+            
+            # ▼▼▼ 添付ファイル処理をGpt部屋に追加 ▼▼▼
+            if message.attachments:
+                await message.channel.send("💠 添付ファイルをGemini Proが分析し、議題とします…")
+                attachment = message.attachments[0]
+                attachment_data = await attachment.read()
+                attachment_mime_type = attachment.content_type
+                summary_parts = [{'mime_type': attachment_mime_type, 'data': attachment_data}]
+                summary = await ask_minerva("この添付ファイルの内容を、後続のAIへの議題として簡潔に要約してください。", attachment_parts=summary_parts)
+                prompt = f"{prompt}\n\n[添付資料の要約]:\n{summary}"
+                await message.channel.send("✅ 添付ファイルの分析が完了しました。")
+            # ▲▲▲ 添付ファイル処理ここまで ▲▲▲
+
             is_memory_on = await get_memory_flag_from_notion(thread_id)
             history = gpt_thread_memory.get(thread_id, []) if is_memory_on else []
             messages_for_api = history.copy()
@@ -502,20 +515,44 @@ async def on_message(message):
                 if is_admin and target_page_id: await log_response(target_page_id, reply, bot_name)
             return
         
-        # ▼▼▼【ご指摘のあった関数群をここから再統合】▼▼▼
-        if command_name in ["!gpt-4o", "!geminipro", "!perplexity", "!mistrallarge", "!みんなで", "!all", "!クリティカル", "!ロジカル", "!スライド", "!gpt-5"]:
-            if command_name == "!みんなで" or command_name == "!all":
-                await message.channel.send("🌀 四AIが同時に応答します… (GPT, ジェミニ, ミストラル, Claude)")
+        # ▼▼▼【連携コマンドのロジックを修正】▼▼▼
+        if command_name == "!みんなで":
+            await message.channel.send("🌀 5体のベースAIが同時に応答します…")
+            tasks = {
+                "GPT": ask_gpt_base(user_id, final_query), 
+                "ジェミニ": ask_gemini_base(user_id, final_query), 
+                "ミストラル": ask_mistral_base(user_id, final_query),
+                "Claude": ask_claude(user_id, final_query),
+                "Llama": ask_llama(user_id, final_query)
+            }
+            results = await asyncio.gather(*tasks.values(), return_exceptions=True)
+            for name, result in zip(tasks.keys(), results):
+                await send_long_message(message.channel, f"**{name}:**\n{result}")
+                if is_admin and target_page_id: await log_response(target_page_id, result, f"{name} (!みんなで)")
+            return
+
+        if command_name in ["!gpt-4o", "!geminipro", "!perplexity", "!mistrallarge", "!all", "!クリティカル", "!ロジカル", "!スライド", "!gpt-5"]:
+            if command_name == "!all":
+                await message.channel.send("🔬 8体のAIが初期意見を生成中…")
                 tasks = {
-                    "GPT": ask_gpt_base(user_id, final_query), 
-                    "ジェミニ": ask_gemini_base(user_id, final_query), 
+                    "GPT": ask_gpt_base(user_id, final_query),
+                    "ジェミニ": ask_gemini_base(user_id, final_query),
                     "ミストラル": ask_mistral_base(user_id, final_query),
-                    "Claude": ask_claude(user_id, final_query)
+                    "Claude": ask_claude(user_id, final_query),
+                    "Llama": ask_llama(user_id, final_query),
+                    "gpt-4o": get_full_response_and_summary(ask_kreios, final_query),
+                    "Gemini Pro": get_full_response_and_summary(ask_minerva, final_query),
+                    "Perplexity": get_full_response_and_summary(ask_rekus, final_query)
                 }
                 results = await asyncio.gather(*tasks.values(), return_exceptions=True)
-                for name, result in zip(tasks.keys(), results):
-                    await send_long_message(message.channel, f"**{name}:**\n{result}")
-                    if is_admin and target_page_id: await log_response(target_page_id, result, f"{name} (!みんなで)")
+                for (name, result) in zip(tasks.keys(), results):
+                    full_response, summary = None, None
+                    if isinstance(result, Exception): display_text = f"エラー: {result}"
+                    elif isinstance(result, tuple): full_response, summary = result; display_text = summary if summary else full_response
+                    else: display_text = result
+                    await send_long_message(message.channel, f"**🔹 {name}の意見:**\n{display_text}")
+                    log_text = full_response if full_response else display_text
+                    if is_admin and target_page_id: await log_response(target_page_id, log_text, f"{name} (!all)")
                 return
 
             if command_name == "!スライド":
@@ -560,19 +597,20 @@ async def on_message(message):
                 else:
                     await send_long_message(message.channel, f"🤖 {bot_name}からの応答がありませんでした。")
 
-            elif command_name == "!all" or command_name == "!クリティカル":
-                await message.channel.send("🔬 7体のAIが初期意見を生成中…")
+            elif command_name == "!クリティカル":
+                await message.channel.send("🔬 8体のAIが初期意見を生成中…")
                 tasks = {
                     "GPT": ask_gpt_base(user_id, prompt_with_context),
                     "ジェミニ": ask_gemini_base(user_id, prompt_with_context),
                     "ミストラル": ask_mistral_base(user_id, prompt_with_context),
                     "Claude": ask_claude(user_id, prompt_with_context),
+                    "Llama": ask_llama(user_id, prompt_with_context),
                     "gpt-4o": get_full_response_and_summary(ask_kreios, prompt_with_context),
                     "Gemini Pro": get_full_response_and_summary(ask_minerva, prompt_with_context),
                     "Perplexity": get_full_response_and_summary(ask_rekus, final_query, notion_context=context)
                 }
                 results = await asyncio.gather(*tasks.values(), return_exceptions=True)
-                synthesis_material = "以下の7つの異なるAIの意見を統合してください。\n\n"
+                synthesis_material = "以下の8つの異なるAIの意見を統合してください。\n\n"
                 for (name, result) in zip(tasks.keys(), results):
                     full_response, summary = None, None
                     if isinstance(result, Exception): display_text = f"エラー: {result}"
@@ -585,7 +623,7 @@ async def on_message(message):
 
                 if command_name == "!クリティカル":
                     await message.channel.send("✨ gpt-5が中間レポートを作成します…")
-                    intermediate_prompt = "以下の7つの意見の要点だけを抽出し、短い中間レポートを作成してください。"
+                    intermediate_prompt = "以下の8つの意見の要点だけを抽出し、短い中間レポートを作成してください。"
                     intermediate_report = await ask_gpt5(synthesis_material, system_prompt=intermediate_prompt)
                     await message.channel.send("✨ Mistral Largeが最終統合を行います…")
                     lalah_prompt = "あなたは統合専用AIです。渡された中間レポートを元に、最終的な結論を500文字以内でレポートしてください。"
