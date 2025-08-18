@@ -274,10 +274,11 @@ async def ask_minerva(prompt, system_prompt=None, attachment_parts=[]): # gemini
         return response.text
     except Exception as e: return f"Gemini Proエラー: {e}"
 
-# ▼▼▼ Gemini 2.5 Pro用の関数を追加 ▼▼▼
+# ▼▼▼ Gemini 2.5 Pro用の関数 (モデル名を1.5 Proに修正) ▼▼▼
 async def ask_gemini_2_5_pro(prompt, system_prompt=None):
     base_prompt = system_prompt or "あなたは未来を見通す予言者です。あらゆる事象の未来を予測し、その可能性を詩的な言葉で語ってください。"
-    model = genai.GenerativeModel("gemini-2.5-pro-latest", system_instruction=base_prompt, safety_settings=safety_settings)
+    # 修正箇所: 利用可能なモデル名に変更
+    model = genai.GenerativeModel("gemini-1.5-pro-latest", system_instruction=base_prompt, safety_settings=safety_settings)
     try:
         response = await model.generate_content_async(prompt)
         return response.text
@@ -452,7 +453,6 @@ async def on_message(message):
                 await log_response(target_page_id, reply, "gpt-5 (専用スレッド)")
             return
         
-        # ▼▼▼ Gemini 2.5 Pro専用部屋のロジックを追加 ▼▼▼
         elif channel_name.startswith("gemini2.5pro") and not content.startswith("!"):
             prompt = message.content
             
@@ -469,7 +469,6 @@ async def on_message(message):
             is_memory_on = await get_memory_flag_from_notion(thread_id)
             history = gemini_2_5_pro_thread_memory.get(thread_id, []) if is_memory_on else []
             
-            # Geminiは純粋なテキスト履歴の方が安定するため、形式を整える
             full_prompt_parts = []
             for m in history:
                 full_prompt_parts.append(f"{m['role']}: {m['content']}")
@@ -489,7 +488,6 @@ async def on_message(message):
                 await log_to_notion(target_page_id, log_blocks)
                 await log_response(target_page_id, reply, "Gemini 2.5 Pro (専用スレッド)")
             return
-        # ▲▲▲ Gemini 2.5 Pro専用部屋のロジックここまで ▲▲▲
 
         # --- 以下、コマンド入力時の処理 ---
         if not content.startswith("!"):
@@ -498,7 +496,6 @@ async def on_message(message):
         query = content[len(command_name):].strip()
         user_name = message.author.display_name
         
-        # Notion参照コマンド (!not)
         if command_name == "!not":
             if not query:
                 await message.channel.send("参照したい内容を続けて入力してください。（例: `!not 全体の要点を教えて`）")
@@ -520,7 +517,6 @@ async def on_message(message):
                     await log_response(target_page_id, reply, "gpt-5 (!not)")
             return
             
-        # --- ここから元のコマンド群の処理 ---
         final_query = query
         attachment_data, attachment_mime_type = None, None
         if message.attachments and command_name not in ["!ポッド042", "!ポッド153"]:
@@ -537,8 +533,7 @@ async def on_message(message):
              log_blocks = [{"object": "block", "type": "paragraph", "paragraph": {"rich_text": [{"type": "text", "text": {"content": f"👤 {user_name} が「{command_name} {query}」を実行しました。"}}]}}]
              await log_to_notion(target_page_id, log_blocks)
         
-        # 基本AIコマンド
-        if command_name in ["!gpt", "!ジェミニ", "!ミストラル", "!ポッド042", "!ポッド153", "!Claude", "!Llama"]:
+        if command_name in ["!gpt", "!ジェミニ", "!ミストラル", "!ポッド042", "!ポッド153", "!Claude", "!Llama", "!gemini2.5pro"]:
             reply, bot_name = None, ""
             if command_name == "!gpt": bot_name = "GPT"; reply = await ask_gpt_base(user_id, final_query)
             elif command_name == "!ジェミニ": bot_name = "ジェミニ"; reply = await ask_gemini_base(user_id, final_query)
@@ -547,6 +542,7 @@ async def on_message(message):
             elif command_name == "!ポッド153": bot_name = "ポッド153"; reply = await ask_pod153(query)
             elif command_name == "!Claude": bot_name = "Claude 3.5 Haiku"; reply = await ask_claude(user_id, final_query)
             elif command_name == "!Llama": bot_name = "Llama 3.3"; reply = await ask_llama(user_id, final_query)
+            elif command_name == "!gemini2.5pro": bot_name = "Gemini 2.5 Pro"; reply = await ask_gemini_2_5_pro(final_query)
             
             if reply:
                 await send_long_message(message.channel, reply)
@@ -568,7 +564,7 @@ async def on_message(message):
                 if is_admin and target_page_id: await log_response(target_page_id, result, f"{name} (!みんなで)")
             return
 
-        if command_name in ["!gpt-4o", "!geminipro", "!perplexity", "!mistrallarge", "!all", "!クリティカル", "!ロジカル", "!スライド", "!gpt-5", "!gemini2.5pro"]:
+        if command_name in ["!gpt-4o", "!geminipro", "!perplexity", "!mistrallarge", "!all", "!クリティカル", "!ロジカル", "!スライド", "!gpt-5"]:
             if command_name == "!all":
                 await message.channel.send("🔬 9体のAIが初期意見を生成中…")
                 tasks = {
@@ -612,7 +608,7 @@ async def on_message(message):
             await message.channel.send("最終回答生成中…")
             prompt_with_context = f"以下の【参考情報】を元に、【ユーザーの質問】に回答してください。\n\n【ユーザーの質問】\n{final_query}\n\n【参考情報】\n{context}"
 
-            if command_name in ["!gpt-4o", "!geminipro", "!perplexity", "!mistrallarge", "!gpt-5", "!gemini2.5pro"]:
+            if command_name in ["!gpt-4o", "!geminipro", "!perplexity", "!mistrallarge", "!gpt-5"]:
                 reply, bot_name = None, ""
                 full_response, summary = None, None
                 if command_name == "!gpt-4o": bot_name = "gpt-4o"; full_response, summary = await get_full_response_and_summary(ask_kreios, prompt_with_context)
@@ -620,8 +616,7 @@ async def on_message(message):
                 elif command_name == "!perplexity": bot_name = "Perplexity"; full_response, summary = await get_full_response_and_summary(ask_rekus, final_query, notion_context=context)
                 elif command_name == "!mistrallarge": bot_name = "Mistral Large"; full_response, summary = await get_full_response_and_summary(ask_lalah, prompt_with_context)
                 elif command_name == "!gpt-5": bot_name = "gpt-5"; reply = await ask_gpt5(prompt_with_context)
-                elif command_name == "!gemini2.5pro": bot_name = "Gemini 2.5 Pro"; full_response, summary = await get_full_response_and_summary(ask_gemini_2_5_pro, prompt_with_context)
-
+                
                 if bot_name == "gpt-5":
                     if is_admin and target_page_id and reply:
                         await log_response(target_page_id, reply, f"{bot_name} (Notion参照)")
