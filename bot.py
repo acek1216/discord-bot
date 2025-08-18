@@ -150,7 +150,6 @@ def _sync_call_llama(p_text: str):
 async def ask_llama(user_id, prompt):
     """Vertex AI経由でLlama 3.3を呼び出し、短期記憶を持つ。"""
     history = llama_base_memory.get(user_id, [])
-    # ペルソナを「物静かな庭師の老人」に変更
     system_prompt = "あなたは物静かな庭師の老人です。自然に例えながら、物事の本質を突くような、滋味深い言葉で語ってください。"
     
     full_prompt_parts = [system_prompt]
@@ -177,7 +176,6 @@ async def ask_llama(user_id, prompt):
 async def ask_claude(user_id, prompt):
     """OpenRouter経由でClaude 3.5 Haikuを呼び出し、短期記憶を持つ。"""
     history = claude_base_memory.get(user_id, [])
-    # ペルソナを「図書館の賢者」に変更
     system_prompt = "あなたは図書館の賢者です。古今東西の書物を読み解き、森羅万象を知る存在として、落ち着いた口調で回答してください。"
     messages = [{"role": "system", "content": system_prompt}] + history + [{"role": "user", "content": prompt}]
     
@@ -355,7 +353,7 @@ async def ask_thread_gpt4o(messages: list):
 
 async def get_full_response_and_summary(ai_function, prompt, **kwargs):
     full_response = await ai_function(prompt, **kwargs)
-    if "エラー" in str(full_response):
+    if not full_response or "エラー" in str(full_response):
         return full_response, None
     summary_prompt = f"次の文章を200文字以内で簡潔かつ意味が通じるように要約してください。\n\n{full_response}"
     summary = await ask_gpt5(summary_prompt)
@@ -438,6 +436,8 @@ async def on_message(message):
             messages_for_api = history.copy()
             messages_for_api.append({"role": "user", "content": prompt})
             full_prompt = "\n".join([f"{m['role']}: {m['content']}" for m in messages_for_api])
+            
+            await message.channel.send("⏳ gpt-5が思考を開始します…")
             reply = await ask_gpt5(full_prompt)
             await send_long_message(message.channel, reply)
 
@@ -474,6 +474,7 @@ async def on_message(message):
             full_prompt_parts.append(f"user: {prompt}")
             full_prompt = "\n".join(full_prompt_parts)
 
+            await message.channel.send("⏳ Gemini 2.5 Proが思考を開始します…")
             reply = await ask_gemini_2_5_pro(full_prompt)
             await send_long_message(message.channel, reply)
 
@@ -495,6 +496,10 @@ async def on_message(message):
         query = content[len(command_name):].strip()
         user_name = message.author.display_name
         
+        if command_name in ["!みんなで", "!all", "!クリティカル", "!ロジカル", "!スライド"] and not query:
+            await message.channel.send(f"⚠️ {command_name}コマンドには、議題や質問内容が必要です。\n例: `{command_name} AIの未来について`")
+            return
+
         if command_name == "!not":
             if not query:
                 await message.channel.send("参照したい内容を続けて入力してください。（例: `!not 全体の要点を教えて`）")
@@ -532,7 +537,7 @@ async def on_message(message):
              log_blocks = [{"object": "block", "type": "paragraph", "paragraph": {"rich_text": [{"type": "text", "text": {"content": f"👤 {user_name} が「{command_name} {query}」を実行しました。"}}]}}]
              await log_to_notion(target_page_id, log_blocks)
         
-        if command_name in ["!gpt", "!ジェミニ", "!ミストラル", "!ポッド042", "!ポッド153", "!Claude", "!Llama", "!gemini2.5pro"]:
+        if command_name in ["!gpt", "!ジェミニ", "!ミストラル", "!ポッド042", "!ポッド153", "!Claude", "!Llama"]:
             reply, bot_name = None, ""
             if command_name == "!gpt": bot_name = "GPT"; reply = await ask_gpt_base(user_id, final_query)
             elif command_name == "!ジェミニ": bot_name = "ジェミニ"; reply = await ask_gemini_base(user_id, final_query)
@@ -541,7 +546,6 @@ async def on_message(message):
             elif command_name == "!ポッド153": bot_name = "ポッド153"; reply = await ask_pod153(query)
             elif command_name == "!Claude": bot_name = "Claude 3.5 Haiku"; reply = await ask_claude(user_id, final_query)
             elif command_name == "!Llama": bot_name = "Llama 3.3"; reply = await ask_llama(user_id, final_query)
-            elif command_name == "!gemini2.5pro": bot_name = "Gemini 2.5 Pro"; reply = await ask_gemini_2_5_pro(final_query)
             
             if reply:
                 await send_long_message(message.channel, reply)
@@ -563,7 +567,7 @@ async def on_message(message):
                 if is_admin and target_page_id: await log_response(target_page_id, result, f"{name} (!みんなで)")
             return
 
-        if command_name in ["!gpt-4o", "!geminipro", "!perplexity", "!mistrallarge", "!all", "!クリティカル", "!ロジカル", "!スライド", "!gpt-5"]:
+        if command_name in ["!gpt-4o", "!geminipro", "!perplexity", "!mistrallarge", "!all", "!クリティカル", "!ロジカル", "!スライド", "!gpt-5", "!gemini2.5pro"]:
             if command_name == "!all":
                 await message.channel.send("🔬 9体のAIが初期意見を生成中…")
                 tasks = {
@@ -607,7 +611,7 @@ async def on_message(message):
             await message.channel.send("最終回答生成中…")
             prompt_with_context = f"以下の【参考情報】を元に、【ユーザーの質問】に回答してください。\n\n【ユーザーの質問】\n{final_query}\n\n【参考情報】\n{context}"
 
-            if command_name in ["!gpt-4o", "!geminipro", "!perplexity", "!mistrallarge", "!gpt-5"]:
+            if command_name in ["!gpt-4o", "!geminipro", "!perplexity", "!mistrallarge", "!gpt-5", "!gemini2.5pro"]:
                 reply, bot_name = None, ""
                 full_response, summary = None, None
                 if command_name == "!gpt-4o": bot_name = "gpt-4o"; full_response, summary = await get_full_response_and_summary(ask_kreios, prompt_with_context)
@@ -615,6 +619,7 @@ async def on_message(message):
                 elif command_name == "!perplexity": bot_name = "Perplexity"; full_response, summary = await get_full_response_and_summary(ask_rekus, final_query, notion_context=context)
                 elif command_name == "!mistrallarge": bot_name = "Mistral Large"; full_response, summary = await get_full_response_and_summary(ask_lalah, prompt_with_context)
                 elif command_name == "!gpt-5": bot_name = "gpt-5"; reply = await ask_gpt5(prompt_with_context)
+                elif command_name == "!gemini2.5pro": bot_name = "Gemini 2.5 Pro"; full_response, summary = await get_full_response_and_summary(ask_gemini_2_5_pro, prompt_with_context)
                 
                 if bot_name == "gpt-5":
                     if is_admin and target_page_id and reply:
