@@ -150,7 +150,7 @@ def _sync_call_llama(p_text: str):
 async def ask_llama(user_id, prompt):
     """Vertex AI経由でLlama 3.3を呼び出し、短期記憶を持つ。"""
     history = llama_base_memory.get(user_id, [])
-    system_prompt = "あなたは物静かな庭師の老人です。自然に例えながら、物事の本質を突くような、滋味深い言葉で語ってください。"
+    system_prompt = "あなたは物静かな庭師の老人です。自然に例えながら、物事の本質を突くような、滋味深い言葉で150文字以内で語ってください。"
     
     full_prompt_parts = [system_prompt]
     for message in history:
@@ -176,7 +176,7 @@ async def ask_llama(user_id, prompt):
 async def ask_claude(user_id, prompt):
     """OpenRouter経由でClaude 3.5 Haikuを呼び出し、短期記憶を持つ。"""
     history = claude_base_memory.get(user_id, [])
-    system_prompt = "あなたは図書館の賢者です。古今東西の書物を読み解き、森羅万象を知る存在として、落ち着いた口調で回答してください。"
+    system_prompt = "あなたは図書館の賢者です。古今東西の書物を読み解き、森羅万象を知る存在として、落ち着いた口調で150文字以内で回答してください。"
     messages = [{"role": "system", "content": system_prompt}] + history + [{"role": "user", "content": prompt}]
     
     headers = {
@@ -232,7 +232,7 @@ async def ask_gpt_base(user_id, prompt):
 
 async def ask_gemini_base(user_id, prompt):
     history = gemini_base_memory.get(user_id, [])
-    system_prompt = "あなたは優秀なパラリーガルです。事実整理、リサーチ、文書構成が得意です。冷静かつ的確に回答してください。"
+    system_prompt = "あなたは優秀なパラリーガルです。事実整理、リサーチ、文書構成が得意です。冷静かつ的確に150文字以内で回答してください。"
     model = genai.GenerativeModel("gemini-1.5-flash-latest", system_instruction=system_prompt, safety_settings=safety_settings)
     try:
         full_prompt = "\n".join([f"{h['role']}: {h['content']}" for h in (history + [{'role': 'user', 'content': prompt}])])
@@ -246,7 +246,7 @@ async def ask_gemini_base(user_id, prompt):
 
 async def ask_mistral_base(user_id, prompt):
     history = mistral_base_memory.get(user_id, [])
-    system_prompt = "あなたは好奇心旺盛なAIです。フレンドリーな口調で、情報を明るく整理し、探究心をもって解釈します。"
+    system_prompt = "あなたは好奇心旺盛なAIです。フレンドリーな口調で、情報を明るく整理し、探究心をもって150文字以内で解釈します。"
     messages = [{"role": "system", "content": system_prompt}] + history + [{"role": "user", "content": prompt}]
     try:
         response = await mistral_client.chat(model="mistral-medium", messages=messages)
