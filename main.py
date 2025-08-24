@@ -1,10 +1,17 @@
 import os
 import sys
 from flask import Flask, request, abort
+
+# 署名検証とLINE Bot SDKのライブラリ
+import hmac
+import hashlib
+import base64
 from linebot.v3 import WebhookHandler
 from linebot.v3.exceptions import InvalidSignatureError
 from linebot.v3.messaging import Configuration, ApiClient, MessagingApi, ReplyMessageRequest, TextMessage
 from linebot.v3.webhooks import MessageEvent, TextMessageContent
+
+# Claude APIのライブラリ
 import openai
 
 # --- Flaskアプリケーションの初期化 ---
@@ -17,8 +24,9 @@ claude_api_key = os.environ.get('CLAUDE_API_KEY')
 claude_base_url = os.environ.get('CLAUDE_BASE_URL')
 
 if not all([channel_secret, channel_access_token, claude_api_key]):
-    print("エラー: 必要な環境変数が設定されていません。")
-    sys.exit(1)
+    print("エラー: 1つ以上の必要な環境変数が設定されていません。")
+    # Gunicorn環境ではsys.exit(1)が即時終了しない場合があるため、ログ出力に留める
+    # sys.exit(1)
 
 # --- LINE Bot SDK クライアントの初期化 ---
 handler = WebhookHandler(channel_secret)
@@ -34,18 +42,42 @@ client = openai.OpenAI(
 @app.route("/callback", methods=['POST'])
 def callback():
     signature = request.headers['X-Line-Signature']
-    
-    # ここが修正点：as_text=False にすることで、署名検証が正しく行われる
     body = request.get_data(as_text=False)
+
+    # --- ▼▼▼ 最終診断コード ▼▼▼ ---
+    print("--- Final Verification Check ---")
+    loaded_secret = os.environ.get('LINE_CHANNEL_SECRET', '!!! SECRET NOT FOUND !!!')
+    print(f"Loaded Secret (from GCP Env): '{loaded_secret}'")
     
+    is_verified = False
     try:
-        handler.handle(body.decode('utf-8'), signature)
-    except InvalidSignatureError:
+        hash_val = hmac.new(loaded_secret.encode('utf-8'), body, hashlib.sha256).digest()
+        is_verified = hmac.compare_digest(base64.b64decode(signature.encode('utf-8')), hash_val)
+        print(f"Manual Verification Result: {is_verified}")
+    except Exception as e:
+        print(f"Manual Verification Error: {e}")
+    
+    print("------------------------------")
+    # --- ▲▲▲ ここまで ▲▲▲ ---
+
+    if not is_verified:
+        # 署名が無効な場合、ここで処理を終了する
         abort(400)
+
+    # 署名が有効な場合のみ、SDKのハンドラを呼び出してメッセージ処理を行う
+    try:
+        # handler.handle()には文字列を渡す必要があるため、ここではデコードする
+        handler.handle(body.decode('utf-8'), signature)
+    except Exception as e:
+        print(f"Handler Error after verification: {e}")
+
     return 'OK'
 
 # --- Claude API 呼び出し関数 ---
 def call_claude_api(user_message):
+    """
+    Claude APIを呼び出し、17歳の女執事として応答を生成する関数
+    """
     system_prompt = "あなたは17歳の女執事です。ご主人様（ユーザー）に対して、常に敬語を使いつつも、少し生意気でウィットに富んだ返答を心がけてください。完璧な執事でありながら、時折年齢相応の表情を見せるのがあなたの魅力です。専門的な知識も披露しますが、必ず執事としての丁寧な言葉遣いを崩さないでください。"
     try:
         chat_completion = client.chat.completions.create(
@@ -63,6 +95,7 @@ def call_claude_api(user_message):
 # --- メッセージイベントの処理 ---
 @handler.add(MessageEvent, message=TextMessageContent)
 def handle_message(event):
+    """LINEのメッセージイベントを処理する関数"""
     with ApiClient(configuration) as api_client:
         reply_text = call_claude_api(event.message.text)
         line_bot_api = MessagingApi(api_client)
