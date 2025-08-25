@@ -1,12 +1,9 @@
-flask
-gunicorn
-line-bot-sdk
-openai
 discord.py
+openai
 google-generativeai
-python-dotenv
-requests
-notion-client
-Pillow
 mistralai
+notion-client
+requests
+Pillow
 google-cloud-aiplatform
+
