@@ -1,14 +1,16 @@
-flask
+# Web Server
+Flask
 gunicorn
+
+# SDKs
+discord.py
 line-bot-sdk>=3.11.0
 openai
-discord.py
 google-generativeai
-python-dotenv
-requests
-notion-client
-Pillow
 mistralai
+notion-client
 google-cloud-aiplatform
 
-
+# Utilities
+requests
+Pillow
