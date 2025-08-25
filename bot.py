@@ -1,48 +1,39 @@
-# (ファイル上部のimport文などはそのまま)
-# ...
+import os
+from flask import Flask, request, abort
+from linebot.v3 import WebhookHandler
+from linebot.v3.exceptions import InvalidSignatureError
 
-# --- 環境変数の読み込み ---
-# Claude関連のキーを削除
-LINE_CHANNEL_SECRET = os.environ.get('LINE_CHANNEL_SECRET')
-LINE_CHANNEL_ACCESS_TOKEN = os.environ.get('LINE_CHANNEL_ACCESS_TOKEN')
-DISCORD_BOT_TOKEN = os.environ.get('DISCORD_BOT_TOKEN')
-# (あなたのDiscord Botで必要な他のAPIキー)
-# ...
-
-# --- Discord Botの既存コード ---
-# (あなたの800行のコードの大部分がここに入ります)
-# ...
-
-# --- LINE Bot用Webサーバー（Flask）の初期化と処理 ---
 app = Flask(__name__)
-handler = WebhookHandler(LINE_CHANNEL_SECRET)
-configuration = Configuration(access_token=LINE_CHANNEL_ACCESS_TOKEN)
+
+channel_secret = os.environ.get('LINE_CHANNEL_SECRET', None)
+if not channel_secret:
+    print("FATAL ERROR: LINE_CHANNEL_SECRET is not set.")
+    # この環境では起動させない
+    import sys
+    sys.exit(1)
+
+handler = WebhookHandler(channel_secret)
 
 @app.route("/callback", methods=['POST'])
 def callback():
-    """LINEからのWebhookを受け取るエンドポイント"""
-    signature = request.headers['X-Line-Signature']
-    body = request.get_data(as_text=False)
+    signature = request.headers.get('X-Line-Signature', '')
+    body = request.get_data(as_text=True)
+
+    # 検証ボタン（署名なし）か、本物のメッセージ（署名あり）かをログに出力
+    if not signature:
+        app.logger.info("✅ [TEST] Received a request without signature (likely Verify button). Returning 200 OK.")
+        return "OK", 200
+    
+    # 署名検証
     try:
-        handler.handle(body.decode('utf-8'), signature)
+        handler.handle(body, signature)
     except InvalidSignatureError:
+        app.logger.error("🛑 [FATAL] Signature verification FAILED. The LINE_CHANNEL_SECRET is WRONG.")
         abort(400)
+    
+    app.logger.info("✅ [SUCCESS] Signature verification SUCCEEDED.")
     return 'OK'
 
-def create_line_reply(user_message):
-    """LINE用のシンプルなオウム返し応答を作成する関数"""
-    return f"メッセージ「{user_message}」を受け取りました。"
-
-@handler.add(MessageEvent, message=TextMessageContent)
-def handle_message(event):
-    """LINEのメッセージイベントを処理する関数"""
-    with ApiClient(configuration) as api_client:
-        reply_text = create_line_reply(event.message.text) # Claude呼び出しをシンプルな関数に変更
-        line_bot_api = MessagingApi(api_client)
-        line_bot_api.reply_message_with_http_info(
-            ReplyMessageRequest(reply_token=event.reply_token, messages=[TextMessage(text=reply_text)])
-        )
-
-# --- サーバー起動部分 (Gunicorn + Discordスレッド) ---
-# (変更なし)
-# ...
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host="0.0.0.0", port=port)
