@@ -53,6 +53,7 @@ claude_client = openai.OpenAI(api_key=CLAUDE_API_KEY, base_url=CLAUDE_BASE_URL)
 
 @app.route("/callback", methods=['POST'])
 def callback():
+    """LINEからのWebhookを受け取るエンドポイント"""
     signature = request.headers['X-Line-Signature']
     body = request.get_data(as_text=False)
     try:
@@ -63,6 +64,7 @@ def callback():
     return 'OK'
 
 def call_claude_api(user_message):
+    """Claudeを17歳の女執事として呼び出す関数"""
     system_prompt = "あなたは17歳の女執事です。ご主人様（ユーザー）に対して、常に敬語を使いつつも、少し生意気でウィットに富んだ返答を心がけてください。"
     try:
         chat_completion = claude_client.chat.completions.create(
@@ -74,16 +76,31 @@ def call_claude_api(user_message):
         print(f"🛑 ERROR: Claude API Error: {e}")
         return "申し訳ございません、ご主人様。わたくしの思考回路に少し問題が生じたようです…"
 
-@handler.add(MessageEvent, message=TextMessageContent)
-def handle_message(event):
+# --- ここからがタイムアウト対策の修正部分 ---
+
+def process_message_in_background(event):
+    """AIへの問い合わせと返信をバックグラウンドで行う関数"""
     with ApiClient(configuration) as api_client:
         reply_text = call_claude_api(event.message.text)
         line_bot_api = MessagingApi(api_client)
         line_bot_api.reply_message_with_http_info(
-            ReplyMessageRequest(reply_token=event.reply_token, messages=[TextMessage(text=reply_text)])
+            ReplyMessageRequest(
+                reply_token=event.reply_token,
+                messages=[TextMessage(text=reply_text)]
+            )
         )
 
-# --- Discord Botをバックグラウンドで起動する設定 ---
+@handler.add(MessageEvent, message=TextMessageContent)
+def handle_message(event):
+    """LINEのメッセージイベントを受け取り、バックグラウンド処理を開始させる関数"""
+    # 時間のかかる処理（AIへの問い合わせと返信）を別のスレッドで実行
+    thread = threading.Thread(target=process_message_in_background, args=(event,))
+    thread.start()
+
+# --- ここまでがタイムアウト対策の修正部分 ---
+
+
+# --- Discord Botをバックグラウンドで起動 ---
 def run_discord_bot_in_background():
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
@@ -92,9 +109,9 @@ def run_discord_bot_in_background():
     except Exception as e:
         print(f"🛑 ERROR: Discord bot thread failed: {e}")
 
+discord_thread = threading.Thread(target=run_discord_bot_in_background)
+discord_thread.daemon = True
 if DISCORD_BOT_TOKEN:
-    discord_thread = threading.Thread(target=run_discord_bot_in_background)
-    discord_thread.daemon = True
     discord_thread.start()
 
 # --- サーバー起動 (ローカルテスト用) ---
