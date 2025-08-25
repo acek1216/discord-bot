@@ -1,5 +1,6 @@
 flask
 gunicorn
-line-bot-sdk
+line-bot-sdk>=3.11.0
 openai
 discord.py
+
