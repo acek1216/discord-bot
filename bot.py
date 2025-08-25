@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Discord Bot & LINE Bot Integrated Version (Final Corrected)
+Discord Bot & LINE Bot Integrated Version (LINE Connection Test)
 """
 
 # --- 必要なライブラリのインポート ---
@@ -623,13 +623,6 @@ async def on_message(message):
         if message.author.id in processing_users:
             processing_users.remove(message.author.id)
 
-# --- サーバー起動 ---
-# ここにあった古いFlaskの起動コードは、下の新しいものに統合・置き換えられます
-# from flask import Flask
-# import threading
-# import time
-# (古いコードは削除)
-
 # --- ここからLINE Bot用のコード ---
 app = Flask(__name__)
 handler = WebhookHandler(LINE_CHANNEL_SECRET)
@@ -638,7 +631,6 @@ claude_client_for_line = openai.OpenAI(api_key=CLAUDE_API_KEY, base_url=CLAUDE_B
 
 @app.route("/")
 def index():
-    # DiscordとLINEの両方が動いていることを示すメッセージに変更
     return "Bot is running! (Discord & LINE)"
 
 @app.route("/callback", methods=['POST'])
