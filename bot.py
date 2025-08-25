@@ -589,7 +589,7 @@ async def on_message(message):
                     else: display_text = result
                     await send_long_message(message.channel, f"**🔹 {name}の意見:**\n{display_text}")
                     log_text = full_response if full_response else display_text
-                    if is_admin and target_page_id: await log_to_notion(target_page_id, log_text, f"{name} (!all)")
+                    if is_admin and target_page_id: await log_response(target_page_id, log_text, f"{name} (!all)")
                 return
 
             if command_name == "!スライド":
@@ -725,46 +725,17 @@ async def on_message(message):
             processing_users.remove(message.author.id)
 
 # --- 起動 ---
-from flask import Flask
-import threading
-import time
-
+# --- ここからLINE Bot用のコードを追加 ---
 app = Flask(__name__)
 
 @app.route("/")
 def index():
-    return "ボットは正常に動作中です！"
+    # Gunicornが正常に起動したかを確認するためのルート
+    return "Discord and LINE Bot server is running!"
 
-def run_discord_bot():
-    client.run(DISCORD_TOKEN)
-
-if __name__ == "__main__":
-    # Flaskを先に起動（Cloud RunのTCP probe用）
-    port = int(os.environ.get("PORT", 8080))
-    flask_thread = threading.Thread(target=lambda: app.run(host="host.docker.internal", port=port))
-    flask_thread.start()
-
-    # 少し待ってからBot起動（Cloud Runが起動確認できるようにする）
-    time.sleep(2)
-    run_discord_bot()
-Gunicorn を使う場合、if __name__ == "__main__": ブロック内のコードは実行されないため、Discord Bot が起動しません。
-
-この問題を解決し、Discord Bot と LINE Bot (Flask) を1つの Cloud Run サービスで同時に動かすには、起動の仕組みを根本的に変更する必要があります。
-
----
-## 解決策：Gunicorn をメインに、Discord Bot をバックグラウンドで起動
-
-Cloud Run のメインプロセスは、HTTPリクエストを受け付ける Gunicorn である必要があります。そして、Gunicorn が起動する際に、Discord Bot を別のスレッド（バックグラウンド処理）で起動します。
-
-### 1. `bot.py` の修正
-あなたの `bot.py` の一番下の `# --- 起動 ---` から始まる部分を、以下のコードに**完全に置き換えてください**。
-
-```python
-# --- ここからLINE Bot用のコードを追加 ---
-app = Flask(__name__)
-
-# (ここにLINE用の@app.route("/callback")や関連関数を記述)
+# (今後、ここにLINE用の@app.route("/callback")や関連関数を追加していく)
 # ...
+
 
 # --- サーバー起動部分 ---
 # Gunicornがファイルをインポートした際にDiscord Botをバックグラウンドで起動させる
@@ -772,7 +743,7 @@ def run_discord_bot_in_background():
     # discord.pyは非同期ライブラリなので、新しいイベントループをスレッド内で作成する
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
-    # あなたのDiscord Botのクライアント変数名が 'client' であることを確認してください
+    # あなたのDiscord Botのクライアント変数名が 'client' であることを確認
     loop.run_until_complete(client.start(DISCORD_TOKEN))
 
 if DISCORD_TOKEN:
