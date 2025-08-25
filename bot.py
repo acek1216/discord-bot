@@ -738,6 +738,19 @@ def index():
 
 
 # --- サーバー起動部分 ---
+# --- ここからLINE Bot用のコードを追加 ---
+app = Flask(__name__)
+
+@app.route("/")
+def index():
+    # Gunicornが正常に起動したかを確認するためのルート
+    return "Discord and LINE Bot server is running!"
+
+# (今後、ここにLINE用の@app.route("/callback")や関連関数を追加していく)
+# ...
+
+
+# --- サーバー起動部分 ---
 # Gunicornがファイルをインポートした際にDiscord Botをバックグラウンドで起動させる
 def run_discord_bot_in_background():
     # discord.pyは非同期ライブラリなので、新しいイベントループをスレッド内で作成する
@@ -755,3 +768,4 @@ if DISCORD_TOKEN:
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
     app.run(host="0.0.0.0", port=port)
+
