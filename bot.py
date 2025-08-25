@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Discord Bot & LINE Bot Integrated Version (LINE Connection Test)
+Discord Bot & LINE Bot Integrated Version (Final Corrected)
 """
 
 # --- 必要なライブラリのインポート ---
@@ -631,6 +631,7 @@ claude_client_for_line = openai.OpenAI(api_key=CLAUDE_API_KEY, base_url=CLAUDE_B
 
 @app.route("/")
 def index():
+    # DiscordとLINEの両方が動いていることを示すメッセージに変更
     return "Bot is running! (Discord & LINE)"
 
 @app.route("/callback", methods=['POST'])
