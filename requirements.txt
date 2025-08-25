@@ -1,6 +1,13 @@
 flask
 gunicorn
-line-bot-sdk>=3.11.0
+line-bot-sdk
 openai
 discord.py
-
+google-generativeai
+python-dotenv
+requests
+notion-client
+Pillow
+mistralai
+google-cloud-aiplatform
+vertexai
