@@ -1,11 +1,16 @@
+# Pythonの公式イメージをベースにする
 FROM python:3.11-slim
 
-WORKDIR /app
+# 環境変数を設定
+ENV APP_HOME /app
+WORKDIR $APP_HOME
 
-COPY requirements.txt requirements.txt
+# 必要なライブラリをインストール
+COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# プロジェクトのファイルをコピー
 COPY . .
 
-CMD ["python", "bot.py"]
-
+# コンテナの起動コマンド
+CMD exec gunicorn --bind 0.0.0.0:$PORT --workers 1 --threads 8 --timeout 0 bot:app
