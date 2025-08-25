@@ -10,6 +10,3 @@ aiohttp
 PyMuPDF
 google-cloud-aiplatform>=1.49.0
 Flask
-line-bot-sdk
-gunicorn
-
