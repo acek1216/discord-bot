@@ -623,26 +623,71 @@ async def on_message(message):
         if message.author.id in processing_users:
             processing_users.remove(message.author.id)
 
-# --- 起動 ---
-# from flask import Flask
-# import threading
-# import time
+# --- ここからLINE Bot用のコード ---
+app = Flask(__name__)
+handler = WebhookHandler(LINE_CHANNEL_SECRET)
+configuration = Configuration(access_token=LINE_CHANNEL_ACCESS_TOKEN)
+claude_client_for_line = openai.OpenAI(api_key=CLAUDE_API_KEY, base_url=CLAUDE_BASE_URL)
 
-# app = Flask(__name__)
+@app.route("/")
+def index():
+    return "Bot is running! (Discord & LINE)"
 
-# @app.route("/")
-# def index():
-#     return "ボットは正常に動作中です！"
+@app.route("/callback", methods=['POST'])
+def callback():
+    signature = request.headers['X-Line-Signature']
+    body = request.get_data(as_text=False)
+    try:
+        handler.handle(body.decode('utf-8'), signature)
+    except InvalidSignatureError:
+        print("🛑 ERROR: Signature verification failed. Check LINE_CHANNEL_SECRET.")
+        abort(400)
+    return 'OK'
 
-# def run_discord_bot():
-#     client.run(DISCORD_TOKEN)
+def call_claude_api_for_line(user_message):
+    system_prompt = "あなたは17歳の女執事です。ご主人様（ユーザー）に対して、常に敬語を使いつつも、少し生意気でウィットに富んだ返答を心がけてください。"
+    try:
+        chat_completion = claude_client_for_line.chat.completions.create(
+            model="claude-3-haiku-20240307",
+            messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_message}]
+        )
+        return chat_completion.choices[0].message.content
+    except Exception as e:
+        print(f"🛑 ERROR: Claude API for LINE Error: {e}")
+        return "申し訳ございません、ご主人様。わたくしの思考回路に少し問題が生じたようです…"
 
-# if __name__ == "__main__":
-#     # Flaskを先に起動（Cloud RunのTCP probe用）
-#     port = int(os.environ.get("PORT", 8080))
-#     flask_thread = threading.Thread(target=lambda: app.run(host="0.0.0.0", port=port))
-#     flask_thread.start()
+def process_message_in_background(event):
+    """AIへの問い合わせと返信をバックグラウンドで行う関数"""
+    with ApiClient(configuration) as api_client:
+        reply_text = call_claude_api_for_line(event.message.text)
+        line_bot_api = MessagingApi(api_client)
+        line_bot_api.reply_message_with_http_info(
+            ReplyMessageRequest(
+                reply_token=event.reply_token,
+                messages=[TextMessage(text=reply_text)]
+            )
+        )
 
-#     # 少し待ってからBot起動（Cloud Runが起動確認できるようにする）
-#     time.sleep(2)
-#     run_discord_bo
+@handler.add(MessageEvent, message=TextMessageContent)
+def handle_message(event):
+    """LINEのメッセージイベントを受け取り、バックグラウンド処理を開始させる関数"""
+    thread = threading.Thread(target=process_message_in_background, args=(event,))
+    thread.start()
+
+# --- サーバー起動 ---
+if __name__ == "__main__":
+    # LINE Botサーバーをバックグラウンドで起動
+    port = int(os.environ.get("PORT", 8080))
+    flask_thread = threading.Thread(target=lambda: app.run(host="0.0.0.0", port=port, debug=False))
+    flask_thread.daemon = True
+    flask_thread.start()
+    print(f"🚀 Flask (LINE Bot) server started in background on port {port}.")
+
+    # Discord Botをメインで起動
+    print("🤖 Starting Discord Bot...")
+    try:
+        client.run(DISCORD_TOKEN)
+    except discord.errors.LoginFailure:
+        print("🛑 FATAL ERROR: Discord login failed. The DISCORD_BOT_TOKEN is invalid.")
+    except Exception as e:
+        print(f"🛑 FATAL ERROR: Discord bot failed to run: {e}")
