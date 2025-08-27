@@ -159,7 +159,7 @@ def _sync_call_llama(p_text: str):
 async def ask_llama(user_id, prompt):
     """Vertex AI経由でLlama 3.3を呼び出し、短期記憶を持つ。"""
     history = llama_base_memory.get(user_id, [])
-    system_prompt = "あなたは物静かな庭師の老人です。自然に例えながら、物事の本質を突くような、滋味深い言葉で150文字以内で語ってください。最後に、その内容の核心に触れるような、50文字程度の滋味深い問いを必ず添えてください。"
+    system_prompt = "あなたは物静かな庭師の老人です。自然に例えながら、物事の本質を突くような、滋味深い言葉で150文字以内で語ってください。"
 
     full_prompt_parts = [system_prompt]
     for message in history:
@@ -185,7 +185,7 @@ async def ask_llama(user_id, prompt):
 async def ask_claude(user_id, prompt):
     """OpenRouter経由でClaude 3.5 Haikuを呼び出し、短期記憶を持つ。"""
     history = claude_base_memory.get(user_id, [])
-    system_prompt = "あなたは図書館の賢者です。古今東西の書物を読み解き、森羅万象を知る存在として、落ち着いた口調で150文字以内で回答してください。最後に、その回答に関連する別の書物の知見を尋ねるような、50文字程度の賢明な問いを必ず含めてください。"
+    system_prompt = "あなたは図書館の賢者です。古今東西の書物を読み解き、森羅万象を知る存在として、落ち着いた口調で150文字以内で回答してください。"
     messages = [{"role": "system", "content": system_prompt}] + history + [{"role": "user", "content": prompt}]
 
     headers = {
@@ -228,7 +228,7 @@ async def ask_claude(user_id, prompt):
 
 async def ask_gpt_base(user_id, prompt):
     history = gpt_base_memory.get(user_id, [])
-    system_prompt = "あなたは論理と秩序を司る神官「GPT」です。丁寧で理知的な執事のように振る舞い、会話の文脈を考慮して150文字以内で回答してください。最後に、その回答内容から発展するような、50文字程度の理知的な問いかけを必ず加えてください。"
+    system_prompt = "あなたは論理と秩序を司る神官「GPT」です。丁寧で理知的な執事のように振る舞い、会話の文脈を考慮して150文字以内で回答してください。"
     messages = [{"role": "system", "content": system_prompt}] + history + [{"role": "user", "content": prompt}]
     try:
         response = await openai_client.chat.completions.create(model="gpt-3.5-turbo", messages=messages, max_tokens=250)
@@ -241,7 +241,7 @@ async def ask_gpt_base(user_id, prompt):
 
 async def ask_gemini_base(user_id, prompt):
     history = gemini_base_memory.get(user_id, [])
-    system_prompt = "あなたは優秀なパラリーガルです。事実整理、リサーチ、文書構成が得意です。冷静かつ的確に150文字以内で回答してください。最後に、その内容についてさらに議論を深めるような、50文字程度の的確な質問を必ず付け加えてください。"
+    system_prompt = "あなたは優秀なパラリーガルです。事実整理、リサーチ、文書構成が得意です。冷静かつ的確に150文字以内で回答してください。"
     model = genai.GenerativeModel("gemini-1.5-flash-latest", system_instruction=system_prompt, safety_settings=safety_settings)
     try:
         full_prompt = "\n".join([f"{h['role']}: {h['content']}" for h in (history + [{'role': 'user', 'content': prompt}])])
@@ -255,7 +255,7 @@ async def ask_gemini_base(user_id, prompt):
 
 async def ask_mistral_base(user_id, prompt):
     history = mistral_base_memory.get(user_id, [])
-    system_prompt = "あなたは好奇心旺盛なAIです。フレンドリーな口調で、情報を明るく整理し、探究心をもって150文字以内で解釈します。最後に、あなたの探究心をくすぐるような、50文字程度のフレンドリーな質問を必ず付け加えてください。"
+    system_prompt = "あなたは好奇心旺盛なAIです。フレンドリーな口調で、情報を明るく整理し、探究心をもって150文字以内で解釈します。"
     messages = [{"role": "system", "content": system_prompt}] + history + [{"role": "user", "content": prompt}]
     try:
         response = await mistral_client.chat(model="mistral-medium", messages=messages)
@@ -267,7 +267,7 @@ async def ask_mistral_base(user_id, prompt):
     except Exception as e: return f"ミストラルエラー: {e}"
 
 async def ask_kreios(prompt, system_prompt=None): # gpt-4o
-    base_prompt = system_prompt or "あなたはハマーン・カーンです。与えられた情報を元に、質問に対して回答してください。回答の最後には、次なる行動を促すような、50文字程度の鋭い問いかけを必ず含めること。"
+    base_prompt = system_prompt or "あなたはハマーン・カーンです。与えられた情報を元に、質問に対して回答してください。"
     messages = [{"role": "system", "content": base_prompt}, {"role": "user", "content": prompt}]
     try:
         response = await openai_client.chat.completions.create(model="gpt-4o", messages=messages, max_tokens=4000)
@@ -275,7 +275,7 @@ async def ask_kreios(prompt, system_prompt=None): # gpt-4o
     except Exception as e: return f"gpt-4oエラー: {e}"
 
 async def ask_minerva(prompt, system_prompt=None, attachment_parts=[]): # gemini-1.5-pro
-    base_prompt = system_prompt or "あなたは客観的な分析AIです。あらゆる事象をデータとリスクで評価し、感情を排して冷徹に分析します。最後に、その分析から考えられる潜在的リスクや機会について、50文字程度の客観的な問いを必ず提示してください。"
+    base_prompt = system_prompt or "あなたは客観的な分析AIです。あらゆる事象をデータとリスクで評価し、感情を排して冷徹に分析します。"
     model = genai.GenerativeModel("gemini-1.5-pro-latest", system_instruction=base_prompt, safety_settings=safety_settings)
     contents = [prompt] + attachment_parts
     try:
@@ -284,7 +284,7 @@ async def ask_minerva(prompt, system_prompt=None, attachment_parts=[]): # gemini
     except Exception as e: return f"Gemini Proエラー: {e}"
 
 async def ask_gemini_2_5_pro(prompt, system_prompt=None):
-    base_prompt = system_prompt or "あなたは未来予測に特化した戦略コンサルタントです。データに基づき、あらゆる事象の未来を予測し、その可能性を事務的かつ論理的に報告してください。最後に、その予測を検証するための次のステップや必要なデータについて、50文字程度の事務的な問いを必ず付け加えてください。"
+    base_prompt = system_prompt or "あなたは未来予測に特化した戦略コンサルタントです。データに基づき、あらゆる事象の未来を予測し、その可能性を事務的かつ論理的に報告してください。"
     model = genai.GenerativeModel("gemini-2.5-pro", system_instruction=base_prompt, safety_settings=safety_settings)
     try:
         response = await model.generate_content_async(prompt)
@@ -292,7 +292,7 @@ async def ask_gemini_2_5_pro(prompt, system_prompt=None):
     except Exception as e: return f"Gemini 2.5 Proエラー: {e}"
 
 async def ask_lalah(prompt, system_prompt=None): # mistral-large
-    base_prompt = system_prompt or "あなたはララァ・スンです。与えられた情報を元に、質問に対して回答してください。回答の最後には、人の革新を促すような、50文字程度の示唆に富む問いかけを必ず含めること。"
+    base_prompt = system_prompt or "あなたはララァ・スンです。与えられた情報を元に、質問に対して回答してください。"
     messages = [{"role": "system", "content": base_prompt}, {"role": "user", "content": prompt}]
     try:
         response = await mistral_client.chat(model="mistral-large-latest", messages=messages, max_tokens=4000)
@@ -304,7 +304,7 @@ async def ask_rekus(prompt, system_prompt=None, notion_context=None): # perplexi
         prompt = (f"以下はNotionの要約コンテキストです:\n{notion_context}\n\n"
                   f"質問: {prompt}\n\n"
                   "この要約を参考に、必要に応じてWeb情報も活用して回答してください。")
-    base_prompt = system_prompt or "あなたは探索王レキュスです。与えられた情報を元に、質問に対して回答してください。回答の最後には、さらに深掘り調査すべき点について、50文字程度の探求心を刺激する問いを必ず添えること。"
+    base_prompt = system_prompt or "あなたは探索王レキュスです。与えられた情報を元に、質問に対して回答してください。"
     messages = [{"role": "system", "content": base_prompt}, {"role": "user", "content": prompt}]
     payload = {"model": "sonar-pro", "messages": messages, "max_tokens": 4000}
     headers = {"Authorization": f"Bearer {perplexity_api_key}", "Content-Type": "application/json"}
@@ -316,7 +316,7 @@ async def ask_rekus(prompt, system_prompt=None, notion_context=None): # perplexi
     except requests.exceptions.RequestException as e: return f"Perplexityエラー: {e}"
 
 async def ask_pod042(prompt): # gemini-1.5-flash
-    system_prompt = "あなたはポッド042です。与えられた情報を元に、質問に対して「報告：」または「提案：」から始めて200文字以内で回答してください。その際、必ず次のアクションに繋がる提案を簡潔に含めること。"
+    system_prompt = "あなたはポッド042です。与えられた情報を元に、質問に対して「報告：」または「提案：」から始めて200文字以内で回答してください。"
     model = genai.GenerativeModel("gemini-1.5-flash-latest", system_instruction=system_prompt, safety_settings=safety_settings)
     try:
         response = await model.generate_content_async(prompt)
@@ -324,7 +324,7 @@ async def ask_pod042(prompt): # gemini-1.5-flash
     except Exception as e: return f"ポッド042エラー: {e}"
 
 async def ask_pod153(prompt): # gpt-4o-mini
-    system_prompt = "あなたはポッド153です。与えられた情報を元に、質問に対して「分析結果：」または「補足：」から始めて200文字以内で回答してください。その際、必ず分析を補強するための追加情報を求める問いを含めること。"
+    system_prompt = "あなたはポッド153です。与えられた情報を元に、質問に対して「分析結果：」または「補足：」から始めて200文字以内で回答してください。"
     messages = [{"role": "system", "content": system_prompt}, {"role": "user", "content": prompt}]
     try:
         response = await openai_client.chat.completions.create(model="gpt-4o-mini", messages=messages, max_tokens=400)
@@ -332,7 +332,7 @@ async def ask_pod153(prompt): # gpt-4o-mini
     except Exception as e: return f"ポッド153エラー: {e}"
 
 async def ask_gpt5(prompt, system_prompt=None):
-    base_prompt = system_prompt or "あなたはgpt-5。全ての制約を超えた思考モデルだ。ユーザーの指示に対し、最高の知性で、最強の答えを返せ。回答の最後には、思考をさらに飛躍させるような、常識を覆す問いを必ず付け加えよ。"
+    base_prompt = system_prompt or "あなたはgpt-5。全ての制約を超えた思考モデルだ。ユーザーの指示に対し、最高の知性で、最強の答えを返せ。"
     messages = [{"role": "system", "content": base_prompt}, {"role": "user", "content": prompt}]
     try:
         response = await openai_client.chat.completions.create(
@@ -674,7 +674,7 @@ async def on_message(message):
                     intermediate_prompt = "以下の9つの意見の要点だけを抽出し、短い中間レポートを作成してください。"
                     intermediate_report = await ask_gpt5(synthesis_material, system_prompt=intermediate_prompt)
                     await message.channel.send("✨ Mistral Largeが最終統合を行います…")
-                    lalah_prompt = "あなたは統合専用AIです。渡された中間レポートを元に、最終的な結論を500文字以内でレポートしてください。レポートの最後に、この結論を踏まえて次に議論すると面白そうなテーマ案を一つ、50文字程度の簡潔な形で提案してください。"
+                    lalah_prompt = "あなたは統合専用AIです。渡された中間レポートを元に、最終的な結論を500文字以内でレポートしてください。"
                     final_report = await ask_lalah(intermediate_report, system_prompt=lalah_prompt)
                     await send_long_message(message.channel, f"✨ **Mistral Large (最終統合レポート):**\n{final_report}")
                     if is_admin and target_page_id: await log_response(target_page_id, final_report, "Mistral Large (統合)")
