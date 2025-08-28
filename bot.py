@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Discord Bot Final Version (Refactored with All Slash Commands - Final)
+"""Discord Bot Final Version (Refactored with All Slash Commands - Critical Bug Fix)
 """
 
 import discord
@@ -472,7 +472,12 @@ async def simple_ai_command_runner(interaction: discord.Interaction, prompt: str
     """単一のAIを呼び出すスラッシュコマンドの共通処理"""
     await interaction.response.defer()
     user_id = str(interaction.user.id)
-    target_page_id = NOTION_PAGE_MAP.get(str(interaction.channel_id), NOTION_MAIN_PAGE_ID)
+    
+    # ▼▼▼ 致命的なバグがあった箇所を修正 ▼▼▼
+    # 誤: interaction.channel_id
+    # 正: interaction.channel.id
+    target_page_id = NOTION_PAGE_MAP.get(str(interaction.channel.id), NOTION_MAIN_PAGE_ID)
+    
     is_admin = user_id == ADMIN_USER_ID
 
     if is_admin and target_page_id:
@@ -527,7 +532,7 @@ async def notion_command(interaction: discord.Interaction, query: str, attachmen
     if attachment:
         final_query += await process_attachment(attachment, interaction.channel)
 
-    target_page_id = NOTION_PAGE_MAP.get(str(interaction.channel_id))
+    target_page_id = NOTION_PAGE_MAP.get(str(interaction.channel.id))
     if not target_page_id:
         await interaction.followup.send("❌ このチャンネルはNotionページにリンクされていません。")
         return
@@ -562,8 +567,42 @@ ADVANCED_MODELS_FOR_ALL = {
     "Gemini 2.5 Pro": (ask_gemini_2_5_pro, get_full_response_and_summary),
 }
 
-@tree.command(name="all", description="複数のベースAIに同じ質問を投げかけ、意見を比較します。")
-@app_commands.describe(prompt="AIに尋ねる質問", attachment="補足資料として画像を添付")
+@tree.command(name="minna", description="5体のベースAIが議題に同時に意見を出します。")
+@app_commands.describe(prompt="AIに尋ねる議題", attachment="補足資料として画像を添付")
+async def minna_command(interaction: discord.Interaction, prompt: str, attachment: discord.Attachment = None):
+    await interaction.response.defer()
+
+    final_query = prompt
+    if attachment:
+        final_query += await process_attachment(attachment, interaction.channel)
+
+    user_id = str(interaction.user.id)
+    target_page_id = NOTION_PAGE_MAP.get(str(interaction.channel.id), NOTION_MAIN_PAGE_ID)
+    is_admin = user_id == ADMIN_USER_ID
+
+    await interaction.followup.send("🔬 5体のベースAIが意見を生成中…")
+
+    tasks = {}
+    # ベースAIのタスクのみを追加
+    for name, func in BASE_MODELS_FOR_ALL.items():
+        tasks[name] = func(user_id, final_query)
+
+    results = await asyncio.gather(*tasks.values(), return_exceptions=True)
+
+    for (name, result) in zip(tasks.keys(), results):
+        if isinstance(result, Exception):
+            display_text = f"エラー: {result}"
+        else:
+            display_text = result
+        
+        await send_long_message(interaction.channel, f"**🔹 {name}の意見:**\n{display_text}")
+
+        if is_admin and target_page_id:
+            await log_response(target_page_id, display_text, f"{name} (/minna)")
+
+
+@tree.command(name="all", description="8体のAI（ベース5体+高機能3体）が議題に同時に意見を出します。")
+@app_commands.describe(prompt="AIに尋ねる議題", attachment="補足資料として画像を添付")
 async def all_command(interaction: discord.Interaction, prompt: str, attachment: discord.Attachment = None):
     await interaction.response.defer()
     
@@ -572,15 +611,23 @@ async def all_command(interaction: discord.Interaction, prompt: str, attachment:
         final_query += await process_attachment(attachment, interaction.channel)
 
     user_id = str(interaction.user.id)
-    target_page_id = NOTION_PAGE_MAP.get(str(interaction.channel_id), NOTION_MAIN_PAGE_ID)
+    target_page_id = NOTION_PAGE_MAP.get(str(interaction.channel.id), NOTION_MAIN_PAGE_ID)
     is_admin = user_id == ADMIN_USER_ID
 
-    await interaction.followup.send("🔬 9体のAIが初期意見を生成中…")
+    await interaction.followup.send("🔬 8体のAIが初期意見を生成中…")
     
     tasks = {}
+    # ベースAIのタスクを追加
     for name, func in BASE_MODELS_FOR_ALL.items():
         tasks[name] = func(user_id, final_query)
-    for name, (func, wrapper) in ADVANCED_MODELS_FOR_ALL.items():
+    
+    # 高機能AIのタスクを追加（ユーザーの定義に合わせて3体に限定）
+    advanced_models_to_use = {
+        "gpt-4o": ADVANCED_MODELS_FOR_ALL["gpt-4o"],
+        "Gemini Pro": ADVANCED_MODELS_FOR_ALL["Gemini Pro"],
+        "Perplexity": ADVANCED_MODELS_FOR_ALL["Perplexity"],
+    }
+    for name, (func, wrapper) in advanced_models_to_use.items():
         tasks[name] = wrapper(func, final_query)
 
     results = await asyncio.gather(*tasks.values(), return_exceptions=True)
@@ -607,7 +654,7 @@ async def slide_command(interaction: discord.Interaction, theme: str, attachment
     if attachment:
         final_query += await process_attachment(attachment, interaction.channel)
 
-    target_page_id = NOTION_PAGE_MAP.get(str(interaction.channel_id))
+    target_page_id = NOTION_PAGE_MAP.get(str(interaction.channel.id))
     if not target_page_id:
         await interaction.followup.send("❌ このチャンネルはNotionページにリンクされていません。")
         return
@@ -636,7 +683,7 @@ async def critical_command(interaction: discord.Interaction, topic: str, attachm
     if attachment:
         final_query += await process_attachment(attachment, interaction.channel)
 
-    target_page_id = NOTION_PAGE_MAP.get(str(interaction.channel_id))
+    target_page_id = NOTION_PAGE_MAP.get(str(interaction.channel.id))
     if not target_page_id:
         await interaction.followup.send("❌ このチャンネルはNotionページにリンクされていません。")
         return
@@ -695,7 +742,7 @@ async def logical_command(interaction: discord.Interaction, topic: str, attachme
     if attachment:
         final_query += await process_attachment(attachment, interaction.channel)
 
-    target_page_id = NOTION_PAGE_MAP.get(str(interaction.channel_id))
+    target_page_id = NOTION_PAGE_MAP.get(str(interaction.channel.id))
     if not target_page_id:
         await interaction.followup.send("❌ このチャンネルはNotionページにリンクされていません。")
         return
