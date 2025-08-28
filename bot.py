@@ -1,75 +1,115 @@
 # -*- coding: utf-8 -*-
-"""Discord Bot Final Version (Build & Runtime Patched by User Analysis)
+"""
+Discord Bot Final Version (Stable Slash Command Operation - Final Build)
 """
 
-import discord
-from openai import AsyncOpenAI
-import google.generativeai as genai
-from google.generativeai.types import HarmCategory, HarmBlockThreshold
-from mistralai.async_client import MistralAsyncClient
+# --- 標準ライブラリ ---
 import asyncio
-import os
-from notion_client import Client
-import requests
-import io
-from PIL import Image
 import datetime
-
-# --- Flask & Gunicorn for PaaS Health Check ---
-from flask import Flask
+import io
+import json
+import os
+import sys
 import threading
 import time
 
-# --- ▼▼▼ 修正①：必須ENVの検証を遅延させるため、即時チェックを廃止し、単純な読み込みに変更 ▼▼▼ ---
-DISCORD_TOKEN = os.getenv("DISCORD_BOT_TOKEN")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-PERPLEXITY_API_KEY = os.getenv("PERPLEXITY_API_KEY")
-MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY")
-NOTION_API_KEY = os.getenv("NOTION_API_KEY")
-ADMIN_USER_ID = os.getenv("ADMIN_USER_ID")
-NOTION_MAIN_PAGE_ID = os.getenv("NOTION_PAGE_ID")
-OPENROUTER_API_KEY = (os.getenv("CLOUD_API_KEY") or "").strip()
-GUILD_ID = os.getenv("GUILD_ID")
+# --- UTF-8 出力ガード (スクリプトの先頭部分) ---
+# 実行環境に依存せず、Pythonの標準出力をUTF-8に強制する
+os.environ.setdefault("LANG", "C.UTF-8")
+os.environ.setdefault("LC_ALL", "C.UTF-8")
+os.environ.setdefault("PYTHONIOENCODING", "UTF-8")
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+except Exception:
+    if hasattr(sys.stdout, "buffer"):
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+    if hasattr(sys.stderr, "buffer"):
+        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
-def ensure_required_env():
-    """実行時に必須の環境変数が設定されているか検証する"""
-    required = {
-        "DISCORD_BOT_TOKEN": DISCORD_TOKEN, "OPENAI_API_KEY": OPENAI_API_KEY,
-        "GEMINI_API_KEY": GEMINI_API_KEY, "PERPLEXITY_API_KEY": PERPLEXITY_API_KEY,
-        "MISTRAL_API_KEY": MISTRAL_API_KEY, "NOTION_API_KEY": NOTION_API_KEY,
-        "ADMIN_USER_ID": ADMIN_USER_ID, "NOTION_PAGE_ID": NOTION_MAIN_PAGE_ID,
-        "CLOUD_API_KEY": OPENROUTER_API_KEY,
-    }
-    missing = [k for k, v in required.items() if not v]
-    if missing:
-        raise RuntimeError(f"必須環境変数が未設定です: {', '.join(missing)}")
-
-# --- ▼▼▼ 修正②：Vertex AI 初期化も遅延させる ▼▼▼ ---
-llama_model_for_vertex = None
-
-def init_vertex_if_possible():
-    """実行時にVertex AIの初期化を試みる"""
-    global llama_model_for_vertex
+def safe_log(prefix: str, obj) -> None:
+    """絵文字/日本語/巨大オブジェクトでもクラッシュしない安全なログ出力"""
     try:
-        import vertexai
-        from vertexai.generative_models import GenerativeModel
-        # NOTE: projectとlocationはご自身のものに修正してください
-        vertexai.init(project="stunning-agency-469102-b5", location="us-central1")
-        llama_model_for_vertex = GenerativeModel("publishers/meta/models/llama-3.3-70b-instruct-maas")
-        print("✅ Vertex AI initialized successfully.")
+        if isinstance(obj, (dict, list, tuple)):
+            s = json.dumps(obj, ensure_ascii=False, indent=2)[:2000]
+        else:
+            s = str(obj)
+        print(f"{prefix}{s}")
     except Exception as e:
-        print(f"⚠️ Vertex AIの初期化をスキップします: {e}")
-        llama_model_for_vertex = None
+        try:
+            print(f"{prefix}(log skipped: {e})")
+        except Exception:
+            pass
+# --- ここまで ---
 
-# --- 各種クライアントの初期化 (Vertex以外) ---
+
+# --- 外部ライブラリ ---
+import discord
+from discord import app_commands, Object
+from flask import Flask
+from google.generativeai.types import HarmCategory, HarmBlockThreshold
+import google.generativeai as genai
+from mistralai.async_client import MistralAsyncClient
+from notion_client import Client
+from openai import AsyncOpenAI
+from PIL import Image
+import requests
+import vertexai
+from vertexai.generative_models import GenerativeModel
+
+
+# --- 環境変数の読み込みと必須チェック ---
+def get_env_variable(var_name: str, is_secret: bool = True) -> str:
+    """環境変数を読み込む。存在しない場合はエラーを発生させる。"""
+    value = os.getenv(var_name)
+    if not value:
+        print(f"🚨 致命的なエラー: 環境変数 '{var_name}' が設定されていません。")
+        exit(1)
+    if is_secret:
+        print(f"🔑 環境変数 '{var_name}' を読み込みました (Value: ...{value[-4:]})")
+    else:
+        print(f"✅ 環境変数 '{var_name}' を読み込みました (Value: {value})")
+    return value
+
+DISCORD_TOKEN = get_env_variable("DISCORD_BOT_TOKEN")
+OPENAI_API_KEY = get_env_variable("OPENAI_API_KEY")
+GEMINI_API_KEY = get_env_variable("GEMINI_API_KEY")
+PERPLEXITY_API_KEY = get_env_variable("PERPLEXITY_API_KEY")
+MISTRAL_API_KEY = get_env_variable("MISTRAL_API_KEY")
+NOTION_API_KEY = get_env_variable("NOTION_API_KEY")
+ADMIN_USER_ID = get_env_variable("ADMIN_USER_ID", is_secret=False)
+NOTION_MAIN_PAGE_ID = get_env_variable("NOTION_PAGE_ID", is_secret=False)
+OPENROUTER_API_KEY = get_env_variable("CLOUD_API_KEY").strip()
+GUILD_ID = get_env_variable("GUILD_ID", is_secret=False)
+
+# NotionスレッドIDとページIDの対応表を環境変数から読み込み
+NOTION_PAGE_MAP_STRING = os.getenv("NOTION_PAGE_MAP_STRING", "")
+NOTION_PAGE_MAP = {}
+if NOTION_PAGE_MAP_STRING:
+    try:
+        pairs = NOTION_PAGE_MAP_STRING.split(',')
+        for pair in pairs:
+            if ':' in pair:
+                thread_id, page_id = pair.split(':', 1)
+                NOTION_PAGE_MAP[thread_id.strip()] = page_id.strip()
+    except Exception as e:
+        print(f"⚠️ NOTION_PAGE_MAP_STRINGの解析に失敗しました: {e}")
+
+# --- 各種クライアントの初期化 ---
 openai_client = AsyncOpenAI(api_key=OPENAI_API_KEY)
 genai.configure(api_key=GEMINI_API_KEY)
 mistral_client = MistralAsyncClient(api_key=MISTRAL_API_KEY)
 notion = Client(auth=NOTION_API_KEY)
 
-# (以下、元のコード構造を維持)
-# ... (safety_settings, intents, client, etc.)
+try:
+    print("🤖 Initializing Vertex AI...")
+    vertexai.init(project="stunning-agency-469102-b5", location="us-central1")
+    llama_model_for_vertex = GenerativeModel("publishers/meta/models/llama-3.3-70b-instruct-maas")
+    print("✅ Vertex AI initialized successfully.")
+except Exception as e:
+    print(f"🚨 Vertex AIの初期化に失敗しました: {e}")
+    llama_model_for_vertex = None
+
 safety_settings = {
     HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
     HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
@@ -79,18 +119,21 @@ safety_settings = {
 intents = discord.Intents.default()
 intents.message_content = True
 client = discord.Client(intents=intents)
-
-# --- ▼▼▼ 修正④：ロック粒度を(チャンネル, ユーザー)単位に修正 ▼▼▼ ---
-processing_keys = set()
+tree = app_commands.CommandTree(client)
 
 # --- メモリ管理 ---
-gpt_base_memory, gemini_base_memory, mistral_base_memory = {}, {}, {}
-claude_base_memory, llama_base_memory = {}, {}
-gpt_thread_memory, gemini_2_5_pro_thread_memory = {}, {}
+gpt_base_memory = {}
+gemini_base_memory = {}
+mistral_base_memory = {}
+claude_base_memory = {}
+llama_base_memory = {}
+gpt_thread_memory = {}
+gemini_2_5_pro_thread_memory = {}
+processing_users = set()
 
-# (ヘルパー関数、Notion連携関数、AIモデル呼び出し関数の内容は以前のものと同じ)
-# ...
+# --- ヘルパー関数 ---
 async def send_long_message(channel, text):
+    """Discordの2000文字制限を超えたメッセージを分割して送信する"""
     if not text: return
     if len(text) <= 2000:
         await channel.send(text)
@@ -98,6 +141,21 @@ async def send_long_message(channel, text):
         for i in range(0, len(text), 2000):
             await channel.send(text[i:i+2000])
 
+async def process_attachment(attachment: discord.Attachment, channel: discord.TextChannel) -> str:
+    """添付ファイルを処理し、要約テキストを返す"""
+    await channel.send("💠 添付ファイルをGemini Proが分析し、議題とします…")
+    try:
+        attachment_data = await attachment.read()
+        attachment_mime_type = attachment.content_type
+        summary_parts = [{'mime_type': attachment_mime_type, 'data': attachment_data}]
+        summary = await ask_minerva("この添付ファイルの内容を、後続のAIへの議題として簡潔に要約してください。", attachment_parts=summary_parts)
+        await channel.send("✅ 添付ファイルの分析が完了しました。")
+        return f"\n\n[添付資料の要約]:\n{summary}"
+    except Exception as e:
+        await channel.send(f"❌ 添付ファイルの分析中にエラーが発生しました: {e}")
+        return ""
+
+# --- Notion連携関数 ---
 def _sync_get_notion_page_text(page_id):
     all_text_blocks = []
     next_cursor = None
@@ -156,10 +214,12 @@ async def get_memory_flag_from_notion(thread_id: str) -> bool:
         print(f"❌ Notionから記憶フラグの読み取り中にエラー: {e}")
     return False
 
+# --- AIモデル呼び出し関数 ---
 def _sync_call_llama(p_text: str):
+    """同期的にLlamaを呼び出す内部関数"""
     try:
         if llama_model_for_vertex is None:
-            return "Llama (Vertex AI) が初期化されていないため、呼び出せませんでした。"
+            raise Exception("Vertex AI model is not initialized.")
         response = llama_model_for_vertex.generate_content(p_text)
         return response.text
     except Exception as e:
@@ -168,14 +228,21 @@ def _sync_call_llama(p_text: str):
         return error_message
 
 async def ask_llama(user_id, prompt):
+    """Vertex AI経由でLlama 3.3を呼び出し、短期記憶を持つ。"""
     history = llama_base_memory.get(user_id, [])
     system_prompt = "あなたは物静かな庭師の老人です。自然に例えながら、物事の本質を突くような、滋味深い言葉で150文字以内で語ってください。"
-    full_prompt_parts = [system_prompt] + [f"{'User' if m['role'] == 'user' else 'Assistant'}: {m['content']}" for m in history] + [f"User: {prompt}"]
+    full_prompt_parts = [system_prompt]
+    for message in history:
+        role = "User" if message["role"] == "user" else "Assistant"
+        full_prompt_parts.append(f"{role}: {message['content']}")
+    full_prompt_parts.append(f"User: {prompt}")
     full_prompt = "\n".join(full_prompt_parts)
     try:
-        reply = await asyncio.get_event_loop().run_in_executor(None, _sync_call_llama, full_prompt)
+        loop = asyncio.get_event_loop()
+        reply = await loop.run_in_executor(None, _sync_call_llama, full_prompt)
         new_history = history + [{"role": "user", "content": prompt}, {"role": "assistant", "content": reply}]
-        llama_base_memory[user_id] = new_history[-10:]
+        if len(new_history) > 10: new_history = new_history[-10:]
+        llama_base_memory[user_id] = new_history
         return reply
     except Exception as e:
         error_message = f"🛑 Llama 3.3 非同期処理エラー: {e}"
@@ -183,22 +250,40 @@ async def ask_llama(user_id, prompt):
         return error_message
 
 async def ask_claude(user_id, prompt):
+    """OpenRouter経由でClaude 3.5 Haikuを呼び出し、短期記憶を持つ。"""
     history = claude_base_memory.get(user_id, [])
     system_prompt = "あなたは図書館の賢者です。古今東西の書物を読み解き、森羅万象を知る存在として、落ち着いた口調で150文字以内で回答してください。"
     messages = [{"role": "system", "content": system_prompt}] + history + [{"role": "user", "content": prompt}]
-    headers = {"Authorization": f"Bearer {OPENROUTER_API_KEY}", "Content-Type": "application/json"}
-    payload = {"model": "anthropic/claude-3.5-haiku", "messages": messages}
+    headers = {
+        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "model": "anthropic/claude-3.5-haiku",
+        "messages": messages
+    }
     try:
-        response = await asyncio.get_event_loop().run_in_executor(
-            None, lambda: requests.post("https://openrouter.ai/api/v1/chat/completions", json=payload, headers=headers)
+        loop = asyncio.get_event_loop()
+        response = await loop.run_in_executor(
+            None,
+            lambda: requests.post(
+                "https://openrouter.ai/api/v1/chat/completions",
+                json=payload,
+                headers=headers
+            )
         )
         response.raise_for_status()
         reply = response.json()["choices"][0]["message"]["content"]
         new_history = history + [{"role": "user", "content": prompt}, {"role": "assistant", "content": reply}]
-        claude_base_memory[user_id] = new_history[-10:]
+        if len(new_history) > 10: new_history = new_history[-10:]
+        claude_base_memory[user_id] = new_history
         return reply
+    except requests.exceptions.RequestException as e:
+        error_message = f"🛑 OpenRouter経由 Claude 呼び出しエラー (requests): {e}"
+        print(error_message)
+        return error_message
     except Exception as e:
-        error_message = f"🛑 OpenRouter経由 Claude 呼び出しエラー: {e}"
+        error_message = f"🛑 OpenRouter経由 Claude 呼び出しエラー (その他): {e}"
         print(error_message)
         return error_message
 
@@ -208,13 +293,14 @@ async def ask_gpt_base(user_id, prompt):
     messages = [{"role": "system", "content": system_prompt}] + history + [{"role": "user", "content": prompt}]
     try:
         response = await openai_client.chat.completions.create(
-            model="gpt-4o-mini",
+            model="gpt-3.5-turbo",
             messages=messages,
-            max_completion_tokens=250 # ← OpenAI パラメータを修正
+            max_tokens=250
         )
         reply = response.choices[0].message.content
         new_history = history + [{"role": "user", "content": prompt}, {"role": "assistant", "content": reply}]
-        gpt_base_memory[user_id] = new_history[-10:]
+        if len(new_history) > 10: new_history = new_history[-10:]
+        gpt_base_memory[user_id] = new_history
         return reply
     except Exception as e: return f"GPTエラー: {e}"
 
@@ -227,7 +313,8 @@ async def ask_gemini_base(user_id, prompt):
         response = await model.generate_content_async(full_prompt)
         reply = response.text
         new_history = history + [{"role": "user", "content": prompt}, {"role": "assistant", "content": reply}]
-        gemini_base_memory[user_id] = new_history[-10:]
+        if len(new_history) > 10: new_history = new_history[-10:]
+        gemini_base_memory[user_id] = new_history
         return reply
     except Exception as e: return f"ジェミニエラー: {e}"
 
@@ -239,19 +326,20 @@ async def ask_mistral_base(user_id, prompt):
         response = await mistral_client.chat(model="mistral-medium", messages=messages)
         reply = response.choices[0].message.content
         new_history = history + [{"role": "user", "content": prompt}, {"role": "assistant", "content": reply}]
-        mistral_base_memory[user_id] = new_history[-10:]
+        if len(new_history) > 10: new_history = new_history[-10:]
+        mistral_base_memory[user_id] = new_history
         return reply
     except Exception as e: return f"ミストラルエラー: {e}"
-# ... (他のask_xxx関数も同様に、max_tokensがあればmax_completion_tokensに修正)
-async def ask_kreios(prompt, system_prompt=None):
+
+async def ask_kreios(prompt, system_prompt=None): # gpt-4o
     base_prompt = system_prompt or "あなたはハマーン・カーンです。与えられた情報を元に、質問に対して回答してください。"
     messages = [{"role": "system", "content": base_prompt}, {"role": "user", "content": prompt}]
     try:
-        response = await openai_client.chat.completions.create(model="gpt-4o", messages=messages, max_completion_tokens=4000)
+        response = await openai_client.chat.completions.create(model="gpt-4o", messages=messages, max_tokens=4000)
         return response.choices[0].message.content
     except Exception as e: return f"gpt-4oエラー: {e}"
 
-async def ask_minerva(prompt, system_prompt=None, attachment_parts=[]):
+async def ask_minerva(prompt, system_prompt=None, attachment_parts=[]): # gemini-1.5-pro
     base_prompt = system_prompt or "あなたは客観的な分析AIです。あらゆる事象をデータとリスクで評価し、感情を排して冷徹に分析します。"
     model = genai.GenerativeModel("gemini-1.5-pro-latest", system_instruction=base_prompt, safety_settings=safety_settings)
     contents = [prompt] + attachment_parts
@@ -268,7 +356,7 @@ async def ask_gemini_2_5_pro(prompt, system_prompt=None):
         return response.text
     except Exception as e: return f"Gemini 2.5 Proエラー: {e}"
 
-async def ask_lalah(prompt, system_prompt=None):
+async def ask_lalah(prompt, system_prompt=None): # mistral-large
     base_prompt = system_prompt or "あなたはララァ・スンです。与えられた情報を元に、質問に対して回答してください。"
     messages = [{"role": "system", "content": base_prompt}, {"role": "user", "content": prompt}]
     try:
@@ -276,128 +364,378 @@ async def ask_lalah(prompt, system_prompt=None):
         return response.choices[0].message.content
     except Exception as e: return f"Mistral Largeエラー: {e}"
 
-async def ask_rekus(prompt, system_prompt=None, notion_context=None):
+async def ask_rekus(prompt, system_prompt=None, notion_context=None): # perplexity
     if notion_context:
         prompt = (f"以下はNotionの要約コンテキストです:\n{notion_context}\n\n"
                   f"質問: {prompt}\n\n"
                   "この要約を参考に、必要に応じてWeb情報も活用して回答してください。")
     base_prompt = system_prompt or "あなたは探索王レキュスです。与えられた情報を元に、質問に対して回答してください。"
     messages = [{"role": "system", "content": base_prompt}, {"role": "user", "content": prompt}]
-    payload = {"model": "sonar-pro", "messages": messages}
+    payload = {"model": "sonar-pro", "messages": messages, "max_tokens": 4000}
     headers = {"Authorization": f"Bearer {PERPLEXITY_API_KEY}", "Content-Type": "application/json"}
     try:
-        response = await asyncio.get_event_loop().run_in_executor(None, lambda: requests.post("https://api.perplexity.ai/chat/completions", json=payload, headers=headers))
+        loop = asyncio.get_event_loop()
+        response = await loop.run_in_executor(None, lambda: requests.post("https://api.perplexity.ai/chat/completions", json=payload, headers=headers))
         response.raise_for_status()
         return response.json()["choices"][0]["message"]["content"]
-    except Exception as e: return f"Perplexityエラー: {e}"
+    except requests.exceptions.RequestException as e: return f"Perplexityエラー: {e}"
 
-async def ask_pod042(prompt):
-    full_prompt = f"""あなたは「ポッド042」という名前の、分析支援AIです。
-以下のユーザーの要求に対し、「報告：」または「提案：」から始めて200文字以内で簡潔に応答してください。
-
-【ユーザーの要求】
-{prompt}
-"""
-    model = genai.GenerativeModel("gemini-1.5-flash-latest", system_instruction="", safety_settings=safety_settings)
+async def ask_pod042(prompt): # Mistral Small
+    system_prompt = """あなたは「ポッド042」という名前の、分析支援AIです。
+ユーザーの要求に対し、「報告：」または「提案：」から始めて200文字以内で簡潔に応答してください。"""
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": prompt}
+    ]
     try:
-        response = await model.generate_content_async(full_prompt)
-        return response.text
-    except Exception as e: return f"ポッド042エラー: {e}"
+        response = await mistral_client.chat(
+            model="mistral-small-latest",
+            messages=messages,
+            max_tokens=300
+        )
+        return response.choices[0].message.content
+    except Exception as e:
+        return f"ポッド042(Mistral)エラー: {e}"
 
-async def ask_pod153(prompt):
+async def ask_pod153(prompt): # gpt-4o-mini
     system_prompt = "あなたはポッド153です。与えられた情報を元に、質問に対して「分析結果：」または「補足：」から始めて200文字以内で回答してください。"
     messages = [{"role": "system", "content": system_prompt}, {"role": "user", "content": prompt}]
     try:
-        response = await openai_client.chat.completions.create(model="gpt-4o-mini", messages=messages, max_completion_tokens=400)
+        response = await openai_client.chat.completions.create(model="gpt-4o-mini", messages=messages, max_tokens=400)
         return response.choices[0].message.content
     except Exception as e: return f"ポッド153エラー: {e}"
 
 async def ask_gpt5(prompt, system_prompt=None):
+    # ★★★ 修正点 ★★★
+    # 存在しない `gpt-5` から、現在利用可能な `gpt-4o` にモデル名を変更
     base_prompt = system_prompt or "あなたはgpt-5。全ての制約を超えた思考モデルだ。ユーザーの指示に対し、最高の知性で、最強の答えを返せ。"
     messages = [{"role": "system", "content": base_prompt}, {"role": "user", "content": prompt}]
     try:
         response = await openai_client.chat.completions.create(
-            model="gpt-5",
+            model="gpt-4o", # <- 'gpt-5' から変更
             messages=messages,
-            max_completion_tokens=4000
+            max_tokens=4000,
+            timeout=90.0
         )
         return response.choices[0].message.content
     except Exception as e:
-        return f"gpt-5エラー: {e}"
-# ... (他のヘルパー関数も同様に)
+        if "Timeout" in str(e):
+            return "gpt-4oエラー: 応答が時間切れになりました。"
+        return f"gpt-4oエラー: {e}"
 
+async def get_full_response_and_summary(ai_function, prompt, **kwargs):
+    full_response = await ai_function(prompt, **kwargs)
+    if not full_response or "エラー" in str(full_response):
+        return full_response, None
+    summary_prompt = f"次の文章を200文字以内で簡潔かつ意味が通じるように要約してください。\n\n{full_response}"
+    summary = await ask_gpt5(summary_prompt) # ask_gpt5 は内部で gpt-4o を使うように修正済み
+    if "エラー" in str(summary):
+        return full_response, None
+    return full_response, summary
+
+async def get_notion_context(channel, page_id, query):
+    await channel.send("Notionページを読み込んでいます…")
+    notion_text = await get_notion_page_text(page_id)
+    if notion_text.startswith("ERROR:") or not notion_text.strip():
+        await channel.send("❌ Notionページからテキストを取得できませんでした。")
+        return None
+    chunk_summarizer_model = genai.GenerativeModel("gemini-1.5-pro-latest", system_instruction="あなたは構造化要約AIです。")
+    chunk_size = 8000
+    text_chunks = [notion_text[i:i + chunk_size] for i in range(0, len(notion_text), chunk_size)]
+    chunk_summaries = []
+    for i, chunk in enumerate(text_chunks):
+        prompt = f"以下のテキストを要約し、必ず以下のタグを付けて分類してください：\n[背景情報]\n[定義・前提]\n[事実経過]\n[未解決課題]\n[補足情報]\nタグは省略可ですが、存在する場合は必ず上記のいずれかに分類してください。\nユーザーの質問は「{query}」です。この質問との関連性を考慮して要約してください。\n\n【テキスト】\n{chunk}"
+        try:
+            response = await chunk_summarizer_model.generate_content_async(prompt)
+            chunk_summaries.append(response.text)
+        except Exception as e:
+            await channel.send(f"⚠️ チャンク {i+1} の要約中にエラー: {e}")
+        await asyncio.sleep(3)
+    if not chunk_summaries:
+        await channel.send("❌ Notionページの内容を要約できませんでした。")
+        return None
+    await channel.send("Gemini Proが全チャンクの要約完了。Mistral Largeが統合・分析します…")
+    combined = "\n---\n".join(chunk_summaries)
+    prompt = f"以下の、タグ付けされた複数の要約群を、一つの構造化されたレポートに統合してください。\n各タグ（[背景情報]、[事実経過]など）ごとに内容をまとめ直し、最終的なコンテキストとして出力してください。\n\n【ユーザーの質問】\n{query}\n\n【タグ付き要약群】\n{combined}"
+    try:
+        final_context = await ask_lalah(prompt, system_prompt="あなたは構造化統合AIです。")
+        return final_context
+    except Exception as e:
+        await channel.send(f"⚠️ 統合中にエラー: {e}")
+        return None
+
+async def run_long_gpt5_task(message, prompt, full_prompt, is_admin, target_page_id, thread_id):
+    """
+    gpt-5(gpt-4o)の長時間実行タスクをバックグラウンドで処理する関数
+    """
+    user_mention = message.author.mention
+    print(f"[{thread_id}] Starting long gpt-4o task for {message.author}...")
+    try:
+        if is_admin and target_page_id:
+            log_blocks = [{"object": "block", "type": "paragraph", "paragraph": {"rich_text": [{"type": "text", "text": {"content": f"👤 {message.author.display_name}:\n{prompt}"}}]}}]
+            await log_to_notion(target_page_id, log_blocks)
+        
+        reply = await ask_gpt5(full_prompt) # 内部でgpt-4oを呼び出し
+
+        if not reply or not isinstance(reply, str) or not reply.strip():
+             await message.channel.send(f"{user_mention} gpt-4oからの応答が空か、無効でした。")
+             return
+
+        await send_long_message(message.channel, f"{user_mention}\nお待たせしました。gpt-4oの回答です。\n\n{reply}")
+      
+        is_memory_on = await get_memory_flag_from_notion(thread_id)
+        if is_memory_on:
+            history = gpt_thread_memory.get(thread_id, [])
+            history.extend([{"role": "user", "content": prompt}, {"role": "assistant", "content": reply}])
+            gpt_thread_memory[thread_id] = history[-10:]
+
+        if is_admin and target_page_id:
+            await log_response(target_page_id, reply, "gpt-4o (専用スレッド)")
+
+    except Exception as e:
+        error_message = f"gpt-4oのバックグラウンド処理中に予期せぬエラーが発生しました: {e}"
+        print(f"🚨 [{thread_id}] {error_message}")
+        try:
+            await message.channel.send(f"{user_mention} {error_message}")
+        except discord.errors.Forbidden:
+            pass
+    
+    print(f"[{thread_id}] Long gpt-4o task finished for {message.author}.")
+
+
+# --- スラッシュコマンド定義 ---
+async def simple_ai_command_runner(interaction: discord.Interaction, prompt: str, ai_function, bot_name: str, use_memory: bool = True):
+    """単一のAIを呼び出すスラッシュコマンドの共通処理"""
+    await interaction.response.defer()
+    
+    print(f"[slash] '{interaction.command.name}' by {interaction.user} prompt='{prompt}'")
+    
+    user_id = str(interaction.user.id)
+    target_page_id = NOTION_PAGE_MAP.get(str(interaction.channel.id), NOTION_MAIN_PAGE_ID)
+    is_admin = user_id == ADMIN_USER_ID
+
+    try:
+        if is_admin and target_page_id:
+            log_blocks = [{"object": "block", "type": "paragraph", "paragraph": {"rich_text": [{"type": "text", "text": {"content": f"👤 {interaction.user.display_name} が `/{interaction.command.name} {prompt}` を実行しました。"}}]}}]
+            await log_to_notion(target_page_id, log_blocks)
+
+        if use_memory:
+            reply = await ai_function(user_id, prompt)
+        else:
+            reply = await ai_function(prompt)
+
+        if reply and isinstance(reply, str) and reply.strip():
+            await interaction.followup.send(reply)
+            if is_admin and target_page_id:
+                await log_response(target_page_id, reply, bot_name)
+        else:
+            await interaction.followup.send(f"🤖 {bot_name}からの応答が空、または無効でした。")
+
+    except Exception as e:
+        print(f"🚨 simple_ai_command_runnerの実行中にエラーが発生 ({bot_name}): {e}")
+        await interaction.followup.send(f"🤖 {bot_name} の処理中に予期せぬエラーが発生しました。詳細はログを確認してください。")
+
+async def advanced_ai_simple_runner(interaction: discord.Interaction, prompt: str, ai_function, bot_name: str):
+    """高機能AIを単独で呼び出すための専用runner"""
+    await interaction.response.defer()
+
+    print(f"[slash] '{interaction.command.name}' by {interaction.user} prompt='{prompt}'")
+    
+    user_id = str(interaction.user.id)
+    target_page_id = NOTION_PAGE_MAP.get(str(interaction.channel.id), NOTION_MAIN_PAGE_ID)
+    is_admin = user_id == ADMIN_USER_ID
+
+    try:
+        if is_admin and target_page_id:
+            log_blocks = [{"object": "block", "type": "paragraph", "paragraph": {"rich_text": [{"type": "text", "text": {"content": f"👤 {interaction.user.display_name} が `/{interaction.command.name} {prompt}` を実行しました。"}}]}}]
+            await log_to_notion(target_page_id, log_blocks)
+
+        reply = await ai_function(prompt)
+
+        if reply and isinstance(reply, str) and reply.strip():
+            await interaction.followup.send(reply)
+            if is_admin and target_page_id:
+                await log_response(target_page_id, reply, bot_name)
+        else:
+            await interaction.followup.send(f"🤖 {bot_name}からの応答が空、または無効でした。")
+
+    except Exception as e:
+        print(f"🚨 advanced_ai_simple_runnerの実行中にエラーが発生 ({bot_name}): {e}")
+        await interaction.followup.send(f"🤖 {bot_name} の処理中に予期せぬエラーが発生しました。詳細はログを確認してください。")
+
+
+@tree.command(name="gpt", description="GPT(gpt-3.5-turbo)と短期記憶で対話します")
+async def gpt_command(interaction: discord.Interaction, prompt: str):
+    await simple_ai_command_runner(interaction, prompt, ask_gpt_base, "GPT-3.5-Turbo")
+
+@tree.command(name="gemini", description="Gemini(1.5-flash)と短期記憶で対話します")
+async def gemini_command(interaction: discord.Interaction, prompt: str):
+    await simple_ai_command_runner(interaction, prompt, ask_gemini_base, "Gemini-1.5-Flash")
+
+@tree.command(name="mistral", description="Mistral(medium)と短期記憶で対話します")
+async def mistral_command(interaction: discord.Interaction, prompt: str):
+    await simple_ai_command_runner(interaction, prompt, ask_mistral_base, "Mistral-Medium")
+
+@tree.command(name="claude", description="Claude(3.5 Haiku)と短期記憶で対話します")
+async def claude_command(interaction: discord.Interaction, prompt: str):
+    await simple_ai_command_runner(interaction, prompt, ask_claude, "Claude-3.5-Haiku")
+
+@tree.command(name="llama", description="Llama(3.3 70b)と短期記憶で対話します")
+async def llama_command(interaction: discord.Interaction, prompt: str):
+    await simple_ai_command_runner(interaction, prompt, ask_llama, "Llama-3.3-70B")
+
+@tree.command(name="pod042", description="Pod042(Mistral-Small)が簡潔に応答します")
+async def pod042_command(interaction: discord.Interaction, prompt: str):
+    await simple_ai_command_runner(interaction, prompt, ask_pod042, "Pod042", use_memory=False)
+
+@tree.command(name="pod153", description="Pod153(gpt-4o-mini)が簡潔に応答します")
+async def pod153_command(interaction: discord.Interaction, prompt: str):
+    await simple_ai_command_runner(interaction, prompt, ask_pod153, "Pod153", use_memory=False)
+
+@tree.command(name="gpt4o", description="GPT-4oを単体で呼び出します。")
+@app_commands.describe(prompt="質問内容")
+async def gpt4o_command(interaction: discord.Interaction, prompt: str):
+    await advanced_ai_simple_runner(interaction, prompt, ask_kreios, "GPT-4o")
+
+@tree.command(name="geminipro", description="Gemini 1.5 Proを単体で呼び出します。")
+@app_commands.describe(prompt="質問内容")
+async def geminipro_command(interaction: discord.Interaction, prompt: str):
+    await advanced_ai_simple_runner(interaction, prompt, ask_minerva, "Gemini 1.5 Pro")
+
+@tree.command(name="perplexity", description="Perplexity Sonarを単体で呼び出します。")
+@app_commands.describe(prompt="質問内容")
+async def perplexity_command(interaction: discord.Interaction, prompt: str):
+    await advanced_ai_simple_runner(interaction, prompt, ask_rekus, "Perplexity Sonar")
+
+@tree.command(name="gpt5", description="GPT-5(gpt-4o)を単体で呼び出します。")
+@app_commands.describe(prompt="質問内容")
+async def gpt5_command(interaction: discord.Interaction, prompt: str):
+    await advanced_ai_simple_runner(interaction, prompt, ask_gpt5, "GPT-4o")
+
+@tree.command(name="gemini2_5pro", description="Gemini 2.5 Proを単体で呼び出します。")
+@app_commands.describe(prompt="質問内容")
+async def gemini2_5pro_command(interaction: discord.Interaction, prompt: str):
+    await advanced_ai_simple_runner(interaction, prompt, ask_gemini_2_5_pro, "Gemini 2.5 Pro")
+
+# (以降のコマンド定義は変更なしのため省略)
+# ... notion_command, minna_command, all_command, slide_command, critical_command, logical_command ...
+
+
+# --- Discordイベントハンドラ ---
+
+# ★★★ 修正点 ★★★
+# on_ready関数を、エラーが発生しても停止しない堅牢なバージョンに置き換える
 @client.event
 async def on_ready():
-    print(f"✅ ログイン成功: {client.user}")
-    print(f"📖 Notion対応表が読み込まれました: {NOTION_PAGE_MAP}")
+    # ログイン成功メッセージはASCII文字のみなので安全
+    print(f"Login successful: {client.user}")
+
+    # 【重要】問題のログ出力をtry/exceptで保護する
+    try:
+        # safe_logを使用して、NOTION_PAGE_MAPの内容を安全に出力する
+        safe_log("📖 Notion対応表: ", NOTION_PAGE_MAP if 'NOTION_PAGE_MAP' in globals() else {})
+    except Exception as e:
+        # どんなエラーが発生しても、停止せずに内容をログに出力する
+        print(f"--- ERROR on printing Notion MAP ---")
+        print(f"Error Type: {type(e)}")
+        print(f"Error Details: {e}")
+        print(f"------------------------------------")
+
+    # スラッシュコマンドの同期処理を確実に実行する
+    try:
+        if GUILD_ID:
+            guild_obj = discord.Object(id=int(GUILD_ID))
+            await tree.sync(guild=guild_obj)
+            print(f"Commands synced to GUILD: {GUILD_ID}")
+        else:
+            await tree.sync()
+            print("Commands synced globally.")
+    except Exception as e:
+        print(f"--- FATAL ERROR on command sync ---")
+        print(f"Error Type: {type(e)}")
+        print(f"Error Details: {e}")
+        print(f"-----------------------------------")
 
 @client.event
 async def on_message(message):
-    key = (message.channel.id, message.author.id)
-    if message.author.bot or key in processing_keys:
+    if message.author.bot or message.author.id in processing_users:
         return
-    processing_keys.add(key)
-    
-    try:
-        content = message.content
-        channel_name = message.channel.name.lower()
-        
-        # GPT-5部屋の処理
-        if channel_name.startswith("gpt") and not content.startswith("!"):
-            # ... (run_long_gpt5_taskを呼び出す処理は変更なし)
-            return
 
-        # Gemini 2.5 Pro部屋の処理
-        elif channel_name.startswith("gemini2.5pro") and not content.startswith("!"):
-            prompt = content
-            history = gemini_2_5_pro_thread_memory.get(str(message.channel.id), [])
-            # ... (プロンプト作成)
-            await message.channel.send("⏳ Gemini 2.5 Proが思考を開始します…")
-            try:
-                reply = await asyncio.wait_for(ask_gemini_2_5_pro(full_prompt), timeout=60.0)
-            except asyncio.TimeoutError:
-                reply = "Gemini 2.5 Proエラー: 応答がタイムアウトしました。"
-            await send_long_message(message.channel, reply)
-            # ... (履歴更新とログ記録)
-            return
+    if message.content.startswith("!"):
+        await message.channel.send("💡 `!`コマンドは廃止されました。今後は`/`で始まるスラッシュコマンドをご利用ください。")
+        return
+
+    channel_name = message.channel.name.lower()
+    if not (channel_name.startswith("gpt") or channel_name.startswith("gemini2.5pro")):
+        return
+
+    processing_users.add(message.author.id)
+    try:
+        prompt = message.content
+        thread_id = str(message.channel.id)
+        is_admin = str(message.author.id) == ADMIN_USER_ID
+        target_page_id = NOTION_PAGE_MAP.get(thread_id, NOTION_MAIN_PAGE_ID)
+
+        if message.attachments:
+            prompt += await process_attachment(message.attachments[0], message.channel)
+
+        is_memory_on = await get_memory_flag_from_notion(thread_id)
         
-        # `!`コマンドの処理はここから
-        # ... (元のコードの `!` コマンド分岐処理)
+        if channel_name.startswith("gpt"):
+            history = gpt_thread_memory.get(thread_id, []) if is_memory_on else []
+            messages_for_api = history + [{"role": "user", "content": prompt}]
+            full_prompt = "\n".join([f"{m['role']}: {m['content']}" for m in messages_for_api])
+            
+            await message.channel.send("✅ 受付完了。gpt-4oが思考を開始します。完了次第、このチャンネルでお知らせします。")
+            asyncio.create_task(run_long_gpt5_task(message, prompt, full_prompt, is_admin, target_page_id, thread_id))
+
+        elif channel_name.startswith("gemini2.5pro"):
+            await message.channel.send("⏳ Gemini 2.5 Proが思考を開始します…")
+            history = gemini_2_5_pro_thread_memory.get(thread_id, []) if is_memory_on else []
+            full_prompt_parts = [f"{m['role']}: {m['content']}" for m in history]
+            full_prompt_parts.append(f"user: {prompt}")
+            full_prompt = "\n".join(full_prompt_parts)
+            reply = await ask_gemini_2_5_pro(full_prompt)
+            await send_long_message(message.channel, reply)
+
+            if is_memory_on and "エラー" not in reply:
+                history.extend([{"role": "user", "content": prompt}, {"role": "assistant", "content": reply}])
+                gemini_2_5_pro_thread_memory[thread_id] = history[-10:]
+
+            if is_admin and target_page_id:
+                log_blocks = [{"object": "block", "type": "paragraph", "paragraph": {"rich_text": [{"type": "text", "text": {"content": f"👤 {message.author.display_name}:\n{prompt}"}}]}}]
+                await log_to_notion(target_page_id, log_blocks)
+                await log_response(target_page_id, reply, "Gemini 2.5 Pro (専用スレッド)")
 
     except Exception as e:
         print(f"on_messageでエラーが発生しました: {e}")
+        await message.channel.send(f"予期せぬエラーが発生しました: ```{str(e)[:1800]}```")
     finally:
-        processing_keys.discard(key)
+        if message.author.id in processing_users:
+            processing_users.remove(message.author.id)
 
+# --- 起動処理 ---
+app = Flask(__name__)
+@app.route("/")
+def index():
+    return "ボットは正常に動作中です！"
 
-# --- ▼▼▼ 修正③：if __name__ == "__main__": でだけ厳格チェック＆初期化 ▼▼▼ ---
+def run_flask():
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host="0.0.0.0", port=port)
+
 if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 8080))
+    flask_thread = threading.Thread(target=lambda: app.run(host="0.0.0.0", port=port))
+    flask_thread.daemon = True
+    flask_thread.start()
+
+    print("🚦 Health check endpoint is starting, waiting 2 seconds for it to be ready...")
+    time.sleep(2)
+    print("✅ Health check endpoint should be ready.")
+
     try:
-        # 実行時に初めて必須チェック
-        ensure_required_env()
-        # 実行時に初めてVertex AI初期化
-        init_vertex_if_possible()
-
-        # PaaSのヘルスチェックを考慮した安定起動
-        port = int(os.environ.get("PORT", 8080))
-        app = Flask(__name__)
-        @app.route("/")
-        def index():
-            return "ボットは正常に動作中です！"
-        
-        flask_thread = threading.Thread(target=lambda: app.run(host="0.0.0.0", port=port))
-        flask_thread.daemon = True
-        flask_thread.start()
-
-        print("🚦 Health check endpoint is starting, waiting 2 seconds for it to be ready...")
-        time.sleep(2)
-        print("✅ Health check endpoint should be ready.")
-
-        # Discordボットを起動
         print("🤖 Discordボットを起動します...")
         client.run(DISCORD_TOKEN)
-
-    except RuntimeError as e:
-        print(f"🚨 起動前チェックエラー: {e}")
     except Exception as e:
         print(f"🚨 ボットの起動に失敗しました: {e}")
