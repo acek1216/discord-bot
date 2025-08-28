@@ -14,4 +14,5 @@ COPY . .
 
 # コンテナの起動コマンド
 CMD ["python", "bot.py"]
+ENV LANG C.UTF-8
 
