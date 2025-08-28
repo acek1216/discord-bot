@@ -43,8 +43,8 @@ NOTION_API_KEY = get_env_variable("NOTION_API_KEY")
 ADMIN_USER_ID = get_env_variable("ADMIN_USER_ID", is_secret=False)
 NOTION_MAIN_PAGE_ID = get_env_variable("NOTION_PAGE_ID", is_secret=False)
 OPENROUTER_API_KEY = get_env_variable("CLOUD_API_KEY").strip()
-# ギルド同期のためにGUILD_IDを追加（任意）
-GUILD_ID = os.getenv("GUILD_ID")
+# ギルド同期のためにGUILD_IDを追加
+GUILD_ID = get_env_variable("GUILD_ID", is_secret=False)
 
 # NotionスレッドIDとページIDの対応表を環境変数から読み込み
 NOTION_PAGE_MAP_STRING = os.getenv("NOTION_PAGE_MAP_STRING", "")
@@ -475,7 +475,6 @@ async def run_long_gpt5_task(message, prompt, full_prompt, is_admin, target_page
 
 async def simple_ai_command_runner(interaction: discord.Interaction, prompt: str, ai_function, bot_name: str, use_memory: bool = True):
     """単一のAIを呼び出すスラッシュコマンドの共通処理"""
-    # 診断ログ：コマンドがボットに届いたかを確認
     print(f"[slash] '{interaction.command.name}' by {interaction.user} prompt='{prompt}'")
     
     await interaction.response.defer()
@@ -536,6 +535,31 @@ async def pod042_command(interaction: discord.Interaction, prompt: str):
 @tree.command(name="pod153", description="Pod153(gpt-4o-mini)が簡潔に応答します")
 async def pod153_command(interaction: discord.Interaction, prompt: str):
     await simple_ai_command_runner(interaction, prompt, ask_pod153, "Pod153", use_memory=False)
+
+@tree.command(name="gpt4o", description="GPT-4oを単体で呼び出します。")
+@app_commands.describe(prompt="質問内容")
+async def gpt4o_command(interaction: discord.Interaction, prompt: str):
+    await simple_ai_command_runner(interaction, prompt, ask_kreios, "GPT-4o", use_memory=False)
+
+@tree.command(name="geminipro", description="Gemini 1.5 Proを単体で呼び出します。")
+@app_commands.describe(prompt="質問内容")
+async def geminipro_command(interaction: discord.Interaction, prompt: str):
+    await simple_ai_command_runner(interaction, prompt, ask_minerva, "Gemini 1.5 Pro", use_memory=False)
+
+@tree.command(name="perplexity", description="Perplexity Sonarを単体で呼び出します。")
+@app_commands.describe(prompt="質問内容")
+async def perplexity_command(interaction: discord.Interaction, prompt: str):
+    await simple_ai_command_runner(interaction, prompt, ask_rekus, "Perplexity Sonar", use_memory=False)
+
+@tree.command(name="gpt5", description="GPT-5を単体で呼び出します。")
+@app_commands.describe(prompt="質問内容")
+async def gpt5_command(interaction: discord.Interaction, prompt: str):
+    await simple_ai_command_runner(interaction, prompt, ask_gpt5, "GPT-5", use_memory=False)
+
+@tree.command(name="gemini2_5pro", description="Gemini 2.5 Proを単体で呼び出します。")
+@app_commands.describe(prompt="質問内容")
+async def gemini2_5pro_command(interaction: discord.Interaction, prompt: str):
+    await simple_ai_command_runner(interaction, prompt, ask_gemini_2_5_pro, "Gemini 2.5 Pro", use_memory=False)
 
 # --- Notion連携・高機能コマンド群 ---
 @tree.command(name="notion", description="現在のNotionページの内容について質問します")
