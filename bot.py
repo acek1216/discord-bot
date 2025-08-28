@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Discord Bot Final Version (Refactored for Stable Slash Command Operation)
+"""Discord Bot Final Version (Refactored for Stable Slash Command Operation - Final Fix)
 """
 
 import discord
@@ -467,17 +467,11 @@ async def run_long_gpt5_task(message, prompt, full_prompt, is_admin, target_page
 
 # --- スラッシュコマンド定義 ---
 
-# --- ベースAIコマンド群 ---
 async def simple_ai_command_runner(interaction: discord.Interaction, prompt: str, ai_function, bot_name: str, use_memory: bool = True):
-    """単一のAIを呼び出すスラッシュコマンドの共通処理"""
+    """単一のAIを呼び出すスラッシュコマンドの共通処理（最終修正版）"""
     await interaction.response.defer()
     user_id = str(interaction.user.id)
-    
-    # ▼▼▼ 致命的なバグがあった箇所を修正 ▼▼▼
-    # 誤: interaction.channel_id
-    # 正: interaction.channel.id
     target_page_id = NOTION_PAGE_MAP.get(str(interaction.channel.id), NOTION_MAIN_PAGE_ID)
-    
     is_admin = user_id == ADMIN_USER_ID
 
     try:
@@ -489,7 +483,9 @@ async def simple_ai_command_runner(interaction: discord.Interaction, prompt: str
             reply = await ai_function(user_id, prompt)
         else:
             reply = await ai_function(prompt)
-        
+
+        print(f"[{bot_name}] Raw API Reply: {reply}")
+
         if reply and isinstance(reply, str) and reply.strip():
             await interaction.followup.send(reply)
             if is_admin and target_page_id:
