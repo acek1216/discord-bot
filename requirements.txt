@@ -7,7 +7,7 @@ notion-client
 Pillow
 mistralai==0.4.2
 aiohttp
-PyMuPDF
 google-cloud-aiplatform>=1.49.0
 Flask
 gunicorn
+
