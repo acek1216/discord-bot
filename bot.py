@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Discord Bot Final Version (Refactored with All Slash Commands - Critical Bug Fix)
+"""Discord Bot Final Version (Refactored for Stable Slash Command Operation)
 """
 
 import discord
@@ -480,19 +480,29 @@ async def simple_ai_command_runner(interaction: discord.Interaction, prompt: str
     
     is_admin = user_id == ADMIN_USER_ID
 
-    if is_admin and target_page_id:
-        log_blocks = [{"object": "block", "type": "paragraph", "paragraph": {"rich_text": [{"type": "text", "text": {"content": f"👤 {interaction.user.display_name} が `/{interaction.command.name} {prompt}` を実行しました。"}}]}}]
-        await log_to_notion(target_page_id, log_blocks)
+    try:
+        if is_admin and target_page_id:
+            log_blocks = [{"object": "block", "type": "paragraph", "paragraph": {"rich_text": [{"type": "text", "text": {"content": f"👤 {interaction.user.display_name} が `/{interaction.command.name} {prompt}` を実行しました。"}}]}}]
+            await log_to_notion(target_page_id, log_blocks)
 
-    if use_memory:
-        reply = await ai_function(user_id, prompt)
-    else:
-        reply = await ai_function(prompt)
-    
-    await interaction.followup.send(reply)
+        if use_memory:
+            reply = await ai_function(user_id, prompt)
+        else:
+            reply = await ai_function(prompt)
+        
+        if reply and isinstance(reply, str) and reply.strip():
+            await interaction.followup.send(reply)
+            if is_admin and target_page_id:
+                await log_response(target_page_id, reply, bot_name)
+        else:
+            error_msg = f"🤖 {bot_name}からの応答が空、または無効でした。"
+            print(f"エラー: {error_msg} (元の応答: {reply})")
+            await interaction.followup.send(error_msg)
 
-    if is_admin and target_page_id:
-        await log_response(target_page_id, reply, bot_name)
+    except Exception as e:
+        print(f"🚨 simple_ai_command_runnerの実行中にエラーが発生 ({bot_name}): {e}")
+        await interaction.followup.send(f"🤖 {bot_name} の処理中に予期せぬエラーが発生しました。詳細はログを確認してください。")
+
 
 @tree.command(name="gpt", description="GPT(gpt-3.5-turbo)と短期記憶で対話します")
 async def gpt_command(interaction: discord.Interaction, prompt: str):
