@@ -3,6 +3,7 @@ FROM python:3.11-slim
 
 # 環境変数を設定
 ENV APP_HOME /app
+ENV LANG C.UTF-8   # ← ここに移動
 WORKDIR $APP_HOME
 
 # 必要なライブラリをインストール
@@ -14,5 +15,3 @@ COPY . .
 
 # コンテナの起動コマンド
 CMD ["python", "bot.py"]
-ENV LANG C.UTF-8
-
