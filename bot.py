@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
-"""Discord Bot Final Version (Refactored for Stable Slash Command Operation - Final Fix)
+"""Discord Bot Final Version (Stable Slash Command Operation - Final Build)
 """
 
 import discord
-from discord import app_commands
+from discord import app_commands, Object
 from openai import AsyncOpenAI
 import google.generativeai as genai
 from google.generativeai.types import HarmCategory, HarmBlockThreshold
@@ -43,6 +43,8 @@ NOTION_API_KEY = get_env_variable("NOTION_API_KEY")
 ADMIN_USER_ID = get_env_variable("ADMIN_USER_ID", is_secret=False)
 NOTION_MAIN_PAGE_ID = get_env_variable("NOTION_PAGE_ID", is_secret=False)
 OPENROUTER_API_KEY = get_env_variable("CLOUD_API_KEY").strip()
+# ギルド同期のためにGUILD_IDを追加（任意）
+GUILD_ID = os.getenv("GUILD_ID")
 
 # NotionスレッドIDとページIDの対応表を環境変数から読み込み
 NOTION_PAGE_MAP_STRING = os.getenv("NOTION_PAGE_MAP_STRING", "")
@@ -256,7 +258,11 @@ async def ask_gpt_base(user_id, prompt):
     system_prompt = "あなたは論理と秩序を司る神官「GPT」です。丁寧で理知的な執事のように振る舞い、会話の文脈を考慮して150文字以内で回答してください。"
     messages = [{"role": "system", "content": system_prompt}] + history + [{"role": "user", "content": prompt}]
     try:
-        response = await openai_client.chat.completions.create(model="gpt-3.5-turbo", messages=messages, max_tokens=250)
+        response = await openai_client.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=messages,
+            max_tokens=250
+        )
         reply = response.choices[0].message.content
         new_history = history + [{"role": "user", "content": prompt}, {"role": "assistant", "content": reply}]
         if len(new_history) > 10: new_history = new_history[-10:]
@@ -468,7 +474,10 @@ async def run_long_gpt5_task(message, prompt, full_prompt, is_admin, target_page
 # --- スラッシュコマンド定義 ---
 
 async def simple_ai_command_runner(interaction: discord.Interaction, prompt: str, ai_function, bot_name: str, use_memory: bool = True):
-    """単一のAIを呼び出すスラッシュコマンドの共通処理（最終修正版）"""
+    """単一のAIを呼び出すスラッシュコマンドの共通処理"""
+    # 診断ログ：コマンドがボットに届いたかを確認
+    print(f"[slash] '{interaction.command.name}' by {interaction.user} prompt='{prompt}'")
+    
     await interaction.response.defer()
     user_id = str(interaction.user.id)
     target_page_id = NOTION_PAGE_MAP.get(str(interaction.channel.id), NOTION_MAIN_PAGE_ID)
@@ -807,10 +816,19 @@ async def logical_command(interaction: discord.Interaction, topic: str, attachme
 # --- Discordイベントハンドラ ---
 @client.event
 async def on_ready():
-    await tree.sync()
+    # GUILD_IDが環境変数に設定されていれば、そのサーバーに即時同期
+    if GUILD_ID:
+        guild_obj = Object(id=int(GUILD_ID))
+        await tree.sync(guild=guild_obj)
+        print(f"🚀 {GUILD_ID} にコマンドを同期しました。")
+    else:
+        # 設定されていなければ、グローバルに同期（反映に時間がかかる場合あり）
+        await tree.sync()
+        print("🚀 グローバルにコマンドを同期しました。")
+        
     print(f"✅ ログイン成功: {client.user}")
     print(f"📖 Notion対応表: {NOTION_PAGE_MAP}")
-    print(f"🚀 {len(await tree.fetch_commands())}個のスラッシュコマンドを同期しました。")
+    
 
 @client.event
 async def on_message(message):
