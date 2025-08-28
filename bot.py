@@ -384,7 +384,7 @@ async def ask_gpt5(prompt, system_prompt=None):
         response = await openai_client.chat.completions.create(
             model="gpt-5",
             messages=messages,
-            max_tokens=4000,
+            max_completion_tokens=4000, # ★★★★★ パラメータ名を修正 ★★★★★
             timeout=90.0
         )
         return response.choices[0].message.content
@@ -457,4 +457,4 @@ async def run_long_gpt5_task(message, prompt, full_prompt, is_admin, target_page
             history = gpt_thread_memory.get(thread_id, [])
             history.append({"role": "user", "content": prompt})
             history.append({"role": "assistant", "content": reply})
-            gpt_thread_memory[thread_id] = hi
+          
