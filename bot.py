@@ -419,8 +419,8 @@ async def ask_gpt5(prompt, system_prompt=None):
         return response.choices[0].message.content
     except Exception as e:
         if "Timeout" in str(e):
-            return "gpt-4oエラー: 応答が時間切れになりました。"
-        return f"gpt-4oエラー: {e}"
+            return "gpt-5エラー: 応答が時間切れになりました。"
+        return f"gpt-5エラー: {e}"
 
 async def get_full_response_and_summary(ai_function, prompt, **kwargs):
     full_response = await ai_function(prompt, **kwargs)
@@ -465,7 +465,7 @@ async def get_notion_context(channel, page_id, query):
 
 async def run_long_gpt5_task(message, prompt, full_prompt, is_admin, target_page_id, thread_id):
     """
-    gpt-5(gpt-4o)の長時間実行タスクをバックグラウンドで処理する関数
+    gpt-5の長時間実行タスクをバックグラウンドで処理する関数
     """
     user_mention = message.author.mention
     print(f"[{thread_id}] Starting long gpt-4o task for {message.author}...")
@@ -477,10 +477,10 @@ async def run_long_gpt5_task(message, prompt, full_prompt, is_admin, target_page
         reply = await ask_gpt5(full_prompt) # 内部でgpt-4oを呼び出し
 
         if not reply or not isinstance(reply, str) or not reply.strip():
-             await message.channel.send(f"{user_mention} gpt-4oからの応答が空か、無効でした。")
+             await message.channel.send(f"{user_mention} gpt-5からの応答が空か、無効でした。")
              return
 
-        await send_long_message(message.channel, f"{user_mention}\nお待たせしました。gpt-4oの回答です。\n\n{reply}")
+        await send_long_message(message.channel, f"{user_mention}\nお待たせしました。gpt-5の回答です。\n\n{reply}")
       
         is_memory_on = await get_memory_flag_from_notion(thread_id)
         if is_memory_on:
@@ -489,17 +489,17 @@ async def run_long_gpt5_task(message, prompt, full_prompt, is_admin, target_page
             gpt_thread_memory[thread_id] = history[-10:]
 
         if is_admin and target_page_id:
-            await log_response(target_page_id, reply, "gpt-4o (専用スレッド)")
+            await log_response(target_page_id, reply, "gpt-5 (専用スレッド)")
 
     except Exception as e:
-        error_message = f"gpt-4oのバックグラウンド処理中に予期せぬエラーが発生しました: {e}"
+        error_message = f"gpt-5のバックグラウンド処理中に予期せぬエラーが発生しました: {e}"
         print(f"🚨 [{thread_id}] {error_message}")
         try:
             await message.channel.send(f"{user_mention} {error_message}")
         except discord.errors.Forbidden:
             pass
     
-    print(f"[{thread_id}] Long gpt-4o task finished for {message.author}.")
+    print(f"[{thread_id}] Long gpt-5 task finished for {message.author}.")
 
 
 # --- スラッシュコマンド定義 ---
@@ -657,6 +657,7 @@ ADVANCED_MODELS_FOR_ALL = {
     "Gemini Pro": (ask_minerva, get_full_response_and_summary),
     "Perplexity": (ask_rekus, get_full_response_and_summary),
     "Gemini 2.5 Pro": (ask_gemini_2_5_pro, get_full_response_and_summary),
+    "gpt-5": (ask_gpt-5, get_full_response_and_summary),
 }
 
 @tree.command(name="minna", description="5体のベースAIが議題に同時に意見を出します。")
