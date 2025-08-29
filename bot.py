@@ -571,7 +571,7 @@ async def pod042_command(interaction: discord.Interaction, prompt: str):
 async def pod153_command(interaction: discord.Interaction, prompt: str):
     await simple_ai_command_runner(interaction, prompt, ask_pod153, "Pod153", use_memory=False)
 
-@tree.command(name="gpt4o", description="GPT-4oを単体で呼び出します。")
+@tree.command(name="gpt-4o", description="GPT-4oを単体で呼び出します。")
 @app_commands.describe(prompt="質問内容")
 async def gpt4o_command(interaction: discord.Interaction, prompt: str):
     await advanced_ai_simple_runner(interaction, prompt, ask_kreios, "GPT-4o")
@@ -871,5 +871,3 @@ bot_thread.start()
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
     app.run(host="0.0.0.0", port=port)
-
-}
