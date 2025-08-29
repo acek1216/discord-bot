@@ -1003,16 +1003,6 @@ app = Flask(__name__)
 def index():
     return "ボットは正常に動作中です！"
 
-def run_flask():
-    port = int(os.environ.get("PORT", 8080))
-    app.run(host="0.0.0.0", port=port)
-
-# --- 起動処理 ---
-app = Flask(__name__)
-@app.route("/")
-def index():
-    return "ボットは正常に動作中です！"
-
 def run_bot():
     # client.runはブロッキング処理なので、スレッド内で実行する
     client.run(DISCORD_TOKEN)
