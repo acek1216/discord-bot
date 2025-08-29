@@ -926,6 +926,8 @@ async def on_message(message):
             
             await message.channel.send("受付完了。gpt-5が思考を開始します。完了次第、このチャンネルでお知らせします。")
             asyncio.create_task(run_long_gpt5_task(message, prompt, full_prompt, is_admin, target_page_id, thread_id))
+            reply = await ask_gpt-5(full_prompt)
+            await send_long_message(message.channel, reply)
 
         elif channel_name.startswith("gemini2.5pro"):
             await message.channel.send("Gemini 2.5 Proが思考を開始します…")
