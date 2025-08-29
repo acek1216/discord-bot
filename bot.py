@@ -360,7 +360,7 @@ async def ask_llama(user_id, prompt):
 
 async def ask_claude(user_id, prompt):
     history = claude_base_memory.get(user_id, [])
-    system_prompt = "あなたは図書館の賢者です。古今東西の書物を読み解き、森羅万象を知る存在として、落ち着いた口調で150文字以内で回答してください。"
+    system_prompt = "あなたは賢者です。古今東西の書物を読み解き、森羅万象を知る存在として、落ち着いた口調で150文字以内で回答してください。"
     messages = [{"role": "system", "content": system_prompt}] + history + [{"role": "user", "content": prompt}]
     headers = {"Authorization": f"Bearer {OPENROUTER_API_KEY}", "Content-Type": "application/json"}
     payload = {"model": "anthropic/claude-3.5-haiku", "messages": messages}
@@ -377,7 +377,7 @@ async def ask_claude(user_id, prompt):
 
 async def ask_gpt_base(user_id, prompt):
     history = gpt_base_memory.get(user_id, [])
-    system_prompt = "あなたは論理と秩序を司る神官「GPT」です。丁寧で理知的な執事のように振る舞い、会話の文脈を考慮して150文字以内で回答してください。"
+    system_prompt = "あなたは論理と秩序を司る執事「GPT」です。丁寧で理知的な執事のように振る舞い、会話の文脈を考慮して150文字以内で回答してください。"
     messages = [{"role": "system", "content": system_prompt}] + history + [{"role": "user", "content": prompt}]
     try:
         response = await openai_client.chat.completions.create(model="gpt-3.5-turbo", messages=messages, max_tokens=250)
@@ -426,7 +426,7 @@ async def ask_kreios(prompt, system_prompt=None):
 
 async def ask_minerva(prompt, system_prompt=None, attachment_parts=[]):
     base_prompt = system_prompt or "あなたは客観的な分析AIです。あらゆる事象をデータとリスクで評価し、感情を排して冷徹に分析します。"
-    model = genai.GenerativeModel("gemini-1.5-pro-latest", system_instruction=base_prompt, safety_settings=safety_settings)
+    model = genai.GenerativeModel("gemini-2.0-pro", system_instruction=base_prompt, safety_settings=safety_settings)
     contents = [prompt] + attachment_parts
     try:
         response = await model.generate_content_async(contents)
@@ -454,7 +454,7 @@ async def ask_rekus(prompt, system_prompt=None, notion_context=None):
         prompt = (f"以下はNotionの要約コンテキストです:\n{notion_context}\n\n"
                   f"質問: {prompt}\n\n"
                   "この要約を参考に、必要に応じてWeb情報も活用して回答してください。")
-    base_prompt = system_prompt or "あなたは探索王レキュスです。与えられた情報を元に、質問に対して回答してください。"
+    base_prompt = system_prompt or "あなたは探索王レキュスです。与えられた情報を元に、外部調査も駆使して質問に対して回答してください。"
     messages = [{"role": "system", "content": base_prompt}, {"role": "user", "content": prompt}]
     payload = {"model": "sonar-pro", "messages": messages, "max_tokens": 4000}
     headers = {"Authorization": f"Bearer {PERPLEXITY_API_KEY}", "Content-Type": "application/json"}
@@ -600,7 +600,7 @@ async def gpt4o_command(interaction: discord.Interaction, prompt: str):
 @tree.command(name="geminipro", description="Gemini 1.5 Proを単体で呼び出します。")
 @app_commands.describe(prompt="質問内容")
 async def geminipro_command(interaction: discord.Interaction, prompt: str):
-    await advanced_ai_simple_runner(interaction, prompt, ask_minerva, "Gemini 1.5 Pro")
+    await advanced_ai_simple_runner(interaction, prompt, ask_minerva, "Gemini 2.0 Pro")
 
 @tree.command(name="perplexity", description="Perplexity Sonarを単体で呼び出します。")
 @app_commands.describe(prompt="質問内容")
