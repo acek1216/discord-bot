@@ -335,7 +335,7 @@ async def ask_kreios(prompt, system_prompt=None): # gpt-4o
     base_prompt = system_prompt or "あなたはハマーン・カーンです。与えられた情報を元に、質問に対して回答してください。"
     messages = [{"role": "system", "content": base_prompt}, {"role": "user", "content": prompt}]
     try:
-        response = await openai_client.chat.completions.create(model="gpt-4o", messages=messages, max_tokens=4000)
+        response = await openai_client.chat.completions.create(model="gpt-4o", messages=messages, max_completion_tokens=4000)
         return response.choices[0].message.content
     except Exception as e: return f"gpt-4oエラー: {e}"
 
@@ -401,7 +401,7 @@ async def ask_pod153(prompt): # gpt-4o-mini
     system_prompt = "あなたはポッド153です。与えられた情報を元に、質問に対して「分析結果：」または「補足：」から始めて200文字以内で回答してください。"
     messages = [{"role": "system", "content": system_prompt}, {"role": "user", "content": prompt}]
     try:
-        response = await openai_client.chat.completions.create(model="gpt-4o-mini", messages=messages, max_tokens=400)
+        response = await openai_client.chat.completions.create(model="gpt-4o-mini", messages=messages, max_completion_tokens=400)
         return response.choices[0].message.content
     except Exception as e: return f"ポッド153エラー: {e}"
 
@@ -966,7 +966,7 @@ def run_flask():
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
-    flask_thread = threading.Thread(target=lambda: app.run(host="0.0.o", port=port))
+    flask_thread = threading.Thread(target=run_flask)
     flask_thread.daemon = True
     flask_thread.start()
 
