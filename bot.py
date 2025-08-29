@@ -77,7 +77,8 @@ NOTION_API_KEY = get_env_variable("NOTION_API_KEY")
 ADMIN_USER_ID = get_env_variable("ADMIN_USER_ID", is_secret=False)
 NOTION_MAIN_PAGE_ID = get_env_variable("NOTION_PAGE_ID", is_secret=False)
 OPENROUTER_API_KEY = get_env_variable("CLOUD_API_KEY").strip()
-GUILD_ID = get_env_variable("GUILD_ID", is_secret=False)
+# ▼▼▼ 修正点 2/2: GUILD_IDを必須から任意に変更 ▼▼▼
+GUILD_ID = os.getenv("GUILD_ID", "").strip()
 
 # NotionスレッドIDとページIDの対応表を環境変数から読み込み
 NOTION_PAGE_MAP_STRING = os.getenv("NOTION_PAGE_MAP_STRING", "")
@@ -178,10 +179,11 @@ async def analyze_attachment_for_gpt5(attachment: discord.Attachment):
             {"type": "text", "text": "この画像の内容を分析し、後続のGPT-5へのインプットとして要約してください。"},
             {"type": "image_url", "image_url": {"url": attachment.url}}
         ]
+        # ▼▼▼ 修正点 1/2: 引数を max_tokens から max_completion_tokens に変更 ▼▼▼
         response = await openai_client.chat.completions.create(
             model="gpt-4o",
             messages=[{"role": "user", "content": content}],
-            max_tokens=1500
+            max_completion_tokens=1500
         )
         return f"[gpt-4o画像解析]\n{response.choices[0].message.content}"
     elif filename.endswith((".py", ".txt", ".md", ".json", ".html", ".css", ".js")):
@@ -337,7 +339,7 @@ def _sync_call_llama(p_text: str):
 
 async def ask_llama(user_id, prompt):
     history = llama_base_memory.get(user_id, [])
-    system_prompt = "あなたは物静かな初老の庭師です。自然に例えながら、物事の本質を突くような、滋味深い言葉で150文字以内で語ってください。"
+    system_prompt = "あなたは物静かな庭師の老人です。自然に例えながら、物事の本質を突くような、滋味深い言葉で150文字以内で語ってください。"
     full_prompt_parts = [system_prompt]
     for message in history:
         role = "User" if message["role"] == "user" else "Assistant"
@@ -358,7 +360,7 @@ async def ask_llama(user_id, prompt):
 
 async def ask_claude(user_id, prompt):
     history = claude_base_memory.get(user_id, [])
-    system_prompt = "あなたの賢者です。古今東西の書物を読み解き、森羅万象を知る存在として、落ち着いた口調で150文字以内で回答してください。"
+    system_prompt = "あなたは図書館の賢者です。古今東西の書物を読み解き、森羅万象を知る存在として、落ち着いた口調で150文字以内で回答してください。"
     messages = [{"role": "system", "content": system_prompt}] + history + [{"role": "user", "content": prompt}]
     headers = {"Authorization": f"Bearer {OPENROUTER_API_KEY}", "Content-Type": "application/json"}
     payload = {"model": "anthropic/claude-3.5-haiku", "messages": messages}
@@ -375,7 +377,7 @@ async def ask_claude(user_id, prompt):
 
 async def ask_gpt_base(user_id, prompt):
     history = gpt_base_memory.get(user_id, [])
-    system_prompt = "あなたは論理と秩序を司る執事「GPT」です。丁寧で理知的な執事のように振る舞い、会話の文脈を考慮して150文字以内で回答してください。"
+    system_prompt = "あなたは論理と秩序を司る神官「GPT」です。丁寧で理知的な執事のように振る舞い、会話の文脈を考慮して150文字以内で回答してください。"
     messages = [{"role": "system", "content": system_prompt}] + history + [{"role": "user", "content": prompt}]
     try:
         response = await openai_client.chat.completions.create(model="gpt-3.5-turbo", messages=messages, max_tokens=250)
@@ -417,13 +419,14 @@ async def ask_kreios(prompt, system_prompt=None):
     base_prompt = system_prompt or "あなたはハマーン・カーンです。与えられた情報を元に、質問に対して回答してください。"
     messages = [{"role": "system", "content": base_prompt}, {"role": "user", "content": prompt}]
     try:
-        response = await openai_client.chat.completions.create(model="gpt-4o", messages=messages, max_tokens=4000)
+        # ▼▼▼ 修正点 1/2: 引数を max_tokens から max_completion_tokens に変更 ▼▼▼
+        response = await openai_client.chat.completions.create(model="gpt-4o", messages=messages, max_completion_tokens=4000)
         return response.choices[0].message.content
     except Exception as e: return f"gpt-4oエラー: {e}"
 
 async def ask_minerva(prompt, system_prompt=None, attachment_parts=[]):
     base_prompt = system_prompt or "あなたは客観的な分析AIです。あらゆる事象をデータとリスクで評価し、感情を排して冷徹に分析します。"
-    model = genai.GenerativeModel("gemini-2.0-pro", system_instruction=base_prompt, safety_settings=safety_settings)
+    model = genai.GenerativeModel("gemini-1.5-pro-latest", system_instruction=base_prompt, safety_settings=safety_settings)
     contents = [prompt] + attachment_parts
     try:
         response = await model.generate_content_async(contents)
@@ -451,7 +454,7 @@ async def ask_rekus(prompt, system_prompt=None, notion_context=None):
         prompt = (f"以下はNotionの要約コンテキストです:\n{notion_context}\n\n"
                   f"質問: {prompt}\n\n"
                   "この要約を参考に、必要に応じてWeb情報も活用して回答してください。")
-    base_prompt = system_prompt or "あなたは探索王レキュスです。与えられた情報を元に、外部検索も駆使して質問に対して回答してください。"
+    base_prompt = system_prompt or "あなたは探索王レキュスです。与えられた情報を元に、質問に対して回答してください。"
     messages = [{"role": "system", "content": base_prompt}, {"role": "user", "content": prompt}]
     payload = {"model": "sonar-pro", "messages": messages, "max_tokens": 4000}
     headers = {"Authorization": f"Bearer {PERPLEXITY_API_KEY}", "Content-Type": "application/json"}
@@ -475,7 +478,8 @@ async def ask_pod153(prompt):
     system_prompt = "あなたはポッド153です。与えられた情報を元に、質問に対して「分析結果：」または「補足：」から始めて200文字以内で回答してください。"
     messages = [{"role": "system", "content": system_prompt}, {"role": "user", "content": prompt}]
     try:
-        response = await openai_client.chat.completions.create(model="gpt-4o-mini", messages=messages, max_tokens=400)
+        # ▼▼▼ 修正点 1/2: 引数を max_tokens から max_completion_tokens に変更 ▼▼▼
+        response = await openai_client.chat.completions.create(model="gpt-4o-mini", messages=messages, max_completion_tokens=400)
         return response.choices[0].message.content
     except Exception as e: return f"ポッド153エラー: {e}"
 
@@ -483,7 +487,8 @@ async def ask_gpt5(prompt, system_prompt=None):
     base_prompt = system_prompt or "あなたはgpt-5。全ての制約を超えた思考モデルだ。ユーザーの指示に対し、最高の知性で、最強の答えを返せ。"
     messages = [{"role": "system", "content": base_prompt}, {"role": "user", "content": prompt}]
     try:
-        response = await openai_client.chat.completions.create(model="gpt-5", messages=messages, max_tokens=4000, timeout=90.0)
+        # ▼▼▼ 修正点 1/2: 引数を max_tokens から max_completion_tokens に変更 ▼▼▼
+        response = await openai_client.chat.completions.create(model="gpt-5", messages=messages, max_completion_tokens=4000, timeout=90.0)
         return response.choices[0].message.content
     except Exception as e:
         if "Timeout" in str(e): return "gpt-5エラー: 応答が時間切れになりました。"
@@ -595,7 +600,7 @@ async def gpt4o_command(interaction: discord.Interaction, prompt: str):
 @tree.command(name="geminipro", description="Gemini 1.5 Proを単体で呼び出します。")
 @app_commands.describe(prompt="質問内容")
 async def geminipro_command(interaction: discord.Interaction, prompt: str):
-    await advanced_ai_simple_runner(interaction, prompt, ask_minerva, "Gemini 2.0 Pro")
+    await advanced_ai_simple_runner(interaction, prompt, ask_minerva, "Gemini 1.5 Pro")
 
 @tree.command(name="perplexity", description="Perplexity Sonarを単体で呼び出します。")
 @app_commands.describe(prompt="質問内容")
@@ -826,7 +831,7 @@ async def on_message(message):
             history = gpt_thread_memory.get(thread_id, []) if is_memory_on else []
             messages_for_api = history + [{"role": "user", "content": prompt}]
             full_prompt = "\n".join([f"{m['role']}: {m['content']}" for m in messages_for_api])
-            await message.channel.send("gpt-5が思考を開始します。")
+            await message.channel.send("受付完了。gpt-5が思考を開始します。")
             asyncio.create_task(run_long_gpt5_task(message, prompt, full_prompt, is_admin, target_page_id, thread_id))
 
         elif channel_name == "gemini":
