@@ -128,7 +128,7 @@ mistral_base_memory = {}
 claude_base_memory = {}
 llama_base_memory = {}
 gpt_thread_memory = {}
-gemini_thread_memory = {} # gemini2.5pro_thread_memory から変更
+gemini_thread_memory = {}
 processing_users = set()
 
 # --- ヘルパー関数 ---
@@ -169,7 +169,7 @@ async def analyze_attachment_for_gpt5(attachment: discord.Attachment):
         response = await openai_client.chat.completions.create(
             model="gpt-4o",
             messages=[{"role": "user", "content": content}],
-            max_tokens=1500
+            max_completion_tokens=1500
         )
         return f"[gpt-4o画像解析]\n{response.choices[0].message.content}"
 
@@ -370,13 +370,13 @@ async def ask_kreios(prompt, system_prompt=None): # gpt-4o
     base_prompt = system_prompt or "あなたはハマーン・カーンです。与えられた情報を元に、質問に対して回答してください。"
     messages = [{"role": "system", "content": base_prompt}, {"role": "user", "content": prompt}]
     try:
-        response = await openai_client.chat.completions.create(model="gpt-4o", messages=messages, max_tokens=4000)
+        response = await openai_client.chat.completions.create(model="gpt-4o", messages=messages, max_completion_tokens=4000)
         return response.choices[0].message.content
     except Exception as e: return f"gpt-4oエラー: {e}"
 
 async def ask_minerva(prompt, system_prompt=None, attachment_parts=[]): # gemini-1.5-pro
     base_prompt = system_prompt or "あなたは客観的な分析AIです。あらゆる事象をデータとリスクで評価し、感情を排して冷徹に分析します。"
-    model = genai.GenerativeModel("gemini-1.5-pro-latest", system_instruction=base_prompt, safety_settings=safety_settings)
+    model = genai.GenerativeModel("gemini-2.0-pro", system_instruction=base_prompt, safety_settings=safety_settings)
     contents = [prompt] + attachment_parts
     try:
         response = await model.generate_content_async(contents)
@@ -436,7 +436,7 @@ async def ask_pod153(prompt): # gpt-4o-mini
     system_prompt = "あなたはポッド153です。与えられた情報を元に、質問に対して「分析結果：」または「補足：」から始めて200文字以内で回答してください。"
     messages = [{"role": "system", "content": system_prompt}, {"role": "user", "content": prompt}]
     try:
-        response = await openai_client.chat.completions.create(model="gpt-4o-mini", messages=messages, max_tokens=400)
+        response = await openai_client.chat.completions.create(model="gpt-4o-mini", messages=messages, max_completion_tokens=400)
         return response.choices[0].message.content
     except Exception as e: return f"ポッド153エラー: {e}"
 
@@ -966,7 +966,7 @@ async def on_message(message):
             messages_for_api = history + [{"role": "user", "content": prompt}]
             full_prompt = "\n".join([f"{m['role']}: {m['content']}" for m in messages_for_api])
             
-            await message.channel.send("受付完了。gpt-5が思考を開始します。完了次第、このチャンネルでお知らせします。")
+            await message.channel.send("受付完了。gpt-5が思考を開始します。")
             asyncio.create_task(run_long_gpt5_task(message, prompt, full_prompt, is_admin, target_page_id, thread_id))
 
         elif channel_name == "gemini": # gemini部屋の条件を完全一致に変更
