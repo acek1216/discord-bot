@@ -141,13 +141,21 @@ async def send_long_message(interaction: discord.Interaction, text: str, is_foll
     chunks = [text[i:i + 2000] for i in range(0, len(text), 2000)]
     
     first_chunk = chunks[0]
-    if is_followup:
-        await interaction.followup.send(first_chunk)
-    else: 
-        await interaction.edit_original_response(content=first_chunk)
+    try:
+        if is_followup:
+            await interaction.followup.send(first_chunk)
+        else: 
+            await interaction.edit_original_response(content=first_chunk)
+    except discord.errors.NotFound: # 応答がタイムアウトなどで削除された場合
+        await interaction.channel.send(first_chunk)
+
 
     for chunk in chunks[1:]:
-        await interaction.followup.send(chunk)
+        try:
+            await interaction.followup.send(chunk)
+        except discord.errors.NotFound: # フォローアップでもとのメッセージが見つからない場合
+            await interaction.channel.send(chunk)
+
 
 async def process_attachment(attachment: discord.Attachment, channel: discord.TextChannel) -> str:
     """[旧] 添付ファイルを処理し、要約テキストを返す (Gemini Pro)"""
@@ -502,11 +510,22 @@ async def run_long_gpt5_task(message, prompt, full_prompt, is_admin, target_page
         
         reply = await ask_gpt5(full_prompt)
 
+        channel = client.get_channel(message.channel.id)
+        if not channel:
+            print(f"Error: Could not find channel {message.channel.id} to send message.")
+            return
+
         if not reply or not isinstance(reply, str) or not reply.strip():
-             await message.channel.send(f"{user_mention} gpt-5からの応答が空か、無効でした。")
+             await channel.send(f"{user_mention} gpt-5からの応答が空か、無効でした。")
              return
 
-        await message.channel.send(f"{user_mention}\nお待たせしました。gpt-5の回答です。\n\n{reply}")
+        # send_long_message requires an interaction, so we use the channel directly
+        if len(reply) <= 2000:
+            await channel.send(f"{user_mention}\nお待たせしました。gpt-5の回答です。\n\n{reply}")
+        else:
+            await channel.send(f"{user_mention}\nお待たせしました。gpt-5の回答です。")
+            for i in range(0, len(reply), 2000):
+                await channel.send(reply[i:i+2000])
       
         is_memory_on = await get_memory_flag_from_notion(thread_id)
         if is_memory_on:
@@ -520,7 +539,8 @@ async def run_long_gpt5_task(message, prompt, full_prompt, is_admin, target_page
         error_message = f"gpt-5のバックグラウンド処理中に予期せぬエラーが発生しました: {e}"
         print(f"🚨 [{thread_id}] {error_message}")
         try:
-            await message.channel.send(f"{user_mention} {error_message}")
+            channel = client.get_channel(message.channel.id)
+            if channel: await channel.send(f"{user_mention} {error_message}")
         except: pass
     
     print(f"[{thread_id}] Long gpt-5 task finished for {message.author}.")
@@ -844,7 +864,13 @@ async def on_message(message):
             full_prompt_parts = [f"{m['role']}: {m['content']}" for m in history] + [f"user: {prompt}"]
             full_prompt = "\n".join(full_prompt_parts)
             reply = await ask_gemini_2_5_pro(full_prompt)
-            await message.channel.send(reply)
+            # `send_long_message` needs an interaction, so we send directly from channel
+            if len(reply) <= 2000:
+                await message.channel.send(reply)
+            else:
+                for i in range(0, len(reply), 2000):
+                    await message.channel.send(reply[i:i+2000])
+
             if is_memory_on and "エラー" not in reply:
                 history.extend([{"role": "user", "content": prompt}, {"role": "assistant", "content": reply}])
                 gemini_thread_memory[thread_id] = history[-10:]
