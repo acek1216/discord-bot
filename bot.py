@@ -133,7 +133,6 @@ processing_users = set()
 
 # --- ヘルパー関数 ---
 async def send_long_message(interaction: discord.Interaction, text: str, is_followup: bool = True):
-    """Discordの2000文字制限を超えたメッセージを分割して送信する"""
     if not text: 
         await interaction.followup.send("（応答が空でした）")
         return
@@ -146,19 +145,16 @@ async def send_long_message(interaction: discord.Interaction, text: str, is_foll
             await interaction.followup.send(first_chunk)
         else: 
             await interaction.edit_original_response(content=first_chunk)
-    except discord.errors.NotFound: # 応答がタイムアウトなどで削除された場合
+    except discord.errors.NotFound:
         await interaction.channel.send(first_chunk)
-
 
     for chunk in chunks[1:]:
         try:
             await interaction.followup.send(chunk)
-        except discord.errors.NotFound: # フォローアップでもとのメッセージが見つからない場合
+        except discord.errors.NotFound:
             await interaction.channel.send(chunk)
 
-
 async def process_attachment(attachment: discord.Attachment, channel: discord.TextChannel) -> str:
-    """[旧] 添付ファイルを処理し、要約テキストを返す (Gemini Pro)"""
     await channel.send("💠 添付ファイルをGemini Proが分析し、議題とします…")
     try:
         attachment_data = await attachment.read()
@@ -172,7 +168,6 @@ async def process_attachment(attachment: discord.Attachment, channel: discord.Te
         return ""
 
 async def analyze_attachment_for_gpt5(attachment: discord.Attachment):
-    """[新] 添付ファイルを種類に応じてgpt-4oやテキスト抽出で解析する"""
     filename = attachment.filename.lower()
     data = await attachment.read()
 
@@ -201,7 +196,6 @@ async def analyze_attachment_for_gpt5(attachment: discord.Attachment):
         return f"[未対応の添付ファイル形式: {attachment.filename}]"
 
 async def summarize_attachment_content(interaction: discord.Interaction, attachment: discord.Attachment, query: str):
-    """添付ファイルを抽出し、Notionと同様のチャンク→要約→統合プロセスにかける"""
     await interaction.edit_original_response(content=f"📎 添付ファイル「{attachment.filename}」を読み込んでいます…")
     filename = attachment.filename.lower()
     data = await attachment.read()
@@ -228,7 +222,6 @@ async def summarize_attachment_content(interaction: discord.Interaction, attachm
     return await summarize_text_chunks(interaction, extracted_text, query)
 
 async def summarize_text_chunks(interaction: discord.Interaction, text: str, query: str):
-    """テキストをチャンク分割し、Geminiで要約、Mistral Largeで統合する共通関数"""
     chunk_summarizer_model = genai.GenerativeModel("gemini-1.5-pro-latest", system_instruction="あなたは構造化要約AIです。")
     chunk_size = 8000
     text_chunks = [text[i:i + chunk_size] for i in range(0, len(text), chunk_size)]
@@ -519,9 +512,10 @@ async def run_long_gpt5_task(message, prompt, full_prompt, is_admin, target_page
              await channel.send(f"{user_mention} gpt-5からの応答が空か、無効でした。")
              return
 
-        # send_long_message requires an interaction, so we use the channel directly
-        if len(reply) <= 2000:
-            await channel.send(f"{user_mention}\nお待たせしました。gpt-5の回答です。\n\n{reply}")
+        # Use channel.send directly for on_message responses
+        full_reply = f"{user_mention}\nお待たせしました。gpt-5の回答です。\n\n{reply}"
+        if len(full_reply) <= 2000:
+            await channel.send(full_reply)
         else:
             await channel.send(f"{user_mention}\nお待たせしました。gpt-5の回答です。")
             for i in range(0, len(reply), 2000):
@@ -635,7 +629,7 @@ async def notion_command(interaction: discord.Interaction, query: str, attachmen
 
             notion_context = await get_notion_context(interaction, target_page_id, query)
             if not notion_context:
-                await interaction.edit_original_response(content="❌ Notionからコンテキストを取得できませんでした。")
+                # get_notion_context内でエラーメッセージは送信済み
                 return
 
             prompt_with_context = (f"以下の【参考情報】と【添付資料の要約】を元に、【ユーザーの質問】に回答してください。\n\n"
@@ -864,7 +858,8 @@ async def on_message(message):
             full_prompt_parts = [f"{m['role']}: {m['content']}" for m in history] + [f"user: {prompt}"]
             full_prompt = "\n".join(full_prompt_parts)
             reply = await ask_gemini_2_5_pro(full_prompt)
-            # `send_long_message` needs an interaction, so we send directly from channel
+            
+            # on_messageではinteractionが使えないため、channel.sendで直接送信
             if len(reply) <= 2000:
                 await message.channel.send(reply)
             else:
