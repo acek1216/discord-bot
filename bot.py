@@ -478,8 +478,6 @@ async def run_long_gpt5_task(message, prompt, full_prompt, is_admin, target_page
         if not reply or not isinstance(reply, str) or not reply.strip():
              await message.channel.send(f"{user_mention} gpt-5からの応答が空か、無効でした。")
              return
-
-        await send_long_message(message.channel, f"{user_mention}\nお待たせしました。gpt-5の回答です。\n\n{reply}")
       
         is_memory_on = await get_memory_flag_from_notion(thread_id)
         if is_memory_on:
@@ -926,11 +924,11 @@ async def on_message(message):
             messages_for_api = history + [{"role": "user", "content": prompt}]
             full_prompt = "\n".join([f"{m['role']}: {m['content']}" for m in messages_for_api])
             
-            await message.channel.send("✅ 受付完了。gpt-5が思考を開始します。完了次第、このチャンネルでお知らせします。")
+            await message.channel.send("受付完了。gpt-5が思考を開始します。完了次第、このチャンネルでお知らせします。")
             asyncio.create_task(run_long_gpt5_task(message, prompt, full_prompt, is_admin, target_page_id, thread_id))
 
         elif channel_name.startswith("gemini2.5pro"):
-            await message.channel.send("⏳ Gemini 2.5 Proが思考を開始します…")
+            await message.channel.send("Gemini 2.5 Proが思考を開始します…")
             history = gemini_2_5_pro_thread_memory.get(thread_id, []) if is_memory_on else []
             full_prompt_parts = [f"{m['role']}: {m['content']}" for m in history]
             full_prompt_parts.append(f"user: {prompt}")
