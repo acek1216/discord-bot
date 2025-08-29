@@ -617,7 +617,6 @@ async def gpt5_command(interaction: discord.Interaction, prompt: str):
 async def gemini2_5pro_command(interaction: discord.Interaction, prompt: str):
     await advanced_ai_simple_runner(interaction, prompt, ask_gemini_2_5_pro, "Gemini 2.5 Pro")
 
-# --- Notion連携・高機能コマンド群 (省略されていた部分) ---
 @tree.command(name="notion", description="現在のNotionページの内容について質問します")
 @app_commands.describe(query="Notionページに関する質問", attachment="補足資料として画像を添付")
 async def notion_command(interaction: discord.Interaction, query: str, attachment: discord.Attachment = None):
@@ -647,7 +646,6 @@ async def notion_command(interaction: discord.Interaction, query: str, attachmen
     if str(interaction.user.id) == ADMIN_USER_ID:
         await log_response(target_page_id, reply, "gpt-5 (Notion参照)")
 
-# --- 複雑な処理・マルチAI連携コマンド群 (省略されていた部分) ---
 BASE_MODELS_FOR_ALL = {
     "GPT": ask_gpt_base,
     "ジェミニ": ask_gemini_base,
