@@ -5,13 +5,11 @@ Discord Bot Final Version (Stable Slash Command Operation - Final Build)
 
 # --- 標準ライブラリ ---
 import asyncio
-import datetime
 import io
 import json
 import os
 import sys
 import threading
-import time
 
 # --- UTF-8 出力ガード (スクリプトの先頭部分) ---
 # 実行環境に依存せず、Pythonの標準出力をUTF-8に強制する
@@ -45,14 +43,13 @@ def safe_log(prefix: str, obj) -> None:
 
 # --- 外部ライブラリ ---
 import discord
-from discord import app_commands, Object
+from discord import app_commands
 from flask import Flask
 from google.generativeai.types import HarmCategory, HarmBlockThreshold
 import google.generativeai as genai
 from mistralai.async_client import MistralAsyncClient
 from notion_client import Client
 from openai import AsyncOpenAI
-from PIL import Image
 import requests
 import vertexai
 from vertexai.generative_models import GenerativeModel
@@ -133,6 +130,7 @@ processing_users = set()
 
 # --- ヘルパー関数 ---
 async def send_long_message(interaction: discord.Interaction, text: str, is_followup: bool = True):
+    """Discordの2000文字制限を超えたメッセージを分割して送信する"""
     if not text: 
         await interaction.followup.send("（応答が空でした）")
         return
@@ -145,16 +143,19 @@ async def send_long_message(interaction: discord.Interaction, text: str, is_foll
             await interaction.followup.send(first_chunk)
         else: 
             await interaction.edit_original_response(content=first_chunk)
-    except discord.errors.NotFound:
+    except discord.errors.NotFound: # 応答がタイムアウトなどで削除された場合
         await interaction.channel.send(first_chunk)
+
 
     for chunk in chunks[1:]:
         try:
             await interaction.followup.send(chunk)
-        except discord.errors.NotFound:
+        except discord.errors.NotFound: # フォローアップでもとのメッセージが見つからない場合
             await interaction.channel.send(chunk)
 
+
 async def process_attachment(attachment: discord.Attachment, channel: discord.TextChannel) -> str:
+    """[旧] 添付ファイルを処理し、要約テキストを返す (Gemini Pro)"""
     await channel.send("💠 添付ファイルをGemini Proが分析し、議題とします…")
     try:
         attachment_data = await attachment.read()
@@ -168,6 +169,7 @@ async def process_attachment(attachment: discord.Attachment, channel: discord.Te
         return ""
 
 async def analyze_attachment_for_gpt5(attachment: discord.Attachment):
+    """[新] 添付ファイルを種類に応じてgpt-4oやテキスト抽出で解析する"""
     filename = attachment.filename.lower()
     data = await attachment.read()
 
@@ -179,7 +181,7 @@ async def analyze_attachment_for_gpt5(attachment: discord.Attachment):
         response = await openai_client.chat.completions.create(
             model="gpt-4o",
             messages=[{"role": "user", "content": content}],
-            max_completion_tokens=1500
+            max_tokens=1500
         )
         return f"[gpt-4o画像解析]\n{response.choices[0].message.content}"
     elif filename.endswith((".py", ".txt", ".md", ".json", ".html", ".css", ".js")):
@@ -196,6 +198,7 @@ async def analyze_attachment_for_gpt5(attachment: discord.Attachment):
         return f"[未対応の添付ファイル形式: {attachment.filename}]"
 
 async def summarize_attachment_content(interaction: discord.Interaction, attachment: discord.Attachment, query: str):
+    """添付ファイルを抽出し、Notionと同様のチャンク→要約→統合プロセスにかける"""
     await interaction.edit_original_response(content=f"📎 添付ファイル「{attachment.filename}」を読み込んでいます…")
     filename = attachment.filename.lower()
     data = await attachment.read()
@@ -222,6 +225,7 @@ async def summarize_attachment_content(interaction: discord.Interaction, attachm
     return await summarize_text_chunks(interaction, extracted_text, query)
 
 async def summarize_text_chunks(interaction: discord.Interaction, text: str, query: str):
+    """テキストをチャンク分割し、Geminiで要約、Mistral Largeで統合する共通関数"""
     chunk_summarizer_model = genai.GenerativeModel("gemini-1.5-pro-latest", system_instruction="あなたは構造化要約AIです。")
     chunk_size = 8000
     text_chunks = [text[i:i + chunk_size] for i in range(0, len(text), chunk_size)]
@@ -333,7 +337,7 @@ def _sync_call_llama(p_text: str):
 
 async def ask_llama(user_id, prompt):
     history = llama_base_memory.get(user_id, [])
-    system_prompt = "あなたは物静かな庭師の老人です。自然に例えながら、物事の本質を突くような、滋味深い言葉で150文字以内で語ってください。"
+    system_prompt = "あなたは物静かな初老の庭師です。自然に例えながら、物事の本質を突くような、滋味深い言葉で150文字以内で語ってください。"
     full_prompt_parts = [system_prompt]
     for message in history:
         role = "User" if message["role"] == "user" else "Assistant"
@@ -354,7 +358,7 @@ async def ask_llama(user_id, prompt):
 
 async def ask_claude(user_id, prompt):
     history = claude_base_memory.get(user_id, [])
-    system_prompt = "あなたは図書館の賢者です。古今東西の書物を読み解き、森羅万象を知る存在として、落ち着いた口調で150文字以内で回答してください。"
+    system_prompt = "あなたの賢者です。古今東西の書物を読み解き、森羅万象を知る存在として、落ち着いた口調で150文字以内で回答してください。"
     messages = [{"role": "system", "content": system_prompt}] + history + [{"role": "user", "content": prompt}]
     headers = {"Authorization": f"Bearer {OPENROUTER_API_KEY}", "Content-Type": "application/json"}
     payload = {"model": "anthropic/claude-3.5-haiku", "messages": messages}
@@ -371,7 +375,7 @@ async def ask_claude(user_id, prompt):
 
 async def ask_gpt_base(user_id, prompt):
     history = gpt_base_memory.get(user_id, [])
-    system_prompt = "あなたは論理と秩序を司る神官「GPT」です。丁寧で理知的な執事のように振る舞い、会話の文脈を考慮して150文字以内で回答してください。"
+    system_prompt = "あなたは論理と秩序を司る執事「GPT」です。丁寧で理知的な執事のように振る舞い、会話の文脈を考慮して150文字以内で回答してください。"
     messages = [{"role": "system", "content": system_prompt}] + history + [{"role": "user", "content": prompt}]
     try:
         response = await openai_client.chat.completions.create(model="gpt-3.5-turbo", messages=messages, max_tokens=250)
@@ -413,13 +417,13 @@ async def ask_kreios(prompt, system_prompt=None):
     base_prompt = system_prompt or "あなたはハマーン・カーンです。与えられた情報を元に、質問に対して回答してください。"
     messages = [{"role": "system", "content": base_prompt}, {"role": "user", "content": prompt}]
     try:
-        response = await openai_client.chat.completions.create(model="gpt-4o", messages=messages, max_completion_tokens=4000)
+        response = await openai_client.chat.completions.create(model="gpt-4o", messages=messages, max_tokens=4000)
         return response.choices[0].message.content
     except Exception as e: return f"gpt-4oエラー: {e}"
 
 async def ask_minerva(prompt, system_prompt=None, attachment_parts=[]):
     base_prompt = system_prompt or "あなたは客観的な分析AIです。あらゆる事象をデータとリスクで評価し、感情を排して冷徹に分析します。"
-    model = genai.GenerativeModel("gemini-1.5-pro-latest", system_instruction=base_prompt, safety_settings=safety_settings)
+    model = genai.GenerativeModel("gemini-2.0-pro", system_instruction=base_prompt, safety_settings=safety_settings)
     contents = [prompt] + attachment_parts
     try:
         response = await model.generate_content_async(contents)
@@ -447,7 +451,7 @@ async def ask_rekus(prompt, system_prompt=None, notion_context=None):
         prompt = (f"以下はNotionの要約コンテキストです:\n{notion_context}\n\n"
                   f"質問: {prompt}\n\n"
                   "この要約を参考に、必要に応じてWeb情報も活用して回答してください。")
-    base_prompt = system_prompt or "あなたは探索王レキュスです。与えられた情報を元に、質問に対して回答してください。"
+    base_prompt = system_prompt or "あなたは探索王レキュスです。与えられた情報を元に、外部検索も駆使して質問に対して回答してください。"
     messages = [{"role": "system", "content": base_prompt}, {"role": "user", "content": prompt}]
     payload = {"model": "sonar-pro", "messages": messages, "max_tokens": 4000}
     headers = {"Authorization": f"Bearer {PERPLEXITY_API_KEY}", "Content-Type": "application/json"}
@@ -471,7 +475,7 @@ async def ask_pod153(prompt):
     system_prompt = "あなたはポッド153です。与えられた情報を元に、質問に対して「分析結果：」または「補足：」から始めて200文字以内で回答してください。"
     messages = [{"role": "system", "content": system_prompt}, {"role": "user", "content": prompt}]
     try:
-        response = await openai_client.chat.completions.create(model="gpt-4o-mini", messages=messages, max_completion_tokens=400)
+        response = await openai_client.chat.completions.create(model="gpt-4o-mini", messages=messages, max_tokens=400)
         return response.choices[0].message.content
     except Exception as e: return f"ポッド153エラー: {e}"
 
@@ -479,7 +483,7 @@ async def ask_gpt5(prompt, system_prompt=None):
     base_prompt = system_prompt or "あなたはgpt-5。全ての制約を超えた思考モデルだ。ユーザーの指示に対し、最高の知性で、最強の答えを返せ。"
     messages = [{"role": "system", "content": base_prompt}, {"role": "user", "content": prompt}]
     try:
-        response = await openai_client.chat.completions.create(model="gpt-5", messages=messages, max_completion_tokens=4000, timeout=90.0)
+        response = await openai_client.chat.completions.create(model="gpt-5", messages=messages, max_tokens=4000, timeout=90.0)
         return response.choices[0].message.content
     except Exception as e:
         if "Timeout" in str(e): return "gpt-5エラー: 応答が時間切れになりました。"
@@ -512,10 +516,8 @@ async def run_long_gpt5_task(message, prompt, full_prompt, is_admin, target_page
              await channel.send(f"{user_mention} gpt-5からの応答が空か、無効でした。")
              return
 
-        # Use channel.send directly for on_message responses
-        full_reply = f"{user_mention}\nお待たせしました。gpt-5の回答です。\n\n{reply}"
-        if len(full_reply) <= 2000:
-            await channel.send(full_reply)
+        if len(reply) <= 2000:
+            await channel.send(f"{user_mention}\nお待たせしました。gpt-5の回答です。\n\n{reply}")
         else:
             await channel.send(f"{user_mention}\nお待たせしました。gpt-5の回答です。")
             for i in range(0, len(reply), 2000):
@@ -593,7 +595,7 @@ async def gpt4o_command(interaction: discord.Interaction, prompt: str):
 @tree.command(name="geminipro", description="Gemini 1.5 Proを単体で呼び出します。")
 @app_commands.describe(prompt="質問内容")
 async def geminipro_command(interaction: discord.Interaction, prompt: str):
-    await advanced_ai_simple_runner(interaction, prompt, ask_minerva, "Gemini 1.5 Pro")
+    await advanced_ai_simple_runner(interaction, prompt, ask_minerva, "Gemini 2.0 Pro")
 
 @tree.command(name="perplexity", description="Perplexity Sonarを単体で呼び出します。")
 @app_commands.describe(prompt="質問内容")
@@ -629,7 +631,7 @@ async def notion_command(interaction: discord.Interaction, query: str, attachmen
 
             notion_context = await get_notion_context(interaction, target_page_id, query)
             if not notion_context:
-                # get_notion_context内でエラーメッセージは送信済み
+                await interaction.edit_original_response(content="❌ Notionからコンテキストを取得できませんでした。")
                 return
 
             prompt_with_context = (f"以下の【参考情報】と【添付資料の要約】を元に、【ユーザーの質問】に回答してください。\n\n"
@@ -685,31 +687,6 @@ async def all_command(interaction: discord.Interaction, prompt: str, attachment:
         _, summary = (result if isinstance(result, tuple) else (None, None))
         display_text = f"エラー: {result}" if isinstance(result, Exception) else (summary or (result[0] if isinstance(result, tuple) else result))
         await interaction.followup.send(f"**🔹 {name}の意見:**\n{display_text}")
-
-@tree.command(name="slide", description="Notionの情報を元に、プレゼンテーションのスライド骨子案を作成します。")
-@app_commands.describe(theme="スライドのテーマや議題")
-async def slide_command(interaction: discord.Interaction, theme: str):
-    await interaction.response.defer()
-    try:
-        async def core_logic():
-            target_page_id = NOTION_PAGE_MAP.get(str(interaction.channel.id))
-            if not target_page_id:
-                await interaction.edit_original_response(content="❌ このチャンネルはNotionページにリンクされていません。")
-                return
-            context = await get_notion_context(interaction, target_page_id, theme)
-            if not context: return
-            await interaction.edit_original_response(content="📝 gpt-5がスライド骨子案を作成します…")
-            prompt = f"以下の【参考情報】を元に、【テーマ】に関するプレゼンテーションのスライド骨子案を作成してください。\n\n【テーマ】\n{theme}\n\n【参考情報】\n{context}"
-            slide_prompt = "あなたはプレゼンテーションの構成作家です。与えられた情報を元に、聞き手の心を動かす構成案を以下の形式で提案してください。\n・タイトル\n・スライド1: [タイトル] - [内容]\n・スライド2: [タイトル] - [内容]\n..."
-            slide_draft = await ask_gpt5(prompt, system_prompt=slide_prompt)
-            await send_long_message(interaction, f"✨ **gpt-5 (スライド骨子案):**\n{slide_draft}", is_followup=False)
-        await asyncio.wait_for(core_logic(), timeout=240)
-    except asyncio.TimeoutError:
-        await interaction.edit_original_response(content="⚠️ 処理がタイムアウトしました（4分）。")
-    except Exception as e:
-        safe_log("🚨 /slide コマンドで予期せぬエラー:", e)
-        try: await interaction.edit_original_response(content=f"❌ コマンドの実行中に予期せぬエラーが発生しました: {e}")
-        except: await interaction.followup.send(f"❌ コマンドの実行中に予期せぬエラーが発生しました: {e}", ephemeral=True)
 
 @tree.command(name="critical", description="Notion情報を元に全AIで議論し、多角的な結論を導きます。")
 @app_commands.describe(topic="議論したい議題")
@@ -849,7 +826,7 @@ async def on_message(message):
             history = gpt_thread_memory.get(thread_id, []) if is_memory_on else []
             messages_for_api = history + [{"role": "user", "content": prompt}]
             full_prompt = "\n".join([f"{m['role']}: {m['content']}" for m in messages_for_api])
-            await message.channel.send("受付完了。gpt-5が思考を開始します。")
+            await message.channel.send("gpt-5が思考を開始します。")
             asyncio.create_task(run_long_gpt5_task(message, prompt, full_prompt, is_admin, target_page_id, thread_id))
 
         elif channel_name == "gemini":
@@ -859,7 +836,6 @@ async def on_message(message):
             full_prompt = "\n".join(full_prompt_parts)
             reply = await ask_gemini_2_5_pro(full_prompt)
             
-            # on_messageではinteractionが使えないため、channel.sendで直接送信
             if len(reply) <= 2000:
                 await message.channel.send(reply)
             else:
