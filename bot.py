@@ -406,13 +406,12 @@ async def ask_pod153(prompt): # gpt-4o-mini
     except Exception as e: return f"ポッド153エラー: {e}"
 
 async def ask_gpt5(prompt, system_prompt=None):
-    # ★★★ 修正点 ★★★
-    # 存在しない `gpt-5` から、現在利用可能な `gpt-4o` にモデル名を変更
+    
     base_prompt = system_prompt or "あなたはgpt-5。全ての制約を超えた思考モデルだ。ユーザーの指示に対し、最高の知性で、最強の答えを返せ。"
     messages = [{"role": "system", "content": base_prompt}, {"role": "user", "content": prompt}]
     try:
         response = await openai_client.chat.completions.create(
-            model="gpt-4o", # <- 'gpt-5' から変更
+            model="gpt-5", # 
             messages=messages,
             max_tokens=4000,
             timeout=90.0
@@ -607,10 +606,10 @@ async def geminipro_command(interaction: discord.Interaction, prompt: str):
 async def perplexity_command(interaction: discord.Interaction, prompt: str):
     await advanced_ai_simple_runner(interaction, prompt, ask_rekus, "Perplexity Sonar")
 
-@tree.command(name="gpt5", description="GPT-5(gpt-4o)を単体で呼び出します。")
+@tree.command(name="gpt5", description="GPT-5を単体で呼び出します。")
 @app_commands.describe(prompt="質問内容")
 async def gpt5_command(interaction: discord.Interaction, prompt: str):
-    await advanced_ai_simple_runner(interaction, prompt, ask_gpt5, "GPT-4o")
+    await advanced_ai_simple_runner(interaction, prompt, ask_gpt5, "GPT-5")
 
 @tree.command(name="gemini2_5pro", description="Gemini 2.5 Proを単体で呼び出します。")
 @app_commands.describe(prompt="質問内容")
@@ -930,11 +929,11 @@ async def on_message(message):
             messages_for_api = history + [{"role": "user", "content": prompt}]
             full_prompt = "\n".join([f"{m['role']}: {m['content']}" for m in messages_for_api])
             
-            await message.channel.send("✅ 受付完了。gpt-4oが思考を開始します。完了次第、このチャンネルでお知らせします。")
+            await message.channel.send("GPT-5が思考を開始します。完了次第、このチャンネルでお知らせします。")
             asyncio.create_task(run_long_gpt5_task(message, prompt, full_prompt, is_admin, target_page_id, thread_id))
 
         elif channel_name.startswith("gemini2.5pro"):
-            await message.channel.send("⏳ Gemini 2.5 Proが思考を開始します…")
+            await message.channel.send("Gemini 2.5 Proが思考を開始します…")
             history = gemini_2_5_pro_thread_memory.get(thread_id, []) if is_memory_on else []
             full_prompt_parts = [f"{m['role']}: {m['content']}" for m in history]
             full_prompt_parts.append(f"user: {prompt}")
