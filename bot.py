@@ -1007,18 +1007,22 @@ def run_flask():
     port = int(os.environ.get("PORT", 8080))
     app.run(host="0.0.0.0", port=port)
 
+# --- 起動処理 ---
+app = Flask(__name__)
+@app.route("/")
+def index():
+    return "ボットは正常に動作中です！"
+
+def run_bot():
+    # client.runはブロッキング処理なので、スレッド内で実行する
+    client.run(DISCORD_TOKEN)
+
+# Gunicornがこのファイルをインポートした時点でBotをバックグラウンドで起動する
+bot_thread = threading.Thread(target=run_bot)
+bot_thread.daemon = True
+bot_thread.start()
+
+# この部分はローカルでのテスト実行時にのみ使われる
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
-    flask_thread = threading.Thread(target=run_flask)
-    flask_thread.daemon = True
-    flask_thread.start()
-
-    print("🚦 Health check endpoint is starting, waiting 2 seconds for it to be ready...")
-    time.sleep(2)
-    print("✅ Health check endpoint should be ready.")
-
-    try:
-        print("🤖 Discordボットを起動します...")
-        client.run(DISCORD_TOKEN)
-    except Exception as e:
-        print(f"🚨 ボットの起動に失敗しました: {e}")
+    app.run(host="0.0.0.0", port=port)
