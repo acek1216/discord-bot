@@ -406,14 +406,13 @@ async def ask_pod153(prompt): # gpt-4o-mini
     except Exception as e: return f"ポッド153エラー: {e}"
 
 async def ask_gpt5(prompt, system_prompt=None):
-    
     base_prompt = system_prompt or "あなたはgpt-5。全ての制約を超えた思考モデルだ。ユーザーの指示に対し、最高の知性で、最強の答えを返せ。"
     messages = [{"role": "system", "content": base_prompt}, {"role": "user", "content": prompt}]
     try:
         response = await openai_client.chat.completions.create(
-            model="gpt-5", # 
+            model="gpt-5",
             messages=messages,
-            max_tokens=4000,
+            max_completion_tokens=4000,
             timeout=90.0
         )
         return response.choices[0].message.content
@@ -427,7 +426,7 @@ async def get_full_response_and_summary(ai_function, prompt, **kwargs):
     if not full_response or "エラー" in str(full_response):
         return full_response, None
     summary_prompt = f"次の文章を200文字以内で簡潔かつ意味が通じるように要約してください。\n\n{full_response}"
-    summary = await ask_gpt5(summary_prompt) # ask_gpt5 は内部で gpt-4o を使うように修正済み
+    summary = await ask_gpt5(summary_prompt)
     if "エラー" in str(summary):
         return full_response, None
     return full_response, summary
@@ -468,13 +467,13 @@ async def run_long_gpt5_task(message, prompt, full_prompt, is_admin, target_page
     gpt-5の長時間実行タスクをバックグラウンドで処理する関数
     """
     user_mention = message.author.mention
-    print(f"[{thread_id}] Starting long gpt-4o task for {message.author}...")
+    print(f"[{thread_id}] Starting long gpt-5 task for {message.author}...")
     try:
         if is_admin and target_page_id:
             log_blocks = [{"object": "block", "type": "paragraph", "paragraph": {"rich_text": [{"type": "text", "text": {"content": f"👤 {message.author.display_name}:\n{prompt}"}}]}}]
             await log_to_notion(target_page_id, log_blocks)
         
-        reply = await ask_gpt5(full_prompt) # 内部でgpt-4oを呼び出し
+        reply = await ask_gpt5(full_prompt)
 
         if not reply or not isinstance(reply, str) or not reply.strip():
              await message.channel.send(f"{user_mention} gpt-5からの応答が空か、無効でした。")
@@ -609,7 +608,7 @@ async def perplexity_command(interaction: discord.Interaction, prompt: str):
 @tree.command(name="gpt5", description="GPT-5を単体で呼び出します。")
 @app_commands.describe(prompt="質問内容")
 async def gpt5_command(interaction: discord.Interaction, prompt: str):
-    await advanced_ai_simple_runner(interaction, prompt, ask_gpt5, "GPT-5")
+    await advanced_ai_simple_runner(interaction, prompt, ask_gpt5, "gpt-5")
 
 @tree.command(name="gemini2_5pro", description="Gemini 2.5 Proを単体で呼び出します。")
 @app_commands.describe(prompt="質問内容")
@@ -657,7 +656,7 @@ ADVANCED_MODELS_FOR_ALL = {
     "Gemini Pro": (ask_minerva, get_full_response_and_summary),
     "Perplexity": (ask_rekus, get_full_response_and_summary),
     "Gemini 2.5 Pro": (ask_gemini_2_5_pro, get_full_response_and_summary),
-    "gpt-5": (ask_gpt-5, get_full_response_and_summary),
+    "gpt-5": (ask_gpt5, get_full_response_and_summary),
 }
 
 @tree.command(name="minna", description="5体のベースAIが議題に同時に意見を出します。")
@@ -866,9 +865,6 @@ async def logical_command(interaction: discord.Interaction, topic: str, attachme
 
 
 # --- Discordイベントハンドラ ---
-
-# ★★★ 修正点 ★★★
-# on_ready関数を、エラーが発生しても停止しない堅牢なバージョンに置き換える
 @client.event
 async def on_ready():
     # ログイン成功メッセージはASCII文字のみなので安全
@@ -930,11 +926,11 @@ async def on_message(message):
             messages_for_api = history + [{"role": "user", "content": prompt}]
             full_prompt = "\n".join([f"{m['role']}: {m['content']}" for m in messages_for_api])
             
-            await message.channel.send("GPT-5が思考を開始します。完了次第、このチャンネルでお知らせします。")
+            await message.channel.send("✅ 受付完了。gpt-5が思考を開始します。完了次第、このチャンネルでお知らせします。")
             asyncio.create_task(run_long_gpt5_task(message, prompt, full_prompt, is_admin, target_page_id, thread_id))
 
         elif channel_name.startswith("gemini2.5pro"):
-            await message.channel.send("Gemini 2.5 Proが思考を開始します…")
+            await message.channel.send("⏳ Gemini 2.5 Proが思考を開始します…")
             history = gemini_2_5_pro_thread_memory.get(thread_id, []) if is_memory_on else []
             full_prompt_parts = [f"{m['role']}: {m['content']}" for m in history]
             full_prompt_parts.append(f"user: {prompt}")
@@ -970,7 +966,7 @@ def run_flask():
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
-    flask_thread = threading.Thread(target=lambda: app.run(host="0.0.0.0", port=port))
+    flask_thread = threading.Thread(target=lambda: app.run(host="0.0.o", port=port))
     flask_thread.daemon = True
     flask_thread.start()
 
