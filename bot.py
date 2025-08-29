@@ -56,7 +56,7 @@ from PIL import Image
 import requests
 import vertexai
 from vertexai.generative_models import GenerativeModel
-
+import PyPDF2
 
 # --- 環境変数の読み込みと必須チェック ---
 def get_env_variable(var_name: str, is_secret: bool = True) -> str:
@@ -128,7 +128,7 @@ mistral_base_memory = {}
 claude_base_memory = {}
 llama_base_memory = {}
 gpt_thread_memory = {}
-gemini_2_5_pro_thread_memory = {}
+gemini_thread_memory = {} # gemini2.5pro_thread_memory から変更
 processing_users = set()
 
 # --- ヘルパー関数 ---
@@ -142,7 +142,7 @@ async def send_long_message(channel, text):
             await channel.send(text[i:i+2000])
 
 async def process_attachment(attachment: discord.Attachment, channel: discord.TextChannel) -> str:
-    """添付ファイルを処理し、要約テキストを返す"""
+    """[旧] 添付ファイルを処理し、要約テキストを返す (Gemini Pro)"""
     await channel.send("💠 添付ファイルをGemini Proが分析し、議題とします…")
     try:
         attachment_data = await attachment.read()
@@ -154,6 +154,41 @@ async def process_attachment(attachment: discord.Attachment, channel: discord.Te
     except Exception as e:
         await channel.send(f"❌ 添付ファイルの分析中にエラーが発生しました: {e}")
         return ""
+
+async def analyze_attachment_for_gpt5(attachment: discord.Attachment):
+    """[新] 添付ファイルを種類に応じてgpt-4oやテキスト抽出で解析する"""
+    filename = attachment.filename.lower()
+    data = await attachment.read()
+
+    # 画像系は gpt-4o Vision
+    if filename.endswith((".png", ".jpg", ".jpeg", ".gif", ".webp")):
+        content = [
+            {"type": "text", "text": "この画像の内容を分析し、後続のGPT-5へのインプットとして要約してください。"},
+            {"type": "image_url", "image_url": {"url": attachment.url}}
+        ]
+        response = await openai_client.chat.completions.create(
+            model="gpt-4o",
+            messages=[{"role": "user", "content": content}],
+            max_tokens=1500
+        )
+        return f"[gpt-4o画像解析]\n{response.choices[0].message.content}"
+
+    # Pythonやテキスト
+    elif filename.endswith((".py", ".txt", ".md", ".json", ".html", ".css", ".js")):
+        text = data.decode("utf-8", errors="ignore")
+        return f"[添付コード {attachment.filename}]\n```\n{text[:3500]}\n```"
+
+    # PDF
+    elif filename.endswith(".pdf"):
+        try:
+            pdf_reader = PyPDF2.PdfReader(io.BytesIO(data))
+            all_text = "\n".join([p.extract_text() or "" for p in pdf_reader.pages])
+            return f"[添付PDF {attachment.filename} 抜粋]\n{all_text[:3500]}"
+        except Exception as e:
+            return f"[PDF解析エラー: {e}]"
+
+    else:
+        return f"[未対応の添付ファイル形式: {attachment.filename}]"
 
 # --- Notion連携関数 ---
 def _sync_get_notion_page_text(page_id):
@@ -335,7 +370,7 @@ async def ask_kreios(prompt, system_prompt=None): # gpt-4o
     base_prompt = system_prompt or "あなたはハマーン・カーンです。与えられた情報を元に、質問に対して回答してください。"
     messages = [{"role": "system", "content": base_prompt}, {"role": "user", "content": prompt}]
     try:
-        response = await openai_client.chat.completions.create(model="gpt-4o", messages=messages, max_completion_tokens=4000)
+        response = await openai_client.chat.completions.create(model="gpt-4o", messages=messages, max_tokens=4000)
         return response.choices[0].message.content
     except Exception as e: return f"gpt-4oエラー: {e}"
 
@@ -401,7 +436,7 @@ async def ask_pod153(prompt): # gpt-4o-mini
     system_prompt = "あなたはポッド153です。与えられた情報を元に、質問に対して「分析結果：」または「補足：」から始めて200文字以内で回答してください。"
     messages = [{"role": "system", "content": system_prompt}, {"role": "user", "content": prompt}]
     try:
-        response = await openai_client.chat.completions.create(model="gpt-4o-mini", messages=messages, max_completion_tokens=400)
+        response = await openai_client.chat.completions.create(model="gpt-4o-mini", messages=messages, max_tokens=400)
         return response.choices[0].message.content
     except Exception as e: return f"ポッド153エラー: {e}"
 
@@ -478,6 +513,8 @@ async def run_long_gpt5_task(message, prompt, full_prompt, is_admin, target_page
         if not reply or not isinstance(reply, str) or not reply.strip():
              await message.channel.send(f"{user_mention} gpt-5からの応答が空か、無効でした。")
              return
+
+        await send_long_message(message.channel, f"{user_mention}\nお待たせしました。gpt-5の回答です。\n\n{reply}")
       
         is_memory_on = await get_memory_flag_from_notion(thread_id)
         if is_memory_on:
@@ -904,7 +941,8 @@ async def on_message(message):
         return
 
     channel_name = message.channel.name.lower()
-    if not (channel_name.startswith("gpt") or channel_name.startswith("gemini2.5pro")):
+    # gemini部屋の条件を完全一致に変更
+    if not (channel_name.startswith("gpt") or channel_name == "gemini"):
         return
 
     processing_users.add(message.author.id)
@@ -914,7 +952,11 @@ async def on_message(message):
         is_admin = str(message.author.id) == ADMIN_USER_ID
         target_page_id = NOTION_PAGE_MAP.get(thread_id, NOTION_MAIN_PAGE_ID)
 
-        if message.attachments:
+        # gpt部屋のみ新しい添付ファイル処理を使用
+        if channel_name.startswith("gpt") and message.attachments:
+            analysis_text = await analyze_attachment_for_gpt5(message.attachments[0])
+            prompt += "\n\n" + analysis_text
+        elif message.attachments: # gemini部屋など他のチャンネルは元の処理
             prompt += await process_attachment(message.attachments[0], message.channel)
 
         is_memory_on = await get_memory_flag_from_notion(thread_id)
@@ -926,21 +968,22 @@ async def on_message(message):
             
             await message.channel.send("受付完了。gpt-5が思考を開始します。完了次第、このチャンネルでお知らせします。")
             asyncio.create_task(run_long_gpt5_task(message, prompt, full_prompt, is_admin, target_page_id, thread_id))
-            reply = await ask_gpt5(full_prompt)
-            await send_long_message(message.channel, reply)
 
-        elif channel_name.startswith("gemini2.5pro"):
+        elif channel_name == "gemini": # gemini部屋の条件を完全一致に変更
             await message.channel.send("Gemini 2.5 Proが思考を開始します…")
-            history = gemini_2_5_pro_thread_memory.get(thread_id, []) if is_memory_on else []
+            history = gemini_thread_memory.get(thread_id, []) if is_memory_on else []
+            
             full_prompt_parts = [f"{m['role']}: {m['content']}" for m in history]
             full_prompt_parts.append(f"user: {prompt}")
             full_prompt = "\n".join(full_prompt_parts)
+
             reply = await ask_gemini_2_5_pro(full_prompt)
+
             await send_long_message(message.channel, reply)
 
             if is_memory_on and "エラー" not in reply:
                 history.extend([{"role": "user", "content": prompt}, {"role": "assistant", "content": reply}])
-                gemini_2_5_pro_thread_memory[thread_id] = history[-10:]
+                gemini_thread_memory[thread_id] = history[-10:]
 
             if is_admin and target_page_id:
                 log_blocks = [{"object": "block", "type": "paragraph", "paragraph": {"rich_text": [{"type": "text", "text": {"content": f"👤 {message.author.display_name}:\n{prompt}"}}]}}]
