@@ -849,19 +849,34 @@ async def on_message(message):
 # Flask アプリ
 app = Flask(__name__)
 
+# --- Bot起動を管理するためのグローバル変数 ---
+bot_thread = None
+bot_startup_lock = threading.Lock()
+
 @app.route("/")
 def index():
-    return "ok"  # Cloud Run ヘルスチェック用
+    """ヘルスチェック用エンドポイント。初回アクセス時にBotを起動する。"""
+    global bot_thread
+    # 複数リクエストが同時に来ても一度しか実行されないようにロックする
+    with bot_startup_lock:
+        if bot_thread is None:
+            # Botを別スレッドで起動
+            bot_thread = threading.Thread(target=run_bot, daemon=True)
+            bot_thread.start()
+            print("🚀 Discord Bot thread started by the first request.")
+    return "ok"
 
-# ---- Bot起動と重い初期化はここでまとめて実施 ----
 def run_bot():
+    """Botの初期化と実行を行う関数。"""
     global openai_client, mistral_client, notion, llama_model_for_vertex
 
-    # 外部クライアントをここで初期化（import時にはやらない）
+    # --- ここで全ての重い初期化を行う ---
+    print("🤖 Initializing API clients...")
     genai.configure(api_key=GEMINI_API_KEY)
     openai_client = AsyncOpenAI(api_key=OPENAI_API_KEY)
     mistral_client = MistralAsyncClient(api_key=MISTRAL_API_KEY)
     notion = Client(auth=NOTION_API_KEY)
+    
     try:
         print("🤖 Initializing Vertex AI...")
         vertexai.init(project="stunning-agency-469102-b5", location="us-central1")
@@ -871,24 +886,17 @@ def run_bot():
         print(f"🚨 Vertex AI init failed (continue without it): {e}")
         llama_model_for_vertex = None
 
-    # 最後にDiscordクライアントを開始
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    loop.run_until_complete(client.start(DISCORD_TOKEN))
-    loop.close()
+    # --- Discordクライアントを開始 ---
+    # この呼び出しはブロッキングなので、関数の最後に置く
+    print("🔐 Starting Discord client...")
+    client.run(DISCORD_TOKEN)
 
-# Cloud Run: 最初のHTTPリクエストが来たタイミングでBotを起動（WSGIロードは軽くする）
-_bot_started = False
-@app.before_first_request
-def _start_bot_once():
-    global _bot_started
-    if not _bot_started:
-        threading.Thread(target=run_bot, daemon=True).start()
-        _bot_started = True
-        print("🚀 Discord Bot thread started")
 
-# ローカル実行時のみ（python bot.py）
+# ローカル実行時（python bot.py）のエントリポイント
 if __name__ == "__main__":
     print("🚀 Starting Flask + Discord bot (local)...")
-    _start_bot_once()
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
+    # ローカル実行時は直接Botスレッドを開始
+    index() # 初回リクエストを模倣してBotを起動
+    # Flaskアプリを起動
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host="0.0.0.0", port=port)
