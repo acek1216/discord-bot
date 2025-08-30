@@ -866,7 +866,7 @@ async def on_message(message):
         if message.author.id in processing_users:
             processing_users.remove(message.author.id)
 
-# --- ここからFlask統合コード ---
+# Flask アプリ
 app = Flask(__name__)
 
 @app.route("/")
@@ -879,8 +879,12 @@ def run_bot():
     loop.run_until_complete(client.start(DISCORD_TOKEN))
     loop.close()
 
+# Gunicorn import 時にこのスレッドを起動
+bot_thread = threading.Thread(target=run_bot, daemon=True)
+bot_thread.start()
+
+# ローカルテスト用
 if __name__ == "__main__":
-    print("🚀 Starting Flask + Discord bot...")
-    bot_thread = threading.Thread(target=run_bot, daemon=True)
-    bot_thread.start()
-    app.run(host="0.0.0.0", port=8080)
+    print("Starting Flask server for local testing...")
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
+
