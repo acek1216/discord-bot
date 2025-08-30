@@ -49,7 +49,7 @@ def get_env_variable(var_name: str, is_secret: bool = True) -> str:
     value = os.getenv(var_name)
     if not value:
         print(f"🚨 致命的なエラー: 環境変数 '{var_name}' が設定されていません。")
-        return ""
+        sys.exit(1)
     if is_secret:
         print(f"🔑 環境変数 '{var_name}' を読み込みました (Value: ...{value[-4:]})")
     else:
@@ -887,81 +887,52 @@ async def on_message(message):
             await message.channel.send("Perplexity Sonarが思考を開始します…")
             history = perplexity_thread_memory.get(thread_id, []) if is_memory_on else []
             history_text = "\n".join([f"{m['role']}: {m['content']}" for m in history])
-
-            # ★ 任意: ユーザー発言を先に Notion へログ
-            if str(message.author.id) == ADMIN_USER_ID and target_page_id:
-                await log_to_notion(target_page_id, [{
-                    "object": "block",
-                    "type": "paragraph",
-                    "paragraph": {
-                        "rich_text": [{
-                            "type": "text",
-                            "text": {"content": f"👤 {message.author.display_name}:\n{prompt}"}
-                        }]
-                    }
-                }])
-
+            
             # PerplexityはNotionコンテキストを特別扱いできるので、引数で渡す
+            # ask_rekusのプロンプトはシンプルに会話の履歴と質問のみにする
             rekus_prompt = f"【これまでの会話】\n{history_text or 'なし'}\n\n【今回の質問】\nuser: {prompt}"
             reply = await ask_rekus(rekus_prompt, notion_context=notion_context)
-
-            # （応答ロジックは変更なし）
-            if len(reply) <= 2000:
-                await message.channel.send(reply)
+            
+            # (応答と履歴保存のロジックは変更なし)
+            if len(reply) <= 2000: await message.channel.send(reply)
             else:
-                for i in range(0, len(reply), 2000):
-                    await message.channel.send(reply[i:i+2000])
-
-            # ★★★ ここが修正箇所です ★★★
-            # AIの回答を Notion に事後ログ (エラー通知機能付き)
-            if str(message.author.id) == ADMIN_USER_ID and target_page_id:
-                try:
-                    await log_response(target_page_id, reply, "Perplexity Sonar")
-                except Exception as e:
-                    # Notionでエラーが起きたら、その内容をDiscordに送信する
-                    error_info = str(e)
-                    await message.channel.send(f"⚠️ **Notionへの書き込みに失敗しました。**\n"
-                                               f"**原因**: ページの権限不足、または書き込めない種類のページ（データベース等）が指定されている可能性があります。\n"
-                                               f"**Notion APIからのエラー**: `{error_info[:1500]}`")
-
-            # （履歴保存ロジックは変更なし）
+                for i in range(0, len(reply), 2000): await message.channel.send(reply[i:i+2000])
             if is_memory_on and "エラー" not in str(reply):
-                history.extend([
-                    {"role": "user", "content": prompt},
-                    {"role": "assistant", "content": reply}
-                ])
+                history.extend([{"role": "user", "content": prompt}, {"role": "assistant", "content": reply}])
                 perplexity_thread_memory[thread_id] = history[-10:]
 
+    except Exception as e:
+        print(f"on_messageでエラーが発生しました: {e}")
+        await message.channel.send(f"予期せぬエラーが発生しました: ```{str(e)[:1800]}```")
+    finally:
+        if message.author.id in processing_users:
+            processing_users.remove(message.author.id)
+            
 @app.on_event("startup")
 async def startup_event():
     """サーバー起動時にBotをバックグラウンドで起動する"""
+    # 起動時にAPIクライアントを初期化
     global openai_client, mistral_client, notion, llama_model_for_vertex
     
+    print("🤖 Initializing API clients...")
+    openai_client = AsyncOpenAI(api_key=OPENAI_API_KEY)
+    mistral_client = MistralAsyncClient(api_key=MISTRAL_API_KEY)
+    notion = Client(auth=NOTION_API_KEY)
+    genai.configure(api_key=GEMINI_API_KEY)
+    
     try:
-        print("🤖 Initializing API clients...")
-        openai_client = AsyncOpenAI(api_key=OPENAI_API_KEY)
-        mistral_client = MistralAsyncClient(api_key=MISTRAL_API_KEY)
-        notion = Client(auth=NOTION_API_KEY)
-        genai.configure(api_key=GEMINI_API_KEY)
-        
-        try:
-            print("🤖 Initializing Vertex AI...")
-            vertexai.init(project="stunning-agency-469102-b5", location="us-central1")
-            llama_model_for_vertex = GenerativeModel("publishers/meta/models/llama-3.3-70b-instruct-maas")
-            print("✅ Vertex AI initialized successfully.")
-        except Exception as e:
-            print(f"🚨 Vertex AI init failed (continue without it): {e}")
-
-        # Botをバックグラウンドタスクとして起動
-        print("🚀 Creating Discord Bot startup task...")
-        asyncio.create_task(client.start(DISCORD_TOKEN))
-        print("✅ Discord Bot startup task has been created.")
-
+        print("🤖 Initializing Vertex AI...")
+        vertexai.init(project="stunning-agency-469102-b5", location="us-central1")
+        llama_model_for_vertex = GenerativeModel("publishers/meta/models/llama-3.3-70b-instruct-maas")
+        print("✅ Vertex AI initialized successfully.")
     except Exception as e:
-        # ★★★ ここが重要な追加箇所 ★★★
-        # 起動処理中に何かエラーが起きたら、ログに出力してクラッシュを防ぐ
-        print(f"🚨🚨🚨 FATAL ERROR during startup event: {e} 🚨🚨🚨")
-        # ここで sys.exit(1) などを呼び出さないことで、サーバー自体は起動を試みる
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", "8080"))
-    uvicorn.run(app, host="0.0.0.0", port=port)
+        print(f"🚨 Vertex AI init failed (continue without it): {e}")
+
+    # Botをバックグラウンドタスクとして起動
+    asyncio.create_task(client.start(DISCORD_TOKEN))
+    print("🚀 Discord Bot startup task has been created.")
+
+@app.get("/")
+def health_check():
+    """ヘルスチェック用のエンドポイント"""
+    return {"status": "ok", "bot_is_connected": client.is_ready()}
