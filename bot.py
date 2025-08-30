@@ -905,17 +905,26 @@ async def on_message(message):
             rekus_prompt = f"【これまでの会話】\n{history_text or 'なし'}\n\n【今回の質問】\nuser: {prompt}"
             reply = await ask_rekus(rekus_prompt, notion_context=notion_context)
 
-            # （応答と履歴保存のロジックは変更なし）
+            # （応答ロジックは変更なし）
             if len(reply) <= 2000:
                 await message.channel.send(reply)
             else:
                 for i in range(0, len(reply), 2000):
                     await message.channel.send(reply[i:i+2000])
 
-            # ★ 追加: AIの回答を Notion に事後ログ
+            # ★★★ ここが修正箇所です ★★★
+            # AIの回答を Notion に事後ログ (エラー通知機能付き)
             if str(message.author.id) == ADMIN_USER_ID and target_page_id:
-                await log_response(target_page_id, reply, "Perplexity Sonar")
+                try:
+                    await log_response(target_page_id, reply, "Perplexity Sonar")
+                except Exception as e:
+                    # Notionでエラーが起きたら、その内容をDiscordに送信する
+                    error_info = str(e)
+                    await message.channel.send(f"⚠️ **Notionへの書き込みに失敗しました。**\n"
+                                               f"**原因**: ページの権限不足、または書き込めない種類のページ（データベース等）が指定されている可能性があります。\n"
+                                               f"**Notion APIからのエラー**: `{error_info[:1500]}`")
 
+            # （履歴保存ロジックは変更なし）
             if is_memory_on and "エラー" not in str(reply):
                 history.extend([
                     {"role": "user", "content": prompt},
