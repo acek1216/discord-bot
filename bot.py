@@ -597,12 +597,12 @@ async def pod153_command(interaction: discord.Interaction, prompt: str):
 async def gpt4o_command(interaction: discord.Interaction, prompt: str):
     await advanced_ai_simple_runner(interaction, prompt, ask_kreios, "GPT-4o")
 
-@tree.command(name="geminipro", description="Gemini 1.5 Proを単体で呼び出します。")
+@tree.command(name="geminipro", description="GeminiProを単体で呼び出します。")
 @app_commands.describe(prompt="質問内容")
 async def geminipro_command(interaction: discord.Interaction, prompt: str):
     await advanced_ai_simple_runner(interaction, prompt, ask_minerva, "Gemini 2.0 Pro")
 
-@tree.command(name="perplexity", description="Perplexity Sonarを単体で呼び出します。")
+@tree.command(name="perplexity", description="PerplexitySonarを単体で呼び出します。")
 @app_commands.describe(prompt="質問内容")
 async def perplexity_command(interaction: discord.Interaction, prompt: str):
     await advanced_ai_simple_runner(interaction, prompt, ask_rekus, "Perplexity Sonar")
