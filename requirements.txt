@@ -8,7 +8,4 @@ Pillow
 mistralai==0.4.2
 aiohttp
 google-cloud-aiplatform>=1.49.0
-Flask
-gunicorn
 PyPDF2
-
