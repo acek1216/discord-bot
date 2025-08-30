@@ -217,28 +217,52 @@ async def summarize_attachment_content(interaction: discord.Interaction, attachm
         return None
     return await summarize_text_chunks(interaction, extracted_text, query)
 
-async def summarize_text_chunks(interaction: discord.Interaction, text: str, query: str):
-    """テキストをチャンク分割し、Geminiで並列要約、Mistral Largeで統合する共通関数"""
-    # モデルを速度の速いFlashに変更し、チャンクサイズを大幅に拡大
+async def summarize_text_chunks_for_message(message: discord.Message, text: str, query: str):
+    """[on_message用] テキストをチャンク分割し、Geminiで並列要約、Mistral Largeで統合する"""
     chunk_summarizer_model = genai.GenerativeModel("gemini-1.5-flash-latest", system_instruction="あなたは構造化要約AIです。")
-    chunk_size = 128000  # 8000から大幅に増やす (Gemini 1.5は長文対応のため)
+    chunk_size = 128000
     text_chunks = [text[i:i + chunk_size] for i in range(0, len(text), chunk_size)]
     
-    await interaction.edit_original_response(content=f"✅ テキスト抽出完了。Geminiによるチャンク毎の並列要約を開始… (全{len(text_chunks)}チャンク)")
+    await message.channel.send(f"✅ テキスト抽出完了。Geminiによるチャンク毎の並列要約を開始… (全{len(text_chunks)}チャンク)")
 
-    # 各チャンクを要約する非同期タスクを作成する
     async def summarize_chunk(chunk, index):
         prompt = f"以下のテキストを要約し、必ず以下のタグを付けて分類してください：\n[背景情報]\n[定義・前提]\n[事実経過]\n[未解決課題]\n[補足情報]\nタグは省略可ですが、存在する場合は必ず上記のいずれかに分類してください。\nユーザーの質問は「{query}」です。この質問との関連性を考慮して要約してください。\n\n【テキスト】\n{chunk}"
         try:
-            # 各タスクのタイムアウトを少し長めに設定
             response = await asyncio.wait_for(chunk_summarizer_model.generate_content_async(prompt), timeout=120)
             return response.text
         except asyncio.TimeoutError:
-            await interaction.followup.send(f"⚠️ チャンク {index+1} の要約中にタイムアウトしました。処理をスキップします。", ephemeral=True)
+            await message.channel.send(f"⚠️ チャンク {index+1} の要約中にタイムアウトしました。")
             return None
         except Exception as e:
-            await interaction.followup.send(f"⚠️ チャンク {index+1} の要約中にエラー: {e}", ephemeral=True)
+            await message.channel.send(f"⚠️ チャンク {index+1} の要約中にエラー: {e}")
             return None
+
+    tasks = [summarize_chunk(chunk, i) for i, chunk in enumerate(text_chunks)]
+    chunk_summaries_results = await asyncio.gather(*tasks)
+    chunk_summaries = [summary for summary in chunk_summaries_results if summary is not None]
+
+    if not chunk_summaries:
+        await message.channel.send("❌ 全てのチャンクの要約に失敗しました。")
+        return None
+
+    await message.channel.send("✅ 全チャンクの要約完了。Mistral Largeが統合・分析します…")
+    combined = "\n---\n".join(chunk_summaries)
+    prompt = f"以下の、タグ付けされた複数の要約群を、一つの構造化されたレポートに統合してください。\n各タグ（[背景情報]、[事実経過]など）ごとに内容をまとめ直し、最終的なコンテキストとして出力してください。\n\n【ユーザーの質問】\n{query}\n\n【タグ付き要약群】\n{combined}"
+    try:
+        final_context = await asyncio.wait_for(ask_lalah(prompt, system_prompt="あなたは構造化統合AIです。"), timeout=90)
+        return final_context
+    except Exception:
+        await message.channel.send("⚠️ 最終統合中にタイムアウトまたはエラーが発生しました。")
+        return None
+
+async def get_notion_context_for_message(message: discord.Message, page_id: str, query: str):
+    """[on_message用] Notionページを読み込み、要約してコンテキストを返す"""
+    await message.channel.send("📚 Notionページを読み込んでいます…")
+    notion_text = await get_notion_page_text(page_id)
+    if notion_text.startswith("ERROR:") or not notion_text.strip():
+        await message.channel.send("❌ Notionページからテキストを取得できませんでした。")
+        return None
+    return await summarize_text_chunks_for_message(message, notion_text, query)
 
     # タスクのリストを作成し、asyncio.gatherで全て並列実行する
     tasks = [summarize_chunk(chunk, i) for i, chunk in enumerate(text_chunks)]
@@ -818,7 +842,6 @@ async def on_message(message):
         return
 
     channel_name = message.channel.name.lower()
-    # ▼ Perplexity部屋を処理対象に追加
     if not (channel_name.startswith("gpt") or channel_name == "gemini" or channel_name.startswith("perplexity")): return
 
     processing_users.add(message.author.id)
@@ -828,59 +851,70 @@ async def on_message(message):
         is_admin = str(message.author.id) == ADMIN_USER_ID
         target_page_id = NOTION_PAGE_MAP.get(thread_id, NOTION_MAIN_PAGE_ID)
 
-        # ▼ 添付ファイル処理をGPT部屋の条件分岐から外に出し、全部屋で共通化
+        # ▼ 添付ファイル処理 (変更なし)
         if message.attachments:
             await message.channel.send("📎 添付ファイルを解析しています…")
             analysis_text = await analyze_attachment_for_gpt5(message.attachments[0])
             prompt += "\n\n" + analysis_text
         
         is_memory_on = await get_memory_flag_from_notion(thread_id)
-        
+
+        # ▼ Notionコンテキストの取得処理を追加
+        notion_context = await get_notion_context_for_message(message, target_page_id, prompt)
+        if notion_context is None:
+            await message.channel.send("⚠️ Notionの参照に失敗したため、会話履歴のみで応答します。")
+
+        # ▼ 各モデルのプロンプト構築部分を修正
         if channel_name.startswith("gpt"):
             history = gpt_thread_memory.get(thread_id, []) if is_memory_on else []
-            messages_for_api = history + [{"role": "user", "content": prompt}]
-            full_prompt = "\n".join([f"{m['role']}: {m['content']}" for m in messages_for_api])
+            history_text = "\n".join([f"{m['role']}: {m['content']}" for m in history])
+            
+            full_prompt = f"【Notionページの要約】\n{notion_context or '参照なし'}\n\n【これまでの会話】\n{history_text or 'なし'}\n\n【今回の質問】\n{prompt}"
+            
             await message.channel.send("受付完了。gpt-5が思考を開始します。")
             asyncio.create_task(run_long_gpt5_task(message, prompt, full_prompt, is_admin, target_page_id, thread_id))
 
         elif channel_name == "gemini":
             await message.channel.send("Gemini 2.5 Proが思考を開始します…")
             history = gemini_thread_memory.get(thread_id, []) if is_memory_on else []
-            full_prompt_parts = [f"{m['role']}: {m['content']}" for m in history] + [f"user: {prompt}"]
-            full_prompt = "\n".join(full_prompt_parts)
+            history_text = "\n".join([f"{m['role']}: {m['content']}" for m in history])
+
+            full_prompt = f"【Notionページの要約】\n{notion_context or '参照なし'}\n\n【これまでの会話】\n{history_text or 'なし'}\n\n【今回の質問】\nuser: {prompt}"
+            
             reply = await ask_gemini_2_5_pro(full_prompt)
             
-            if len(reply) <= 2000:
-                await message.channel.send(reply)
+            # (応答と履歴保存のロジックは変更なし)
+            if len(reply) <= 2000: await message.channel.send(reply)
             else:
-                for i in range(0, len(reply), 2000):
-                    await message.channel.send(reply[i:i+2000])
-
+                for i in range(0, len(reply), 2000): await message.channel.send(reply[i:i+2000])
             if is_memory_on and "エラー" not in reply:
                 history.extend([{"role": "user", "content": prompt}, {"role": "assistant", "content": reply}])
                 gemini_thread_memory[thread_id] = history[-10:]
         
-        # ▼ Perplexity部屋用の処理ブロックをここに追加
         elif channel_name.startswith("perplexity"):
             await message.channel.send("Perplexity Sonarが思考を開始します…")
             history = perplexity_thread_memory.get(thread_id, []) if is_memory_on else []
-            # ask_rekusは単一のプロンプト文字列を期待するため、履歴を結合
-            full_prompt_parts = [f"{m['role']}: {m['content']}" for m in history] + [f"user: {prompt}"]
-            full_prompt = "\n".join(full_prompt_parts)
+            history_text = "\n".join([f"{m['role']}: {m['content']}" for m in history])
             
-            # notion_contextは部屋での対話では不要なため、Noneのまま呼び出し
-            reply = await ask_rekus(full_prompt)
+            # PerplexityはNotionコンテキストを特別扱いできるので、引数で渡す
+            # ask_rekusのプロンプトはシンプルに会話の履歴と質問のみにする
+            rekus_prompt = f"【これまでの会話】\n{history_text or 'なし'}\n\n【今回の質問】\nuser: {prompt}"
+            reply = await ask_rekus(rekus_prompt, notion_context=notion_context)
             
-            if len(reply) <= 2000:
-                await message.channel.send(reply)
+            # (応答と履歴保存のロジックは変更なし)
+            if len(reply) <= 2000: await message.channel.send(reply)
             else:
-                for i in range(0, len(reply), 2000):
-                    await message.channel.send(reply[i:i+2000])
-
-            # 成功した場合、会話履歴を保存
+                for i in range(0, len(reply), 2000): await message.channel.send(reply[i:i+2000])
             if is_memory_on and "エラー" not in str(reply):
                 history.extend([{"role": "user", "content": prompt}, {"role": "assistant", "content": reply}])
                 perplexity_thread_memory[thread_id] = history[-10:]
+
+    except Exception as e:
+        print(f"on_messageでエラーが発生しました: {e}")
+        await message.channel.send(f"予期せぬエラーが発生しました: ```{str(e)[:1800]}```")
+    finally:
+        if message.author.id in processing_users:
+            processing_users.remove(message.author.id)
 
     except Exception as e:
         print(f"on_messageでエラーが発生しました: {e}")
