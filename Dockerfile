@@ -6,9 +6,14 @@ ENV APP_HOME /app
 ENV LANG C.UTF-8
 WORKDIR $APP_HOME
 
-# 必要なライブラリをインストール
+# 最初にライブラリをインストール
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# 最後のCMD命令を以下のように変更
+# ★★★★★ ここが決定的に抜けていました ★★★★★
+# アプリケーションのコードをコンテナにコピーします
+COPY main.py .
+COPY bot_app.py .
+
+# コンテナ起動時にGunicornを実行します
 CMD exec gunicorn --bind :$PORT --workers 1 --threads 1 --timeout 0 main:app
