@@ -16,4 +16,4 @@ COPY bot.py .
 
 # コンテナ起動時にUvicornを実行します
 # Command to run the application
-CMD uvicorn bot:app --host 0.0.0.0 --port $PORT
+CMD ["uvicorn","bot:app","--host","0.0.0.0","--port","8080"]
