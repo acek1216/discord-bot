@@ -10,10 +10,9 @@ WORKDIR $APP_HOME
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# ★★★★★ ここが決定的に抜けていました ★★★★★
 # アプリケーションのコードをコンテナにコピーします
 COPY main.py .
-COPY bot_app.py .
+COPY bot.py .
 
 # コンテナ起動時にGunicornを実行します
 CMD exec gunicorn --bind :$PORT --workers 1 --threads 1 --timeout 0 main:app
