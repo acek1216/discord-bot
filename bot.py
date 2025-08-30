@@ -846,32 +846,12 @@ async def on_message(message):
         if message.author.id in processing_users:
             processing_users.remove(message.author.id)
 
-# Flask アプリ
-app = Flask(__name__)
-
-# --- Bot起動を管理するためのグローバル変数 ---
-bot_thread = None
-bot_startup_lock = threading.Lock()
-
-@app.route("/")
-def index():
-    """ヘルスチェック用エンドポイント。初回アクセス時にBotを起動する。"""
-    global bot_thread
-    # 複数リクエストが同時に来ても一度しか実行されないようにロックする
-    with bot_startup_lock:
-        if bot_thread is None:
-            # Botを別スレッドで起動
-            bot_thread = threading.Thread(target=run_bot, daemon=True)
-            bot_thread.start()
-            print("🚀 Discord Bot thread started by the first request.")
-    return "ok"
-
-def run_bot():
-    """Botの初期化と実行を行う関数。"""
+def start():
+    """Botの初期化と実行を行うメイン関数"""
     global openai_client, mistral_client, notion, llama_model_for_vertex
 
     # --- ここで全ての重い初期化を行う ---
-    print("🤖 Initializing API clients...")
+    print("🤖 Initializing API clients in bot thread...")
     genai.configure(api_key=GEMINI_API_KEY)
     openai_client = AsyncOpenAI(api_key=OPENAI_API_KEY)
     mistral_client = MistralAsyncClient(api_key=MISTRAL_API_KEY)
@@ -887,16 +867,6 @@ def run_bot():
         llama_model_for_vertex = None
 
     # --- Discordクライアントを開始 ---
-    # この呼び出しはブロッキングなので、関数の最後に置く
     print("🔐 Starting Discord client...")
+    # client.start は非推奨なので client.run に変更
     client.run(DISCORD_TOKEN)
-
-
-# ローカル実行時（python bot.py）のエントリポイント
-if __name__ == "__main__":
-    print("🚀 Starting Flask + Discord bot (local)...")
-    # ローカル実行時は直接Botスレッドを開始
-    index() # 初回リクエストを模倣してBotを起動
-    # Flaskアプリを起動
-    port = int(os.environ.get("PORT", 8080))
-    app.run(host="0.0.0.0", port=port)
