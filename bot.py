@@ -584,7 +584,7 @@ async def pod153_command(interaction: discord.Interaction, prompt: str):
 async def gpt4o_command(interaction: discord.Interaction, prompt: str):
     await advanced_ai_simple_runner(interaction, prompt, ask_kreios, "GPT-4o")
 
-@tree.command(name="gemini2.0", description="Gemini 2.0 Flashを単体で呼び出します。")
+@tree.command(name="gemini2-0", description="Gemini 2.0 Flashを単体で呼び出します。")
 @app_commands.describe(prompt="質問内容")
 async def gemini2_0_command(interaction: discord.Interaction, prompt: str):
     await advanced_ai_simple_runner(interaction, prompt, ask_minerva, "Gemini 2.0 Flash")
