@@ -27,6 +27,9 @@ def index():
             bot_thread.start()
             print("🚀 Kicked off Discord Bot thread by the first request.")
     return "ok"
+
+# ローカル実行時のためのコード
+if __name__ == "__main__":
     print("🚀 Starting Flask + Discord bot (local)...")
     index() # Bot起動をトリガー
     port = int(os.environ.get("PORT", 8080))
