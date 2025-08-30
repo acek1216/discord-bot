@@ -868,6 +868,19 @@ async def on_message(message):
 
 
 # --- 起動処理 ---
-if __name__ == "__main__":
-    print("🤖 Discordボットを起動します...")
+app = Flask(__name__)
+
+def run_bot():
     client.run(DISCORD_TOKEN)
+
+# ▼ ここ（import時起動）を削除
+# bot_thread = threading.Thread(target=run_bot)
+# bot_thread.daemon = True
+# bot_thread.start()
+
+if __name__ == "__main__":
+    t = threading.Thread(target=run_bot, daemon=True)
+    t.start()
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host="0.0.0.0", port=port)
+
