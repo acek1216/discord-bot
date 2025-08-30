@@ -907,14 +907,7 @@ async def on_message(message):
     finally:
         if message.author.id in processing_users:
             processing_users.remove(message.author.id)
-
-    except Exception as e:
-        print(f"on_messageでエラーが発生しました: {e}")
-        await message.channel.send(f"予期せぬエラーが発生しました: ```{str(e)[:1800]}```")
-    finally:
-        if message.author.id in processing_users:
-            processing_users.remove(message.author.id)
-# --- サーバーとBotの起動処理 ---
+            
 @app.on_event("startup")
 async def startup_event():
     """サーバー起動時にBotをバックグラウンドで起動する"""
