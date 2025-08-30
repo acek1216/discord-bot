@@ -850,10 +850,11 @@ def start():
     """Botの初期化と実行を行うメイン関数"""
     global openai_client, mistral_client, notion, llama_model_for_vertex
 
-# bot.pyの末尾に追記するコード
+# bot.pyの末尾に、このstart()関数だけを記述してください
+
 def start():
     """Botの初期化と実行を行うメイン関数"""
-    global openai_client, mistral_client, notion, llama_model_for_vertex, client, DISCORD_TOKEN, GEMINI_API_KEY, OPENAI_API_KEY, MISTRAL_API_KEY, NOTION_API_KEY # 必要なグローバル変数を追加
+    global openai_client, mistral_client, notion, llama_model_for_vertex, client, DISCORD_TOKEN, GEMINI_API_KEY, OPENAI_API_KEY, MISTRAL_API_KEY, NOTION_API_KEY
 
     # --- ここで全ての重い初期化を行う ---
     print("🤖 Initializing API clients in bot thread...")
