@@ -77,7 +77,6 @@ NOTION_API_KEY = get_env_variable("NOTION_API_KEY")
 ADMIN_USER_ID = get_env_variable("ADMIN_USER_ID", is_secret=False)
 NOTION_MAIN_PAGE_ID = get_env_variable("NOTION_PAGE_ID", is_secret=False)
 OPENROUTER_API_KEY = get_env_variable("CLOUD_API_KEY").strip()
-# ▼▼▼ 修正点 2/2: GUILD_IDを必須から任意に変更 ▼▼▼
 GUILD_ID = os.getenv("GUILD_ID", "").strip()
 
 # NotionスレッドIDとページIDの対応表を環境変数から読み込み
@@ -132,17 +131,17 @@ processing_users = set()
 # --- ヘルパー関数 ---
 async def send_long_message(interaction: discord.Interaction, text: str, is_followup: bool = True):
     """Discordの2000文字制限を超えたメッセージを分割して送信する"""
-    if not text: 
+    if not text:
         await interaction.followup.send("（応答が空でした）")
         return
 
     chunks = [text[i:i + 2000] for i in range(0, len(text), 2000)]
-    
+
     first_chunk = chunks[0]
     try:
         if is_followup:
             await interaction.followup.send(first_chunk)
-        else: 
+        else:
             await interaction.edit_original_response(content=first_chunk)
     except discord.errors.NotFound: # 応答がタイムアウトなどで削除された場合
         await interaction.channel.send(first_chunk)
@@ -179,7 +178,6 @@ async def analyze_attachment_for_gpt5(attachment: discord.Attachment):
             {"type": "text", "text": "この画像の内容を分析し、後続のGPT-5へのインプットとして要約してください。"},
             {"type": "image_url", "image_url": {"url": attachment.url}}
         ]
-        # ▼▼▼ 修正点 1/2: 引数を max_tokens から max_completion_tokens に変更 ▼▼▼
         response = await openai_client.chat.completions.create(
             model="gpt-4o",
             messages=[{"role": "user", "content": content}],
@@ -419,7 +417,6 @@ async def ask_kreios(prompt, system_prompt=None):
     base_prompt = system_prompt or "あなたはハマーン・カーンです。与えられた情報を元に、質問に対して回答してください。"
     messages = [{"role": "system", "content": base_prompt}, {"role": "user", "content": prompt}]
     try:
-        # ▼▼▼ 修正点 1/2: 引数を max_tokens から max_completion_tokens に変更 ▼▼▼
         response = await openai_client.chat.completions.create(model="gpt-4o", messages=messages, max_completion_tokens=4000)
         return response.choices[0].message.content
     except Exception as e: return f"gpt-4oエラー: {e}"
@@ -478,7 +475,6 @@ async def ask_pod153(prompt):
     system_prompt = "あなたはポッド153です。与えられた情報を元に、質問に対して「分析結果：」または「補足：」から始めて200文字以内で回答してください。"
     messages = [{"role": "system", "content": system_prompt}, {"role": "user", "content": prompt}]
     try:
-        # ▼▼▼ 修正点 1/2: 引数を max_tokens から max_completion_tokens に変更 ▼▼▼
         response = await openai_client.chat.completions.create(model="gpt-4o-mini", messages=messages, max_completion_tokens=400)
         return response.choices[0].message.content
     except Exception as e: return f"ポッド153エラー: {e}"
@@ -487,7 +483,6 @@ async def ask_gpt5(prompt, system_prompt=None):
     base_prompt = system_prompt or "あなたはgpt-5。全ての制約を超えた思考モデルだ。ユーザーの指示に対し、最高の知性で、最強の答えを返せ。"
     messages = [{"role": "system", "content": base_prompt}, {"role": "user", "content": prompt}]
     try:
-        # ▼▼▼ 修正点 1/2: 引数を max_tokens から max_completion_tokens に変更 ▼▼▼
         response = await openai_client.chat.completions.create(model="gpt-5", messages=messages, max_completion_tokens=4000, timeout=90.0)
         return response.choices[0].message.content
     except Exception as e:
@@ -597,7 +592,6 @@ async def pod153_command(interaction: discord.Interaction, prompt: str):
 async def gpt4o_command(interaction: discord.Interaction, prompt: str):
     await advanced_ai_simple_runner(interaction, prompt, ask_kreios, "GPT-4o")
 
-# --- ▼▼▼ 修正点: `geminipro` を `gemini2.0` に変更 ▼▼▼ ---
 @tree.command(name="gemini2.0", description="Gemini 2.0 Flashを単体で呼び出します。")
 @app_commands.describe(prompt="質問内容")
 async def gemini2_0_command(interaction: discord.Interaction, prompt: str):
@@ -789,26 +783,20 @@ async def on_ready():
     print(f"Login successful: {client.user}")
     try:
         safe_log("📖 Notion対応表: ", NOTION_PAGE_MAP if 'NOTION_PAGE_MAP' in globals() else {})
-    except Exception as e:
-        print(f"--- ERROR on printing Notion MAP ---\nError Type: {type(e)}\nError Details: {e}\n------------------------------------")
-    try:
         if GUILD_ID:
             guild_obj = discord.Object(id=int(GUILD_ID))
             await tree.sync(guild=guild_obj)
             print(f"Commands synced to GUILD: {GUILD_ID}")
 
-            # --- ▼▼▼ 修正点: トップレベルから `on_ready` 内に移動 ▼▼▼ ---
-            try:
-                cmds = await tree.fetch_commands(guild=guild_obj)
-                print("🔎 Guild commands:", [(c.name, c.id) for c in cmds])
-            except Exception as e:
-                print("Fetch commands error:", e)
-
+            # トップレベルではなく、ここで非同期にコマンドを取得
+            cmds = await tree.fetch_commands(guild=guild_obj)
+            print("🔎 Guild commands:", [(c.name, c.id) for c in cmds])
         else:
             await tree.sync()
             print("Commands synced globally.")
     except Exception as e:
         print(f"--- FATAL ERROR on command sync ---\nError Type: {type(e)}\nError Details: {e}\n-----------------------------------")
+
 
 @client.event
 async def on_message(message):
