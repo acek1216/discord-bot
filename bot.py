@@ -810,18 +810,21 @@ async def on_ready():
     try:
         if GUILD_ID:
             guild_obj = discord.Object(id=int(GUILD_ID))
+            
+            # ▼▼▼【一時的なコード】ここから ▼▼▼
+            # ギルドに登録されたコマンドを一旦すべてクリアする
+            tree.clear_commands(guild=guild_obj)
+            await tree.sync(guild=guild_obj)
+            print(f"✅ ギルド {GUILD_ID} のコマンドをクリアしました。")
+            # ▲▲▲【一時的なコード】ここまで ▲▲▲
 
-            # ✅ あなたが発見した、最も重要な修正箇所
+            # 通常の同期処理を再度行う
             tree.copy_global_to(guild=guild_obj)
             cmds = await tree.sync(guild=guild_obj)
-
-            print(f"✅ Synced {len(cmds)} guild commands to {GUILD_ID}:",
-                  [(c.name, c.id) for c in cmds])
+            print(f"✅ Synced {len(cmds)} guild commands to {GUILD_ID}:", [(c.name, c.id) for c in cmds])
         else:
-            # グローバルで運用する場合
             cmds = await tree.sync()
-            print(f"✅ Synced {len(cmds)} global commands:",
-                  [(c.name, c.id) for c in cmds])
+            print(f"✅ Synced {len(cmds)} global commands:", [(c.name, c.id) for c in cmds])
 
     except Exception as e:
         print(f"--- FATAL ERROR on command sync ---\n{type(e)=}\n{e=}\n-----------------------------------")
@@ -953,3 +956,4 @@ async def startup_event():
 def health_check():
     """ヘルスチェック用のエンドポイント"""
     return {"status": "ok", "bot_is_connected": client.is_ready()}
+
