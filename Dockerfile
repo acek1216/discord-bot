@@ -16,4 +16,4 @@ COPY bot.py .
 
 # コンテナ起動時にUvicornを実行します
 # Command to run the application
-CMD exec gunicorn --bind :$PORT --workers 1 --threads 1 --timeout 0 main:app
+CMD ["uvicorn", "bot:app", "--host", "0.0.0.0", "--port", "8080"]
