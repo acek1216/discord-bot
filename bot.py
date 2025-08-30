@@ -580,27 +580,22 @@ async def pod153_command(interaction: discord.Interaction, prompt: str):
     await simple_ai_command_runner(interaction, prompt, ask_pod153, "Pod153", use_memory=False)
 
 @tree.command(name="gpt-4o", description="GPT-4oを単体で呼び出します。")
-@app_commands.describe(prompt="質問内容")
 async def gpt4o_command(interaction: discord.Interaction, prompt: str):
     await advanced_ai_simple_runner(interaction, prompt, ask_kreios, "GPT-4o")
 
 @tree.command(name="gemini2-0", description="Gemini 2.0 Flashを単体で呼び出します。")
-@app_commands.describe(prompt="質問内容")
 async def gemini2_0_command(interaction: discord.Interaction, prompt: str):
     await advanced_ai_simple_runner(interaction, prompt, ask_minerva, "Gemini 2.0 Flash")
 
 @tree.command(name="perplexity", description="PerplexitySonarを単体で呼び出します。")
-@app_commands.describe(prompt="質問内容")
 async def perplexity_command(interaction: discord.Interaction, prompt: str):
     await advanced_ai_simple_runner(interaction, prompt, ask_rekus, "Perplexity Sonar")
 
 @tree.command(name="gpt5", description="GPT-5を単体で呼び出します。")
-@app_commands.describe(prompt="質問内容")
 async def gpt5_command(interaction: discord.Interaction, prompt: str):
     await advanced_ai_simple_runner(interaction, prompt, ask_gpt5, "gpt-5")
 
 @tree.command(name="gemini2_5pro", description="Gemini 2.5 Proを単体で呼び出します。")
-@app_commands.describe(prompt="質問内容")
 async def gemini2_5pro_command(interaction: discord.Interaction, prompt: str):
     await advanced_ai_simple_runner(interaction, prompt, ask_gemini_2_5_pro, "Gemini 2.5 Pro")
 
