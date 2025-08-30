@@ -771,26 +771,21 @@ async def on_ready():
     try:
         if GUILD_ID:
             guild_obj = discord.Object(id=int(GUILD_ID))
-            
-            # --- 修正部分：コマンドを一度クリアしてから再同期する ---
-            print(f"Force clearing commands for guild: {GUILD_ID}...")
-            tree.clear_commands(guild=guild_obj)
-            await tree.sync(guild=guild_obj)
-            print("Commands cleared and re-synced for guild.")
-            # --- 修正ここまで ---
 
-            cmds = await tree.fetch_commands(guild=guild_obj)
-            print("🔎 Final synced guild commands:", [(c.name, c.id) for c in cmds])
+            # ✅ あなたが発見した、最も重要な修正箇所
+            tree.copy_global_to(guild=guild_obj)
+            cmds = await tree.sync(guild=guild_obj)
+
+            print(f"✅ Synced {len(cmds)} guild commands to {GUILD_ID}:",
+                  [(c.name, c.id) for c in cmds])
         else:
-            # グローバルコマンドの場合も同様にクリアしてから同期
-            print("Force clearing global commands...")
-            tree.clear_commands(guild=None)
-            await tree.sync(guild=None)
-            print("Global commands cleared and re-synced.")
+            # グローバルで運用する場合
+            cmds = await tree.sync()
+            print(f"✅ Synced {len(cmds)} global commands:",
+                  [(c.name, c.id) for c in cmds])
 
     except Exception as e:
-        print(f"--- FATAL ERROR on command sync ---\nError Type: {type(e)}\nError Details: {e}\n-----------------------------------")
-
+        print(f"--- FATAL ERROR on command sync ---\n{type(e)=}\n{e=}\n-----------------------------------")
 
 @client.event
 async def on_message(message):
