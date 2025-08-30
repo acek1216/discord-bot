@@ -16,4 +16,6 @@ COPY . .
 # ★★★★★★★★★★★★★★★★★★★★★★★★★★★
 # ★★★ これが唯一の正しい起動コマンドです ★★★
 # ★★★★★★★★★★★★★★★★★★★★★★★★★
-CMD exec gunicorn --bind :$PORT --workers 1 --threads 8 --timeout 0 bot:app
+CMD exec gunicorn --bind :$PORT --workers 1 --threads 1 --timeout 0 bot:app
+
+
