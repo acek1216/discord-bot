@@ -597,10 +597,11 @@ async def pod153_command(interaction: discord.Interaction, prompt: str):
 async def gpt4o_command(interaction: discord.Interaction, prompt: str):
     await advanced_ai_simple_runner(interaction, prompt, ask_kreios, "GPT-4o")
 
-@tree.command(name="geminipro", description="GeminiProを単体で呼び出します。")
+# --- ▼▼▼ 修正点: `geminipro` を `gemini2.0` に変更 ▼▼▼ ---
+@tree.command(name="gemini2.0", description="Gemini 2.0 Flashを単体で呼び出します。")
 @app_commands.describe(prompt="質問内容")
-async def geminipro_command(interaction: discord.Interaction, prompt: str):
-    await advanced_ai_simple_runner(interaction, prompt, ask_minerva, "Gemini 2.0 -flash")
+async def gemini2_0_command(interaction: discord.Interaction, prompt: str):
+    await advanced_ai_simple_runner(interaction, prompt, ask_minerva, "Gemini 2.0 Flash")
 
 @tree.command(name="perplexity", description="PerplexitySonarを単体で呼び出します。")
 @app_commands.describe(prompt="質問内容")
@@ -619,15 +620,6 @@ async def gemini2_5pro_command(interaction: discord.Interaction, prompt: str):
 
 @tree.command(name="notion", description="現在のNotionページの内容について質問します")
 @app_commands.describe(query="Notionページに関する質問", attachment="補足資料として画像を添付")
-
-# on_ready の tree.sync(...) の直後に一時的に追加
-try:
-    guild_obj = discord.Object(id=int(GUILD_ID))
-    cmds = await tree.fetch_commands(guild=guild_obj)
-    print("🔎 Guild commands:", [(c.name, c.id) for c in cmds])
-except Exception as e:
-    print("Fetch commands error:", e)
-
 async def notion_command(interaction: discord.Interaction, query: str, attachment: discord.Attachment = None):
     await interaction.response.defer()
     try:
@@ -804,6 +796,14 @@ async def on_ready():
             guild_obj = discord.Object(id=int(GUILD_ID))
             await tree.sync(guild=guild_obj)
             print(f"Commands synced to GUILD: {GUILD_ID}")
+
+            # --- ▼▼▼ 修正点: トップレベルから `on_ready` 内に移動 ▼▼▼ ---
+            try:
+                cmds = await tree.fetch_commands(guild=guild_obj)
+                print("🔎 Guild commands:", [(c.name, c.id) for c in cmds])
+            except Exception as e:
+                print("Fetch commands error:", e)
+
         else:
             await tree.sync()
             print("Commands synced globally.")
@@ -867,9 +867,6 @@ async def on_message(message):
             processing_users.remove(message.author.id)
 
 # Flask アプリ
-from flask import Flask
-import threading, asyncio, os
-
 app = Flask(__name__)
 
 @app.route("/")
