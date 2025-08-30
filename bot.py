@@ -218,28 +218,50 @@ async def summarize_attachment_content(interaction: discord.Interaction, attachm
     return await summarize_text_chunks(interaction, extracted_text, query)
 
 async def summarize_text_chunks(interaction: discord.Interaction, text: str, query: str):
-    """テキストをチャンク分割し、Geminiで要約、Mistral Largeで統合する共通関数"""
-    chunk_summarizer_model = genai.GenerativeModel("gemini-1.5-pro-latest", system_instruction="あなたは構造化要約AIです。")
-    chunk_size = 8000
+    """テキストをチャンク分割し、Geminiで並列要約、Mistral Largeで統合する共通関数"""
+    # モデルを速度の速いFlashに変更し、チャンクサイズを大幅に拡大
+    chunk_summarizer_model = genai.GenerativeModel("gemini-1.5-flash-latest", system_instruction="あなたは構造化要約AIです。")
+    chunk_size = 128000  # 8000から大幅に増やす (Gemini 1.5は長文対応のため)
     text_chunks = [text[i:i + chunk_size] for i in range(0, len(text), chunk_size)]
-    chunk_summaries = []
+    
+    await interaction.edit_original_response(content=f"✅ テキスト抽出完了。Geminiによるチャンク毎の並列要約を開始… (全{len(text_chunks)}チャンク)")
 
-    await interaction.edit_original_response(content=f"✅ テキスト抽出完了。Gemini Proによるチャンク毎の要約を開始… (全{len(text_chunks)}チャンク)")
-
-    for i, chunk in enumerate(text_chunks):
-        await interaction.edit_original_response(content=f"⏳ チャンク {i+1}/{len(text_chunks)} をGemini Proで要約中…")
+    # 各チャンクを要約する非同期タスクを作成する
+    async def summarize_chunk(chunk, index):
         prompt = f"以下のテキストを要約し、必ず以下のタグを付けて分類してください：\n[背景情報]\n[定義・前提]\n[事実経過]\n[未解決課題]\n[補足情報]\nタグは省略可ですが、存在する場合は必ず上記のいずれかに分類してください。\nユーザーの質問は「{query}」です。この質問との関連性を考慮して要約してください。\n\n【テキスト】\n{chunk}"
         try:
-            response = await asyncio.wait_for(chunk_summarizer_model.generate_content_async(prompt), timeout=60)
-            chunk_summaries.append(response.text)
+            # 各タスクのタイムアウトを少し長めに設定
+            response = await asyncio.wait_for(chunk_summarizer_model.generate_content_async(prompt), timeout=120)
+            return response.text
         except asyncio.TimeoutError:
-            await interaction.followup.send(f"⚠️ チャンク {i+1} の要約中にタイムアウトしました。処理をスキップします。", ephemeral=True)
-            continue
+            await interaction.followup.send(f"⚠️ チャンク {index+1} の要約中にタイムアウトしました。処理をスキップします。", ephemeral=True)
+            return None
         except Exception as e:
-            await interaction.followup.send(f"⚠️ チャンク {i+1} の要約中にエラー: {e}", ephemeral=True)
-        await asyncio.sleep(1)
+            await interaction.followup.send(f"⚠️ チャンク {index+1} の要約中にエラー: {e}", ephemeral=True)
+            return None
+
+    # タスクのリストを作成し、asyncio.gatherで全て並列実行する
+    tasks = [summarize_chunk(chunk, i) for i, chunk in enumerate(text_chunks)]
+    chunk_summaries_results = await asyncio.gather(*tasks)
+    
+    # 結果からNone(エラー/タイムアウト)を除外
+    chunk_summaries = [summary for summary in chunk_summaries_results if summary is not None]
 
     if not chunk_summaries:
+        await interaction.edit_original_response(content="❌ 全てのチャンクの要約に失敗しました。")
+        return None
+
+    await interaction.edit_original_response(content="✅ 全チャンクの要約完了。Mistral Largeが統合・分析します…")
+    combined = "\n---\n".join(chunk_summaries)
+    prompt = f"以下の、タグ付けされた複数の要約群を、一つの構造化されたレポートに統合してください。\n各タグ（[背景情報]、[事実経過]など）ごとに内容をまとめ直し、最終的なコンテキストとして出力してください。\n\n【ユーザーの質問】\n{query}\n\n【タグ付き要약群】\n{combined}"
+    try:
+        final_context = await asyncio.wait_for(ask_lalah(prompt, system_prompt="あなたは構造化統合AIです。"), timeout=90)
+        return final_context
+    except asyncio.TimeoutError:
+        await interaction.followup.send("⚠️ 最終統合中にタイムアウトしました。", ephemeral=True)
+        return None
+    except Exception as e:
+        await interaction.followup.send(f"⚠️ 統合中にエラー: {e}", ephemeral=True)
         return None
 
     await interaction.edit_original_response(content="✅ 全チャンクの要約完了。Mistral Largeが統合・分析します…")
