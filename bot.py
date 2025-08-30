@@ -37,28 +37,19 @@ except Exception:
     if hasattr(sys.stderr, "buffer"):
         sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
-# --- ここから、あなたのBotの全コード ---
+# --- グローバル変数 (APIクライアント) ---
+openai_client: AsyncOpenAI = None
+mistral_client: MistralAsyncClient = None
+notion: Client = None
+llama_model_for_vertex: GenerativeModel = None
 
-def safe_log(prefix: str, obj) -> None:
-    """絵文字/日本語/巨大オブジェクトでもクラッシュしない安全なログ出力"""
-    try:
-        if isinstance(obj, (dict, list, tuple)):
-            s = json.dumps(obj, ensure_ascii=False, indent=2)[:2000]
-        else:
-            s = str(obj)
-        print(f"{prefix}{s}")
-    except Exception as e:
-        try:
-            print(f"{prefix}(log skipped: {e})")
-        except Exception:
-            pass
-
+# --- 環境変数の読み込みと必須チェック ---
 def get_env_variable(var_name: str, is_secret: bool = True) -> str:
     """環境変数を読み込む。存在しない場合はエラーを発生させる。"""
     value = os.getenv(var_name)
     if not value:
         print(f"🚨 致命的なエラー: 環境変数 '{var_name}' が設定されていません。")
-        sys.exit(1) # exit(1)からsys.exit(1)に修正
+        sys.exit(1)
     if is_secret:
         print(f"🔑 環境変数 '{var_name}' を読み込みました (Value: ...{value[-4:]})")
     else:
@@ -76,34 +67,6 @@ NOTION_MAIN_PAGE_ID = get_env_variable("NOTION_PAGE_ID", is_secret=False)
 OPENROUTER_API_KEY = get_env_variable("CLOUD_API_KEY").strip()
 GUILD_ID = os.getenv("GUILD_ID", "").strip()
 
-NOTION_PAGE_MAP_STRING = os.getenv("NOTION_PAGE_MAP_STRING", "")
-NOTION_PAGE_MAP = {}
-if NOTION_PAGE_MAP_STRING:
-    try:
-        pairs = NOTION_PAGE_MAP_STRING.split(',')
-        for pair in pairs:
-            if ':' in pair:
-                thread_id, page_id = pair.split(':', 1)
-                NOTION_PAGE_MAP[thread_id.strip()] = page_id.strip()
-    except Exception as e:
-        print(f"⚠️ NOTION_PAGE_MAP_STRINGの解析に失敗しました: {e}")
-
-openai_client = None
-mistral_client = None
-notion = None
-llama_model_for_vertex = None
-
-safety_settings = {
-    HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
-    HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
-    HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
-    HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
-}
-intents = discord.Intents.default()
-intents.message_content = True
-client = discord.Client(intents=intents)
-tree = app_commands.CommandTree(client)
-
 # NotionスレッドIDとページIDの対応表を環境変数から読み込み
 NOTION_PAGE_MAP_STRING = os.getenv("NOTION_PAGE_MAP_STRING", "")
 NOTION_PAGE_MAP = {}
@@ -117,13 +80,7 @@ if NOTION_PAGE_MAP_STRING:
     except Exception as e:
         print(f"⚠️ NOTION_PAGE_MAP_STRINGの解析に失敗しました: {e}")
 
-# --- 各種クライアントの初期化 (プレースホルダ) ---
-# WSGIロード時は何も重いことをしない。初期化は後述の run_bot() でやる。
-openai_client = None
-mistral_client = None
-notion = None
-llama_model_for_vertex = None
-
+# --- Discord Bot クライアントの準備 ---
 safety_settings = {
     HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
     HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
@@ -146,30 +103,48 @@ gemini_thread_memory = {}
 processing_users = set()
 
 # --- ヘルパー関数 ---
+def safe_log(prefix: str, obj) -> None:
+    """絵文字/日本語/巨大オブジェクトでもクラッシュしない安全なログ出力"""
+    try:
+        if isinstance(obj, (dict, list, tuple)):
+            s = json.dumps(obj, ensure_ascii=False, indent=2)[:2000]
+        else:
+            s = str(obj)
+        print(f"{prefix}{s}")
+    except Exception as e:
+        try:
+            print(f"{prefix}(log skipped: {e})")
+        except Exception:
+            pass
+
 async def send_long_message(interaction: discord.Interaction, text: str, is_followup: bool = True):
     """Discordの2000文字制限を超えたメッセージを分割して送信する"""
     if not text:
-        await interaction.followup.send("（応答が空でした）")
+        # interactionが既にdeferされている場合を考慮
+        try:
+            await interaction.followup.send("（応答が空でした）")
+        except discord.errors.InteractionResponded:
+            await interaction.channel.send("（応答が空でした）")
         return
 
     chunks = [text[i:i + 2000] for i in range(0, len(text), 2000)]
-
+    
+    # 最初のチャンクを送信
     first_chunk = chunks[0]
     try:
         if is_followup:
             await interaction.followup.send(first_chunk)
         else:
             await interaction.edit_original_response(content=first_chunk)
-    except discord.errors.NotFound: # 応答がタイムアウトなどで削除された場合
+    except (discord.errors.InteractionResponded, discord.errors.NotFound):
         await interaction.channel.send(first_chunk)
 
-
+    # 残りのチャンクを送信
     for chunk in chunks[1:]:
         try:
             await interaction.followup.send(chunk)
-        except discord.errors.NotFound: # フォローアップでもとのメッセージが見つからない場合
+        except discord.errors.NotFound:
             await interaction.channel.send(chunk)
-
 
 async def process_attachment(attachment: discord.Attachment, channel: discord.TextChannel) -> str:
     """[旧] 添付ファイルを処理し、要約テキストを返す (Gemini Pro)"""
@@ -193,12 +168,12 @@ async def analyze_attachment_for_gpt5(attachment: discord.Attachment):
     if filename.endswith((".png", ".jpg", ".jpeg", ".gif", ".webp")):
         content = [
             {"type": "text", "text": "この画像の内容を分析し、後続のGPT-5へのインプットとして要約してください。"},
-            {"type": "image_url", "image_url": {"url": attachment.url}}
+            {"type": "image_url", "image_url": {"url": f"data:{attachment.content_type};base64,{base64.b64encode(data).decode()}"}}
         ]
         response = await openai_client.chat.completions.create(
             model="gpt-4o",
             messages=[{"role": "user", "content": content}],
-            max_completion_tokens=1500
+            max_tokens=1500
         )
         return f"[gpt-4o画像解析]\n{response.choices[0].message.content}"
     elif filename.endswith((".py", ".txt", ".md", ".json", ".html", ".css", ".js")):
@@ -871,10 +846,6 @@ async def on_message(message):
         if message.author.id in processing_users:
             processing_users.remove(message.author.id)
 
-def start():
-    """Botの初期化と実行を行うメイン関数"""
-    global openai_client, mistral_client, notion, llama_model_for_vertex
-
 # --- サーバーとBotの起動処理 ---
 @app.on_event("startup")
 async def startup_event():
@@ -904,5 +875,3 @@ async def startup_event():
 def health_check():
     """ヘルスチェック用のエンドポイント"""
     return {"status": "ok", "bot_is_connected": client.is_ready()}
-    return {"status": "ok", "bot_is_connected": client.is_ready()}
-# --- 差し替えここまで ---
