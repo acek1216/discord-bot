@@ -1,10 +1,10 @@
-# 差し替える【一番上】のコード
 # --- 標準ライブラリ ---
 import asyncio
 import io
 import json
 import os
 import sys
+import threading
 
 # --- 外部ライブラリ ---
 from fastapi import FastAPI
@@ -23,26 +23,8 @@ import PyPDF2
 
 # --- サーバーアプリケーションの準備 ---
 app = FastAPI()
-# --- 差し替えここまで ---
-
-#
-# この下に、あなたの既存のコード（UTF-8 出力ガードから on_message まで）が続きます
-#
-# -*- coding: utf-8 -*-
-"""
-Discord Bot Final Version (Stable Slash Command Operation - Final Build)
-"""
-
-# --- 標準ライブラリ ---
-import asyncio
-import io
-import json
-import os
-import sys
-import threading
 
 # --- UTF-8 出力ガード (スクリプトの先頭部分) ---
-# 実行環境に依存せず、Pythonの標準出力をUTF-8に強制する
 os.environ.setdefault("LANG", "C.UTF-8")
 os.environ.setdefault("LC_ALL", "C.UTF-8")
 os.environ.setdefault("PYTHONIOENCODING", "UTF-8")
@@ -54,6 +36,8 @@ except Exception:
         sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
     if hasattr(sys.stderr, "buffer"):
         sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
+
+# --- ここから、あなたのBotの全コード ---
 
 def safe_log(prefix: str, obj) -> None:
     """絵文字/日本語/巨大オブジェクトでもクラッシュしない安全なログ出力"""
@@ -68,30 +52,13 @@ def safe_log(prefix: str, obj) -> None:
             print(f"{prefix}(log skipped: {e})")
         except Exception:
             pass
-# --- ここまで ---
 
-
-# --- 外部ライブラリ ---
-import discord
-from discord import app_commands
-from flask import Flask
-from google.generativeai.types import HarmCategory, HarmBlockThreshold
-import google.generativeai as genai
-from mistralai.async_client import MistralAsyncClient
-from notion_client import Client
-from openai import AsyncOpenAI
-import requests
-import vertexai
-from vertexai.generative_models import GenerativeModel
-import PyPDF2
-
-# --- 環境変数の読み込みと必須チェック ---
 def get_env_variable(var_name: str, is_secret: bool = True) -> str:
     """環境変数を読み込む。存在しない場合はエラーを発生させる。"""
     value = os.getenv(var_name)
     if not value:
         print(f"🚨 致命的なエラー: 環境変数 '{var_name}' が設定されていません。")
-        exit(1)
+        sys.exit(1) # exit(1)からsys.exit(1)に修正
     if is_secret:
         print(f"🔑 環境変数 '{var_name}' を読み込みました (Value: ...{value[-4:]})")
     else:
@@ -108,6 +75,34 @@ ADMIN_USER_ID = get_env_variable("ADMIN_USER_ID", is_secret=False)
 NOTION_MAIN_PAGE_ID = get_env_variable("NOTION_PAGE_ID", is_secret=False)
 OPENROUTER_API_KEY = get_env_variable("CLOUD_API_KEY").strip()
 GUILD_ID = os.getenv("GUILD_ID", "").strip()
+
+NOTION_PAGE_MAP_STRING = os.getenv("NOTION_PAGE_MAP_STRING", "")
+NOTION_PAGE_MAP = {}
+if NOTION_PAGE_MAP_STRING:
+    try:
+        pairs = NOTION_PAGE_MAP_STRING.split(',')
+        for pair in pairs:
+            if ':' in pair:
+                thread_id, page_id = pair.split(':', 1)
+                NOTION_PAGE_MAP[thread_id.strip()] = page_id.strip()
+    except Exception as e:
+        print(f"⚠️ NOTION_PAGE_MAP_STRINGの解析に失敗しました: {e}")
+
+openai_client = None
+mistral_client = None
+notion = None
+llama_model_for_vertex = None
+
+safety_settings = {
+    HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
+    HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
+    HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
+    HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
+}
+intents = discord.Intents.default()
+intents.message_content = True
+client = discord.Client(intents=intents)
+tree = app_commands.CommandTree(client)
 
 # NotionスレッドIDとページIDの対応表を環境変数から読み込み
 NOTION_PAGE_MAP_STRING = os.getenv("NOTION_PAGE_MAP_STRING", "")
@@ -880,16 +875,34 @@ def start():
     """Botの初期化と実行を行うメイン関数"""
     global openai_client, mistral_client, notion, llama_model_for_vertex
 
-# 差し替える【一番下】のコード
 # --- サーバーとBotの起動処理 ---
 @app.on_event("startup")
 async def startup_event():
     """サーバー起動時にBotをバックグラウンドで起動する"""
+    # 起動時にAPIクライアントを初期化
+    global openai_client, mistral_client, notion, llama_model_for_vertex
+    
+    print("🤖 Initializing API clients...")
+    openai_client = AsyncOpenAI(api_key=OPENAI_API_KEY)
+    mistral_client = MistralAsyncClient(api_key=MISTRAL_API_KEY)
+    notion = Client(auth=NOTION_API_KEY)
+    genai.configure(api_key=GEMINI_API_KEY)
+    
+    try:
+        print("🤖 Initializing Vertex AI...")
+        vertexai.init(project="stunning-agency-469102-b5", location="us-central1")
+        llama_model_for_vertex = GenerativeModel("publishers/meta/models/llama-3.3-70b-instruct-maas")
+        print("✅ Vertex AI initialized successfully.")
+    except Exception as e:
+        print(f"🚨 Vertex AI init failed (continue without it): {e}")
+
+    # Botをバックグラウンドタスクとして起動
     asyncio.create_task(client.start(DISCORD_TOKEN))
     print("🚀 Discord Bot startup task has been created.")
 
 @app.get("/")
 def health_check():
     """ヘルスチェック用のエンドポイント"""
+    return {"status": "ok", "bot_is_connected": client.is_ready()}
     return {"status": "ok", "bot_is_connected": client.is_ready()}
 # --- 差し替えここまで ---
