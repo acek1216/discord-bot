@@ -590,14 +590,6 @@ async def simple_ai_command_runner(interaction: discord.Interaction, prompt: str
     except Exception as e:
         await interaction.followup.send(f"🤖 {bot_name} の処理中にエラーが発生しました: {e}")
 
-async def advanced_ai_simple_runner(interaction: discord.Interaction, prompt: str, ai_function, bot_name: str):
-    await interaction.response.defer()
-    try:
-        reply = await ai_function(prompt)
-        await interaction.followup.send(reply)
-    except Exception as e:
-        await interaction.followup.send(f"🤖 {bot_name} の処理中にエラーが発生しました: {e}")
-
 @tree.command(name="gpt", description="GPT(gpt-3.5-turbo)と短期記憶で対話します")
 async def gpt_command(interaction: discord.Interaction, prompt: str):
     await simple_ai_command_runner(interaction, prompt, ask_gpt_base, "GPT-3.5-Turbo")
