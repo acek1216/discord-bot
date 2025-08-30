@@ -888,7 +888,7 @@ async def on_message(message):
             history = perplexity_thread_memory.get(thread_id, []) if is_memory_on else []
             history_text = "\n".join([f"{m['role']}: {m['content']}" for m in history])
 
-    # ★ 追加①: ユーザー発言を Notion に事前ログ（GPT部屋と同じ）
+            # ★ 任意: ユーザー発言を先に Notion へログ
             if str(message.author.id) == ADMIN_USER_ID and target_page_id:
                 await log_to_notion(target_page_id, [{
                     "object": "block",
@@ -901,24 +901,28 @@ async def on_message(message):
                     }
                 }])
 
-    # PerplexityはNotionコンテキストを特別扱いできるので、引数で渡す
+            # PerplexityはNotionコンテキストを特別扱いできるので、引数で渡す
             rekus_prompt = f"【これまでの会話】\n{history_text or 'なし'}\n\n【今回の質問】\nuser: {prompt}"
             reply = await ask_rekus(rekus_prompt, notion_context=notion_context)
 
-    # （応答と履歴保存のロジックは変更なし）
+            # （応答と履歴保存のロジックは変更なし）
             if len(reply) <= 2000:
-                await message.channel.send(reply)
+            await message.channel.send(reply)
             else:
                 for i in range(0, len(reply), 2000):
                     await message.channel.send(reply[i:i+2000])
 
-    # ★ 追加②: AIの回答を Notion に事後ログ（GPT部屋と同じ）
+            # ★ 追加: AIの回答を Notion に事後ログ
             if str(message.author.id) == ADMIN_USER_ID and target_page_id:
                 await log_response(target_page_id, reply, "Perplexity Sonar")
 
             if is_memory_on and "エラー" not in str(reply):
-                history.extend([{"role": "user", "content": prompt}, {"role": "assistant", "content": reply}])
+                history.extend([
+                    {"role": "user", "content": prompt},
+                    {"role": "assistant", "content": reply}
+                ])
                 perplexity_thread_memory[thread_id] = history[-10:]
+
             
 @app.on_event("startup")
 async def startup_event():
