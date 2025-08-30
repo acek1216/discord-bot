@@ -887,26 +887,38 @@ async def on_message(message):
             await message.channel.send("Perplexity Sonarが思考を開始します…")
             history = perplexity_thread_memory.get(thread_id, []) if is_memory_on else []
             history_text = "\n".join([f"{m['role']}: {m['content']}" for m in history])
-            
-            # PerplexityはNotionコンテキストを特別扱いできるので、引数で渡す
-            # ask_rekusのプロンプトはシンプルに会話の履歴と質問のみにする
+
+    # ★ 追加①: ユーザー発言を Notion に事前ログ（GPT部屋と同じ）
+            if str(message.author.id) == ADMIN_USER_ID and target_page_id:
+                await log_to_notion(target_page_id, [{
+                    "object": "block",
+                    "type": "paragraph",
+                    "paragraph": {
+                        "rich_text": [{
+                            "type": "text",
+                            "text": {"content": f"👤 {message.author.display_name}:\n{prompt}"}
+                        }]
+                    }
+                }])
+
+    # PerplexityはNotionコンテキストを特別扱いできるので、引数で渡す
             rekus_prompt = f"【これまでの会話】\n{history_text or 'なし'}\n\n【今回の質問】\nuser: {prompt}"
             reply = await ask_rekus(rekus_prompt, notion_context=notion_context)
-            
-            # (応答と履歴保存のロジックは変更なし)
-            if len(reply) <= 2000: await message.channel.send(reply)
+
+    # （応答と履歴保存のロジックは変更なし）
+            if len(reply) <= 2000:
+                await message.channel.send(reply)
             else:
-                for i in range(0, len(reply), 2000): await message.channel.send(reply[i:i+2000])
+                for i in range(0, len(reply), 2000):
+                    await message.channel.send(reply[i:i+2000])
+
+    # ★ 追加②: AIの回答を Notion に事後ログ（GPT部屋と同じ）
+            if str(message.author.id) == ADMIN_USER_ID and target_page_id:
+                await log_response(target_page_id, reply, "Perplexity Sonar")
+
             if is_memory_on and "エラー" not in str(reply):
                 history.extend([{"role": "user", "content": prompt}, {"role": "assistant", "content": reply}])
                 perplexity_thread_memory[thread_id] = history[-10:]
-
-    except Exception as e:
-        print(f"on_messageでエラーが発生しました: {e}")
-        await message.channel.send(f"予期せぬエラーが発生しました: ```{str(e)[:1800]}```")
-    finally:
-        if message.author.id in processing_users:
-            processing_users.remove(message.author.id)
             
 @app.on_event("startup")
 async def startup_event():
