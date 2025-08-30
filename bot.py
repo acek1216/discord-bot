@@ -769,18 +769,25 @@ async def logical_command(interaction: discord.Interaction, topic: str):
 async def on_ready():
     print(f"Login successful: {client.user}")
     try:
-        safe_log("📖 Notion対応表: ", NOTION_PAGE_MAP if 'NOTION_PAGE_MAP' in globals() else {})
         if GUILD_ID:
             guild_obj = discord.Object(id=int(GUILD_ID))
+            
+            # --- 修正部分：コマンドを一度クリアしてから再同期する ---
+            print(f"Force clearing commands for guild: {GUILD_ID}...")
+            tree.clear_commands(guild=guild_obj)
             await tree.sync(guild=guild_obj)
-            print(f"Commands synced to GUILD: {GUILD_ID}")
+            print("Commands cleared and re-synced for guild.")
+            # --- 修正ここまで ---
 
-            # トップレベルではなく、ここで非同期にコマンドを取得
             cmds = await tree.fetch_commands(guild=guild_obj)
-            print("🔎 Guild commands:", [(c.name, c.id) for c in cmds])
+            print("🔎 Final synced guild commands:", [(c.name, c.id) for c in cmds])
         else:
-            await tree.sync()
-            print("Commands synced globally.")
+            # グローバルコマンドの場合も同様にクリアしてから同期
+            print("Force clearing global commands...")
+            tree.clear_commands(guild=None)
+            await tree.sync(guild=None)
+            print("Global commands cleared and re-synced.")
+
     except Exception as e:
         print(f"--- FATAL ERROR on command sync ---\nError Type: {type(e)}\nError Details: {e}\n-----------------------------------")
 
