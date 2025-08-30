@@ -100,6 +100,7 @@ claude_base_memory = {}
 llama_base_memory = {}
 gpt_thread_memory = {}
 gemini_thread_memory = {}
+perplexity_thread_memory = {} 
 processing_users = set()
 
 # --- ヘルパー関数 ---
@@ -795,7 +796,8 @@ async def on_message(message):
         return
 
     channel_name = message.channel.name.lower()
-    if not (channel_name.startswith("gpt") or channel_name == "gemini"): return
+    # ▼ Perplexity部屋を処理対象に追加
+    if not (channel_name.startswith("gpt") or channel_name == "gemini" or channel_name.startswith("perplexity")): return
 
     processing_users.add(message.author.id)
     try:
@@ -804,12 +806,11 @@ async def on_message(message):
         is_admin = str(message.author.id) == ADMIN_USER_ID
         target_page_id = NOTION_PAGE_MAP.get(thread_id, NOTION_MAIN_PAGE_ID)
 
-        if channel_name.startswith("gpt") and message.attachments:
+        # ▼ 添付ファイル処理をGPT部屋の条件分岐から外に出し、全部屋で共通化
+        if message.attachments:
+            await message.channel.send("📎 添付ファイルを解析しています…")
             analysis_text = await analyze_attachment_for_gpt5(message.attachments[0])
             prompt += "\n\n" + analysis_text
-        elif message.attachments:
-            summary = await process_attachment(message.attachments[0], message.channel)
-            prompt += "\n\n" + summary
         
         is_memory_on = await get_memory_flag_from_notion(thread_id)
         
@@ -836,13 +837,35 @@ async def on_message(message):
             if is_memory_on and "エラー" not in reply:
                 history.extend([{"role": "user", "content": prompt}, {"role": "assistant", "content": reply}])
                 gemini_thread_memory[thread_id] = history[-10:]
+        
+        # ▼ Perplexity部屋用の処理ブロックをここに追加
+        elif channel_name.startswith("perplexity"):
+            await message.channel.send("Perplexity Sonarが思考を開始します…")
+            history = perplexity_thread_memory.get(thread_id, []) if is_memory_on else []
+            # ask_rekusは単一のプロンプト文字列を期待するため、履歴を結合
+            full_prompt_parts = [f"{m['role']}: {m['content']}" for m in history] + [f"user: {prompt}"]
+            full_prompt = "\n".join(full_prompt_parts)
+            
+            # notion_contextは部屋での対話では不要なため、Noneのまま呼び出し
+            reply = await ask_rekus(full_prompt)
+            
+            if len(reply) <= 2000:
+                await message.channel.send(reply)
+            else:
+                for i in range(0, len(reply), 2000):
+                    await message.channel.send(reply[i:i+2000])
+
+            # 成功した場合、会話履歴を保存
+            if is_memory_on and "エラー" not in str(reply):
+                history.extend([{"role": "user", "content": prompt}, {"role": "assistant", "content": reply}])
+                perplexity_thread_memory[thread_id] = history[-10:]
+
     except Exception as e:
         print(f"on_messageでエラーが発生しました: {e}")
         await message.channel.send(f"予期せぬエラーが発生しました: ```{str(e)[:1800]}```")
     finally:
         if message.author.id in processing_users:
             processing_users.remove(message.author.id)
-
 # --- サーバーとBotの起動処理 ---
 @app.on_event("startup")
 async def startup_event():
