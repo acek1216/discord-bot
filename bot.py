@@ -619,6 +619,15 @@ async def gemini2_5pro_command(interaction: discord.Interaction, prompt: str):
 
 @tree.command(name="notion", description="現在のNotionページの内容について質問します")
 @app_commands.describe(query="Notionページに関する質問", attachment="補足資料として画像を添付")
+
+# on_ready の tree.sync(...) の直後に一時的に追加
+try:
+    guild_obj = discord.Object(id=int(GUILD_ID))
+    cmds = await tree.fetch_commands(guild=guild_obj)
+    print("🔎 Guild commands:", [(c.name, c.id) for c in cmds])
+except Exception as e:
+    print("Fetch commands error:", e)
+
 async def notion_command(interaction: discord.Interaction, query: str, attachment: discord.Attachment = None):
     await interaction.response.defer()
     try:
