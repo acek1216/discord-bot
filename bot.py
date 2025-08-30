@@ -92,20 +92,12 @@ if NOTION_PAGE_MAP_STRING:
     except Exception as e:
         print(f"⚠️ NOTION_PAGE_MAP_STRINGの解析に失敗しました: {e}")
 
-# --- 各種クライアントの初期化 ---
-openai_client = AsyncOpenAI(api_key=OPENAI_API_KEY)
-genai.configure(api_key=GEMINI_API_KEY)
-mistral_client = MistralAsyncClient(api_key=MISTRAL_API_KEY)
-notion = Client(auth=NOTION_API_KEY)
-
-try:
-    print("🤖 Initializing Vertex AI...")
-    vertexai.init(project="stunning-agency-469102-b5", location="us-central1")
-    llama_model_for_vertex = GenerativeModel("publishers/meta/models/llama-3.3-70b-instruct-maas")
-    print("✅ Vertex AI initialized successfully.")
-except Exception as e:
-    print(f"🚨 Vertex AIの初期化に失敗しました: {e}")
-    llama_model_for_vertex = None
+# --- 各種クライアントの初期化 (プレースホルダ) ---
+# WSGIロード時は何も重いことをしない。初期化は後述の run_bot() でやる。
+openai_client = None
+mistral_client = None
+notion = None
+llama_model_for_vertex = None
 
 safety_settings = {
     HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
@@ -859,17 +851,44 @@ app = Flask(__name__)
 
 @app.route("/")
 def index():
-    return "Discord bot is running in a background thread."
+    return "ok"  # Cloud Run ヘルスチェック用
 
+# ---- Bot起動と重い初期化はここでまとめて実施 ----
 def run_bot():
+    global openai_client, mistral_client, notion, llama_model_for_vertex
+
+    # 外部クライアントをここで初期化（import時にはやらない）
+    genai.configure(api_key=GEMINI_API_KEY)
+    openai_client = AsyncOpenAI(api_key=OPENAI_API_KEY)
+    mistral_client = MistralAsyncClient(api_key=MISTRAL_API_KEY)
+    notion = Client(auth=NOTION_API_KEY)
+    try:
+        print("🤖 Initializing Vertex AI...")
+        vertexai.init(project="stunning-agency-469102-b5", location="us-central1")
+        llama_model_for_vertex = GenerativeModel("publishers/meta/models/llama-3.3-70b-instruct-maas")
+        print("✅ Vertex AI initialized successfully.")
+    except Exception as e:
+        print(f"🚨 Vertex AI init failed (continue without it): {e}")
+        llama_model_for_vertex = None
+
+    # 最後にDiscordクライアントを開始
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     loop.run_until_complete(client.start(DISCORD_TOKEN))
     loop.close()
 
+# Cloud Run: 最初のHTTPリクエストが来たタイミングでBotを起動（WSGIロードは軽くする）
+_bot_started = False
+@app.before_first_request
+def _start_bot_once():
+    global _bot_started
+    if not _bot_started:
+        threading.Thread(target=run_bot, daemon=True).start()
+        _bot_started = True
+        print("🚀 Discord Bot thread started")
+
+# ローカル実行時のみ（python bot.py）
 if __name__ == "__main__":
-    print("🚀 Starting Flask + Discord bot...")
-    t = threading.Thread(target=run_bot, daemon=True)
-    t.start()
-    port = int(os.environ.get("PORT", 8080))
-    app.run(host="0.0.0.0", port=port)
+    print("🚀 Starting Flask + Discord bot (local)...")
+    _start_bot_once()
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
