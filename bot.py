@@ -866,21 +866,8 @@ async def on_message(message):
         if message.author.id in processing_users:
             processing_users.remove(message.author.id)
 
-
 # --- 起動処理 ---
-app = Flask(__name__)
-
-def run_bot():
-    client.run(DISCORD_TOKEN)
-
-# ▼ ここ（import時起動）を削除
-# bot_thread = threading.Thread(target=run_bot)
-# bot_thread.daemon = True
-# bot_thread.start()
-
+# Flask関連のコードはすべて削除し、これだけを残す
 if __name__ == "__main__":
-    t = threading.Thread(target=run_bot, daemon=True)
-    t.start()
-    port = int(os.environ.get("PORT", 8080))
-    app.run(host="0.0.0.0", port=port)
-
+    print("🤖 Discordボットを起動します...")
+    client.run(DISCORD_TOKEN)
