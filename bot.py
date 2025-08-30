@@ -866,39 +866,56 @@ async def on_message(message):
             await message.channel.send("受付完了。gpt-5が思考を開始します。")
             asyncio.create_task(run_long_gpt5_task(message, prompt, full_prompt, is_admin, target_page_id, thread_id))
 
-        elif channel_name == "gemini":
-            await message.channel.send("Gemini 2.5 Proが思考を開始します…")
-            history = gemini_thread_memory.get(thread_id, []) if is_memory_on else []
-            history_text = "\n".join([f"{m['role']}: {m['content']}" for m in history])
-
-            full_prompt = f"【Notionページの要約】\n{notion_context or '参照なし'}\n\n【これまでの会話】\n{history_text or 'なし'}\n\n【今回の質問】\nuser: {prompt}"
-            
-            reply = await ask_gemini_2_5_pro(full_prompt)
-            
-            # (応答と履歴保存のロジックは変更なし)
-            if len(reply) <= 2000: await message.channel.send(reply)
-            else:
-                for i in range(0, len(reply), 2000): await message.channel.send(reply[i:i+2000])
-            if is_memory_on and "エラー" not in reply:
-                history.extend([{"role": "user", "content": prompt}, {"role": "assistant", "content": reply}])
-                gemini_thread_memory[thread_id] = history[-10:]
-        
         elif channel_name.startswith("perplexity"):
             await message.channel.send("Perplexity Sonarが思考を開始します…")
             history = perplexity_thread_memory.get(thread_id, []) if is_memory_on else []
             history_text = "\n".join([f"{m['role']}: {m['content']}" for m in history])
-            
+
+            # ★★★ ここから追加 (ユーザーの質問をNotionに記録) ★★★
+            if is_admin and target_page_id:
+                try:
+                    user_log_blocks = [{
+                        "object": "block",
+                        "type": "paragraph",
+                        "paragraph": {
+                            "rich_text": [{
+                                "type": "text",
+                                "text": {"content": f"👤 {message.author.display_name}:\n{prompt}"}
+                            }]
+                        }
+                    }]
+                    await log_to_notion(target_page_id, user_log_blocks)
+                except Exception as e:
+                    print(f"🚨 Notionへのユーザー発言の記録に失敗しました: {e}")
+                    pass # Notionへの記録が失敗しても、メインの処理は続行します
+            # ★★★ ここまで追加 ★★★
+
             # PerplexityはNotionコンテキストを特別扱いできるので、引数で渡す
-            # ask_rekusのプロンプトはシンプルに会話の履歴と質問のみにする
             rekus_prompt = f"【これまでの会話】\n{history_text or 'なし'}\n\n【今回の質問】\nuser: {prompt}"
             reply = await ask_rekus(rekus_prompt, notion_context=notion_context)
-            
-            # (応答と履歴保存のロジックは変更なし)
-            if len(reply) <= 2000: await message.channel.send(reply)
+
+            # (応答ロジックは変更なし)
+            if len(reply) <= 2000:
+                await message.channel.send(reply)
             else:
-                for i in range(0, len(reply), 2000): await message.channel.send(reply[i:i+2000])
+                for i in range(0, len(reply), 2000):
+                    await message.channel.send(reply[i:i+2000])
+
+            # ★★★ ここから追加 (AIの回答をNotionに記録) ★★★
+            if is_admin and target_page_id:
+                try:
+                    await log_response(target_page_id, reply, "Perplexity Sonar")
+                except Exception as e:
+                    print(f"🚨 NotionへのAI回答の記録に失敗しました: {e}")
+                    pass # Notionへの記録が失敗しても、メインの処理は続行します
+            # ★★★ ここまで追加 ★★★
+
+            # (履歴保存ロジックは変更なし)
             if is_memory_on and "エラー" not in str(reply):
-                history.extend([{"role": "user", "content": prompt}, {"role": "assistant", "content": reply}])
+                history.extend([
+                    {"role": "user", "content": prompt},
+                    {"role": "assistant", "content": reply}
+                ])
                 perplexity_thread_memory[thread_id] = history[-10:]
 
     except Exception as e:
@@ -936,3 +953,4 @@ async def startup_event():
 def health_check():
     """ヘルスチェック用のエンドポイント"""
     return {"status": "ok", "bot_is_connected": client.is_ready()}
+
