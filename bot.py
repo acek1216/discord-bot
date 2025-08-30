@@ -963,5 +963,6 @@ async def startup_event():
         # 起動処理中に何かエラーが起きたら、ログに出力してクラッシュを防ぐ
         print(f"🚨🚨🚨 FATAL ERROR during startup event: {e} 🚨🚨🚨")
         # ここで sys.exit(1) などを呼び出さないことで、サーバー自体は起動を試みる
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", "8080"))
     uvicorn.run(app, host="0.0.0.0", port=port)
-
