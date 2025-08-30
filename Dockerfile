@@ -8,11 +8,11 @@ WORKDIR $APP_HOME
 
 # 最初にライブラリをインストール
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Gunicorn/Flaskを削除し、モダンなサーバー(FastAPI, Uvicorn)を追加
+RUN pip install --no-cache-dir -r requirements.txt fastapi "uvicorn[standard]"
 
 # アプリケーションのコードをコンテナにコピーします
-COPY main.py .
 COPY bot.py .
 
-# コンテナ起動時にGunicornを実行します
-CMD exec gunicorn --bind :$PORT --workers 1 --threads 1 --timeout 0 main:app
+# コンテナ起動時にUvicornを実行します
+CMD ["uvicorn", "bot:app", "--host", "0.0.0.0", "--port", "8080"]
