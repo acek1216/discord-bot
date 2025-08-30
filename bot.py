@@ -1,3 +1,33 @@
+# 差し替える【一番上】のコード
+# --- 標準ライブラリ ---
+import asyncio
+import io
+import json
+import os
+import sys
+
+# --- 外部ライブラリ ---
+from fastapi import FastAPI
+import uvicorn
+import discord
+from discord import app_commands
+from google.generativeai.types import HarmCategory, HarmBlockThreshold
+import google.generativeai as genai
+from mistralai.async_client import MistralAsyncClient
+from notion_client import Client
+from openai import AsyncOpenAI
+import requests
+import vertexai
+from vertexai.generative_models import GenerativeModel
+import PyPDF2
+
+# --- サーバーアプリケーションの準備 ---
+app = FastAPI()
+# --- 差し替えここまで ---
+
+#
+# この下に、あなたの既存のコード（UTF-8 出力ガードから on_message まで）が続きます
+#
 # -*- coding: utf-8 -*-
 """
 Discord Bot Final Version (Stable Slash Command Operation - Final Build)
@@ -850,28 +880,16 @@ def start():
     """Botの初期化と実行を行うメイン関数"""
     global openai_client, mistral_client, notion, llama_model_for_vertex
 
-# bot.pyの末尾に、このstart()関数だけを記述してください
+# 差し替える【一番下】のコード
+# --- サーバーとBotの起動処理 ---
+@app.on_event("startup")
+async def startup_event():
+    """サーバー起動時にBotをバックグラウンドで起動する"""
+    asyncio.create_task(client.start(DISCORD_TOKEN))
+    print("🚀 Discord Bot startup task has been created.")
 
-def start():
-    """Botの初期化と実行を行うメイン関数"""
-    global openai_client, mistral_client, notion, llama_model_for_vertex, client, DISCORD_TOKEN, GEMINI_API_KEY, OPENAI_API_KEY, MISTRAL_API_KEY, NOTION_API_KEY
-
-    # --- ここで全ての重い初期化を行う ---
-    print("🤖 Initializing API clients in bot thread...")
-    genai.configure(api_key=GEMINI_API_KEY)
-    openai_client = AsyncOpenAI(api_key=OPENAI_API_KEY)
-    mistral_client = MistralAsyncClient(api_key=MISTRAL_API_KEY)
-    notion = Client(auth=NOTION_API_KEY)
-    
-    try:
-        print("🤖 Initializing Vertex AI...")
-        vertexai.init(project="stunning-agency-469102-b5", location="us-central1")
-        llama_model_for_vertex = GenerativeModel("publishers/meta/models/llama-3.3-70b-instruct-maas")
-        print("✅ Vertex AI initialized successfully.")
-    except Exception as e:
-        print(f"🚨 Vertex AI init failed (continue without it): {e}")
-        llama_model_for_vertex = None
-
-    # --- Discordクライアントを開始 ---
-    print("🔐 Starting Discord client...")
-    client.run(DISCORD_TOKEN)
+@app.get("/")
+def health_check():
+    """ヘルスチェック用のエンドポイント"""
+    return {"status": "ok", "bot_is_connected": client.is_ready()}
+# --- 差し替えここまで ---
