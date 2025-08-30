@@ -936,34 +936,32 @@ async def on_message(message):
 @app.on_event("startup")
 async def startup_event():
     """サーバー起動時にBotをバックグラウンドで起動する"""
-    # 起動時にAPIクライアントを初期化
     global openai_client, mistral_client, notion, llama_model_for_vertex
     
-    print("🤖 Initializing API clients...")
-    openai_client = AsyncOpenAI(api_key=OPENAI_API_KEY)
-    mistral_client = MistralAsyncClient(api_key=MISTRAL_API_KEY)
-    notion = Client(auth=NOTION_API_KEY)
-    genai.configure(api_key=GEMINI_API_KEY)
-    
     try:
-        print("🤖 Initializing Vertex AI...")
-        vertexai.init(project="stunning-agency-469102-b5", location="us-central1")
-        llama_model_for_vertex = GenerativeModel("publishers/meta/models/llama-3.3-70b-instruct-maas")
-        print("✅ Vertex AI initialized successfully.")
+        print("🤖 Initializing API clients...")
+        openai_client = AsyncOpenAI(api_key=OPENAI_API_KEY)
+        mistral_client = MistralAsyncClient(api_key=MISTRAL_API_KEY)
+        notion = Client(auth=NOTION_API_KEY)
+        genai.configure(api_key=GEMINI_API_KEY)
+        
+        try:
+            print("🤖 Initializing Vertex AI...")
+            vertexai.init(project="stunning-agency-469102-b5", location="us-central1")
+            llama_model_for_vertex = GenerativeModel("publishers/meta/models/llama-3.3-70b-instruct-maas")
+            print("✅ Vertex AI initialized successfully.")
+        except Exception as e:
+            print(f"🚨 Vertex AI init failed (continue without it): {e}")
+
+        # Botをバックグラウンドタスクとして起動
+        print("🚀 Creating Discord Bot startup task...")
+        asyncio.create_task(client.start(DISCORD_TOKEN))
+        print("✅ Discord Bot startup task has been created.")
+
     except Exception as e:
-        print(f"🚨 Vertex AI init failed (continue without it): {e}")
-
-    # Botをバックグラウンドタスクとして起動
-    asyncio.create_task(client.start(DISCORD_TOKEN))
-    print("🚀 Discord Bot startup task has been created.")
-
-@app.get("/")
-def health_check():
-    """ヘルスチェック用のエンドポイント"""
-    return {"status": "ok", "bot_is_connected": client.is_ready()}
-
-if __name__ == "__main__":
-    import os, uvicorn
-    port = int(os.environ.get("PORT", "8080"))
+        # ★★★ ここが重要な追加箇所 ★★★
+        # 起動処理中に何かエラーが起きたら、ログに出力してクラッシュを防ぐ
+        print(f"🚨🚨🚨 FATAL ERROR during startup event: {e} 🚨🚨🚨")
+        # ここで sys.exit(1) などを呼び出さないことで、サーバー自体は起動を試みる
     uvicorn.run(app, host="0.0.0.0", port=port)
 
