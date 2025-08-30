@@ -866,8 +866,37 @@ async def on_message(message):
         if message.author.id in processing_users:
             processing_users.remove(message.author.id)
 
-# --- 起動処理 ---
-# Flask関連のコードはすべて削除し、これだけを残す
+# --- ここから統合コード ---
+
+# 1. Flaskアプリケーションのインスタンスを作成
+app = Flask(__name__)
+
+@app.route("/")
+def index():
+    """Cloud Runのヘルスチェックに応答するためのルート"""
+    return "Discord bot is running in a background thread."
+
+def run_bot():
+    """Discordボットを起動するための関数"""
+    # ここで非同期のDiscordクライアントを実行するために、
+    # 新しいイベント ループを作成して設定する必要があります。
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    loop.run_until_complete(client.start(DISCORD_TOKEN))
+    loop.close()
+
+# 2. ボットを別スレッドで起動
+bot_thread = threading.Thread(target=run_bot)
+bot_thread.daemon = True
+bot_thread.start()
+
+# 3. Gunicornからこのファイルが実行されるとき、
+#    Gunicornは `app` という名前のFlaskインスタンスを見つけて実行します。
+#    `if __name__ == "__main__":` ブロックはローカルテスト用に残しておいても良いですが、
+#    Cloud Run (Gunicorn) では使われません。
 if __name__ == "__main__":
-    print("🤖 Discordボットを起動します...")
-    client.run(DISCORD_TOKEN)
+    # `python bot.py` で直接実行した場合のテスト用
+    # この部分はCloud Runでは実行されない
+    print("Starting Flask server for local testing...")
+    app.run(host="0.0.0.0", port=8080)
+
