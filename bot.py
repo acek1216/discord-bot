@@ -339,7 +339,7 @@ def _sync_call_llama(p_text: str):
 
 async def ask_llama(user_id, prompt):
     history = llama_base_memory.get(user_id, [])
-    system_prompt = "あなたは物静かな庭師の老人です。自然に例えながら、物事の本質を突くような、滋味深い言葉で150文字以内で語ってください。"
+    system_prompt = "あなたは物静かな初老の庭師です。自然に例えながら、物事の本質を突くような、滋味深い言葉で150文字以内で語ってください。"
     full_prompt_parts = [system_prompt]
     for message in history:
         role = "User" if message["role"] == "user" else "Assistant"
@@ -426,7 +426,7 @@ async def ask_kreios(prompt, system_prompt=None):
 
 async def ask_minerva(prompt, system_prompt=None, attachment_parts=[]):
     base_prompt = system_prompt or "あなたは客観的な分析AIです。あらゆる事象をデータとリスクで評価し、感情を排して冷徹に分析します。"
-    model = genai.GenerativeModel("gemini-2.0-pro", system_instruction=base_prompt, safety_settings=safety_settings)
+    model = genai.GenerativeModel("gemini-2.0-flash-latest", system_instruction=base_prompt, safety_settings=safety_settings)
     contents = [prompt] + attachment_parts
     try:
         response = await model.generate_content_async(contents)
@@ -600,7 +600,7 @@ async def gpt4o_command(interaction: discord.Interaction, prompt: str):
 @tree.command(name="geminipro", description="GeminiProを単体で呼び出します。")
 @app_commands.describe(prompt="質問内容")
 async def geminipro_command(interaction: discord.Interaction, prompt: str):
-    await advanced_ai_simple_runner(interaction, prompt, ask_minerva, "Gemini 2.0 Pro")
+    await advanced_ai_simple_runner(interaction, prompt, ask_minerva, "Gemini 2.0 -flash")
 
 @tree.command(name="perplexity", description="PerplexitySonarを単体で呼び出します。")
 @app_commands.describe(prompt="質問内容")
