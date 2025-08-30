@@ -907,7 +907,7 @@ async def on_message(message):
 
             # （応答と履歴保存のロジックは変更なし）
             if len(reply) <= 2000:
-            await message.channel.send(reply)
+                await message.channel.send(reply)
             else:
                 for i in range(0, len(reply), 2000):
                     await message.channel.send(reply[i:i+2000])
@@ -953,8 +953,8 @@ def health_check():
     """ヘルスチェック用のエンドポイント"""
     return {"status": "ok", "bot_is_connected": client.is_ready()}
 
-    if __name__ == "__main__":
-        import os, uvicorn
-        port = int(os.environ.get("PORT", "8080"))
-        uvicorn.run(app, host="0.0.0.0", port=port)
+if __name__ == "__main__":
+    import os, uvicorn
+    port = int(os.environ.get("PORT", "8080"))
+    uvicorn.run(app, host="0.0.0.0", port=port)
 
