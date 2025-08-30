@@ -3,7 +3,7 @@ FROM python:3.11-slim
 
 # 環境変数を設定
 ENV APP_HOME /app
-ENV LANG C.UTF-8   # ← ここに移動
+ENV LANG C.UTF-8
 WORKDIR $APP_HOME
 
 # 必要なライブラリをインストール
@@ -13,9 +13,5 @@ RUN pip install --no-cache-dir -r requirements.txt
 # プロジェクトのファイルをコピー
 COPY . .
 
-# コンテナの起動コマンド
-# (FROM, WORKDIR, COPY, RUN はそのまま)
-
-# コンテナの起動コマンドをGunicornに変更
+# コンテナの起動コマンド (★ Gunicornを使うこちらが正しい)
 CMD exec gunicorn --bind :$PORT --workers 1 --threads 8 --timeout 0 bot:app
-
