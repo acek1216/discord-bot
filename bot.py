@@ -49,7 +49,7 @@ def get_env_variable(var_name: str, is_secret: bool = True) -> str:
     value = os.getenv(var_name)
     if not value:
         print(f"🚨 致命的なエラー: 環境変数 '{var_name}' が設定されていません。")
-        sys.exit(1)
+        return ""
     if is_secret:
         print(f"🔑 環境変数 '{var_name}' を読み込みました (Value: ...{value[-4:]})")
     else:
@@ -932,7 +932,6 @@ async def on_message(message):
                 ])
                 perplexity_thread_memory[thread_id] = history[-10:]
 
-            
 @app.on_event("startup")
 async def startup_event():
     """サーバー起動時にBotをバックグラウンドで起動する"""
