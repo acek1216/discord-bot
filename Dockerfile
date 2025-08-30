@@ -10,12 +10,5 @@ WORKDIR $APP_HOME
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# プロジェクトのファイルをコピー
-COPY . .
-
-# ★★★★★★★★★★★★★★★★★★★★★★★★★★★
-# ★★★ これが唯一の正しい起動コマンドです ★★★
-# ★★★★★★★★★★★★★★★★★★★★★★★★★
-CMD exec gunicorn --bind :$PORT --workers 1 --threads 1 --timeout 0 bot:app
-
-
+# 最後のCMD命令を以下のように変更
+CMD exec gunicorn --bind :$PORT --workers 1 --threads 1 --timeout 0 main:app
