@@ -837,7 +837,7 @@ async def on_message(message):
         return
 
     channel_name = message.channel.name.lower()
-    if not (channel_name.startswith("gpt") or channel_name == "gemini" or channel_name.startswith("perplexity")): return
+    if not (channel_name.startswith("gpt") or channel_name.startswith("gemini") or channel_name.startswith("perplexity")): return
 
     processing_users.add(message.author.id)
     try:
@@ -956,4 +956,3 @@ async def startup_event():
 def health_check():
     """ヘルスチェック用のエンドポイント"""
     return {"status": "ok", "bot_is_connected": client.is_ready()}
-
