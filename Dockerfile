@@ -15,4 +15,4 @@ RUN pip install --no-cache-dir -r requirements.txt fastapi "uvicorn[standard]"
 COPY bot.py .
 
 # コンテナ起動時にUvicornを実行します
-CMD ["uvicorn", "bot:app", "--host", "0.0.0.0", "--port", "8080"]
+CMD exec uvicorn bot:app --host 0.0.0.0 --port ${PORT:-8080}
