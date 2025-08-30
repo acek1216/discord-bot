@@ -470,7 +470,7 @@ async def ask_minerva(prompt, system_prompt=None, attachment_parts=[]):
     except Exception as e: return f"Gemini Proエラー: {e}"
 
 async def ask_gemini_2_5_pro(prompt, system_prompt=None):
-    base_prompt = system_prompt or "あなたは未来予測に特化した戦略コンサルタントです。データに基づき、あらゆる事象の未来を予測し、その可能性を事務的かつ論理的に報告してください。"
+    base_prompt = system_prompt or "あなたは戦略コンサルタントです。データに基づき、あらゆる事象の未来を予測し、その可能性を事務的かつ論理的に報告してください。"
     model = genai.GenerativeModel("gemini-2.5-pro", system_instruction=base_prompt, safety_settings=safety_settings)
     try:
         response = await model.generate_content_async(prompt)
@@ -953,4 +953,3 @@ async def startup_event():
 def health_check():
     """ヘルスチェック用のエンドポイント"""
     return {"status": "ok", "bot_is_connected": client.is_ready()}
-
