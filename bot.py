@@ -642,7 +642,7 @@ async def notion_command(interaction: discord.Interaction, query: str, attachmen
         except: await interaction.followup.send(f"❌ コマンドの実行中に予期せぬエラーが発生しました: {e}", ephemeral=True)
 
 BASE_MODELS_FOR_ALL = {"GPT": ask_gpt_base, "ジェミニ": ask_gemini_base, "ミストラル": ask_mistral_base, "Claude": ask_claude, "Llama": ask_llama}
-ADVANCED_MODELS_FOR_ALL = {"gpt-4o": (ask_kreios, get_full_response_and_summary), "Gemini Pro": (ask_minerva, get_full_response_and_summary), "Perplexity": (ask_rekus, get_full_response_and_summary), "Gemini 2.5 Pro": (ask_gemini_2_5_pro, get_full_response_and_summary), "gpt-5": (ask_gpt5, get_full_response_and_summary)}
+ADVANCED_MODELS_FOR_ALL = {"gpt-4o": (ask_kreios, get_full_response_and_summary), "Gemini2_0": (ask_minerva, get_full_response_and_summary), "Perplexity": (ask_rekus, get_full_response_and_summary), "Gemini 2.5 Pro": (ask_gemini_2_5_pro, get_full_response_and_summary), "gpt-5": (ask_gpt5, get_full_response_and_summary)}
 
 @tree.command(name="minna", description="5体のベースAIが議題に同時に意見を出します。")
 @app_commands.describe(prompt="AIに尋ねる議題", attachment="補足資料として画像を添付")
