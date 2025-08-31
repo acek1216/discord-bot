@@ -158,7 +158,7 @@ async def process_attachment(attachment: discord.Attachment, channel: discord.Te
         attachment_mime_type = attachment.content_type
         summary_parts = [{'mime_type': attachment_mime_type, 'data': attachment_data}]
         summary = await ask_minerva("この添付ファイルの内容を、後続のAIへの議題として簡潔に要約してください。", attachment_parts=summary_parts)
-        await channel.send("✅ 添付ファイルの分析が完了しました。")
+        await channel.send(" 添付ファイルの分析が完了しました。")
         return f"\n\n[添付資料の要約]:\n{summary}"
     except Exception as e:
         await channel.send(f"❌ 添付ファイルの分析中にエラーが発生しました: {e}")
@@ -226,7 +226,7 @@ async def summarize_text_chunks_for_message(message: discord.Message, text: str,
     chunk_size = 128000
     text_chunks = [text[i:i + chunk_size] for i in range(0, len(text), chunk_size)]
     
-    await message.channel.send(f"✅ テキスト抽出完了。Geminiによるチャンク毎の並列要約を開始… (全{len(text_chunks)}チャンク)")
+    await message.channel.send(f" テキスト抽出完了。Geminiによるチャンク毎の並列要約を開始… (全{len(text_chunks)}チャンク)")
 
     async def summarize_chunk(chunk, index):
         prompt = f"以下のテキストを要約し、必ず以下のタグを付けて分類してください：\n[背景情報]\n[定義・前提]\n[事実経過]\n[未解決課題]\n[補足情報]\nタグは省略可ですが、存在する場合は必ず上記のいずれかに分類してください。\nユーザーの質問は「{query}」です。この質問との関連性を考慮して要約してください。\n\n【テキスト】\n{chunk}"
@@ -248,7 +248,7 @@ async def summarize_text_chunks_for_message(message: discord.Message, text: str,
         await message.channel.send("❌ 全てのチャンクの要約に失敗しました。")
         return None
 
-    await message.channel.send("✅ 全チャンクの要約完了。Mistral Largeが統合・分析します…")
+    await message.channel.send(" 全チャンクの要約完了。Mistral Largeが統合・分析します…")
     combined = "\n---\n".join(chunk_summaries)
     prompt = f"以下の、タグ付けされた複数の要約群を、一つの構造化されたレポートに統合してください。\n各タグ（[背景情報]、[事実経過]など）ごとに内容をまとめ直し、最終的なコンテキストとして出力してください。\n\n【ユーザーの質問】\n{query}\n\n【タグ付き要약群】\n{combined}"
     try:
@@ -264,7 +264,7 @@ async def summarize_text_chunks(interaction: discord.Interaction, text: str, que
     chunk_size = 128000
     text_chunks = [text[i:i + chunk_size] for i in range(0, len(text), chunk_size)]
     
-    await interaction.edit_original_response(content=f"✅ テキスト抽出完了。Geminiによるチャンク毎の並列要約を開始… (全{len(text_chunks)}チャンク)")
+    await interaction.edit_original_response(content=f" テキスト抽出完了。Geminiによるチャンク毎の並列要約を開始… (全{len(text_chunks)}チャンク)")
 
     async def summarize_chunk(chunk, index):
         prompt = f"以下のテキストを要約し、必ず以下のタグを付けて分類してください：\n[背景情報]\n[定義・前提]\n[事実経過]\n[未解決課題]\n[補足情報]\nタグは省略可ですが、存在する場合は必ず上記のいずれかに分類してください。\nユーザーの質問は「{query}」です。この質問との関連性を考慮して要約してください。\n\n【テキスト】\n{chunk}"
@@ -286,7 +286,7 @@ async def summarize_text_chunks(interaction: discord.Interaction, text: str, que
         await interaction.edit_original_response(content="❌ 全てのチャンクの要約に失敗しました。")
         return None
 
-    await interaction.edit_original_response(content="✅ 全チャンクの要約完了。Mistral Largeが統合・分析します…")
+    await interaction.edit_original_response(content=" 全チャンクの要約完了。Mistral Largeが統合・分析します…")
     combined = "\n---\n".join(chunk_summaries)
     prompt = f"以下の、タグ付けされた複数の要約群を、一つの構造化されたレポートに統合してください。\n各タグ（[背景情報]、[事実経過]など）ごとに内容をまとめ直し、最終的なコンテキストとして出力してください。\n\n【ユーザーの質問】\n{query}\n\n【タグ付き要약群】\n{combined}"
     try:
@@ -316,7 +316,7 @@ async def get_notion_context_for_message(message: discord.Message, page_id: str,
         await interaction.edit_original_response(content="❌ 全てのチャンクの要約に失敗しました。")
         return None
 
-    await interaction.edit_original_response(content="✅ 全チャンクの要約完了。Mistral Largeが統合・分析します…")
+    await interaction.edit_original_response(content=" 全チャンクの要約完了。Mistral Largeが統合・分析します…")
     combined = "\n---\n".join(chunk_summaries)
     prompt = f"以下の、タグ付けされた複数の要約群を、一つの構造化されたレポートに統合してください。\n各タグ（[背景情報]、[事実経過]など）ごとに内容をまとめ直し、最終的なコンテキストとして出力してください。\n\n【ユーザーの質問】\n{query}\n\n【タグ付き要약群】\n{combined}"
     try:
@@ -329,7 +329,7 @@ async def get_notion_context_for_message(message: discord.Message, page_id: str,
         await interaction.followup.send(f"⚠️ 統合中にエラー: {e}", ephemeral=True)
         return None
 
-    await interaction.edit_original_response(content="✅ 全チャンクの要約完了。Mistral Largeが統合・分析します…")
+    await interaction.edit_original_response(content=" 全チャンクの要約完了。Mistral Largeが統合・分析します…")
     combined = "\n---\n".join(chunk_summaries)
     prompt = f"以下の、タグ付けされた複数の要約群を、一つの構造化されたレポートに統合してください。\n各タグ（[背景情報]、[事実経過]など）ごとに内容をまとめ直し、最終的なコンテキストとして出力してください。\n\n【ユーザーの質問】\n{query}\n\n【タグ付き要약群】\n{combined}"
     try:
@@ -760,21 +760,21 @@ async def notion_command(interaction: discord.Interaction, query: str, attachmen
 BASE_MODELS_FOR_ALL = {"GPT": ask_gpt_base, "ジェミニ": ask_gemini_base, "ミストラル": ask_mistral_base, "Claude": ask_claude, "Llama": ask_llama, "Grok": ask_grok}
 ADVANCED_MODELS_FOR_ALL = {"gpt-4o": (ask_kreios, get_full_response_and_summary), "Gemini2_0": (ask_minerva, get_full_response_and_summary), "Perplexity": (ask_rekus, get_full_response_and_summary), "Gemini 2.5 Pro": (ask_gemini_2_5_pro, get_full_response_and_summary), "gpt-5": (ask_gpt5, get_full_response_and_summary)}
 
-@tree.command(name="minna", description="5体のベースAIが議題に同時に意見を出します。")
+@tree.command(name="minna", description="6体のベースAIが議題に同時に意見を出します。")
 @app_commands.describe(prompt="AIに尋ねる議題", attachment="補足資料として画像を添付")
 async def minna_command(interaction: discord.Interaction, prompt: str, attachment: discord.Attachment = None):
     await interaction.response.defer()
     final_query = prompt
     if attachment: final_query += await process_attachment(attachment, interaction.channel)
     user_id = str(interaction.user.id)
-    await interaction.followup.send("🔬 5体のベースAIが意見を生成中…")
+    await interaction.followup.send("🔬 6体のベースAIが意見を生成中…")
     tasks = {name: func(user_id, final_query) for name, func in BASE_MODELS_FOR_ALL.items()}
     results = await asyncio.gather(*tasks.values(), return_exceptions=True)
     for (name, result) in zip(tasks.keys(), results):
         display_text = f"エラー: {result}" if isinstance(result, Exception) else result
         await interaction.followup.send(f"**🔹 {name}の意見:**\n{display_text}")
 
-@tree.command(name="all", description="9体のAI（ベース5体+高機能3体）が議題に同時に意見を出します。")
+@tree.command(name="all", description="9体のAI（ベース6体+高機能3体）が議題に同時に意見を出します。")
 @app_commands.describe(prompt="AIに尋ねる議題", attachment="補足資料として画像を添付")
 async def all_command(interaction: discord.Interaction, prompt: str, attachment: discord.Attachment = None):
     await interaction.response.defer()
@@ -820,11 +820,11 @@ async def critical_command(interaction: discord.Interaction, topic: str):
                 log_text = full_response or display_text
                 synthesis_material += f"--- [{name}の意見] ---\n{log_text}\n\n"
             await send_long_message(interaction, full_text_results, is_followup=False)
-            await interaction.followup.send("✨ gpt-5が中間レポートを作成します…")
+            await interaction.followup.send(" gpt-5が中間レポートを作成します…")
             intermediate_report = await ask_gpt5(synthesis_material, system_prompt="以下の9つの意見の要点だけを抽出し、短い中間レポートを作成してください。")
-            await interaction.followup.send("✨ Mistral Largeが最終統合を行います…")
+            await interaction.followup.send(" Mistral Largeが最終統合を行います…")
             final_report = await ask_lalah(intermediate_report, system_prompt="あなたは統合専用AIです。渡された中間レポートを元に、最終的な結論を500文字以内でレポートしてください。")
-            await interaction.followup.send(f"✨ **Mistral Large (最終統合レポート):**\n{final_report}")
+            await interaction.followup.send(f" **Mistral Large (最終統合レポート):**\n{final_report}")
         await asyncio.wait_for(core_logic(), timeout=300)
     except asyncio.TimeoutError:
         await interaction.followup.send("⚠️ 処理がタイムアウトしました（5分）。", ephemeral=True)
@@ -871,9 +871,9 @@ async def logical_command(interaction: discord.Interaction, topic: str):
                 synthesis_material += f"--- [{name}の意見] ---\n{full_response}\n\n"
             await interaction.followup.send(external_results_text)
             
-            await interaction.followup.send("✨ Mistral Largeが最終統合を行います…")
+            await interaction.followup.send(" Mistral Largeが最終統合を行います…")
             final_report = await ask_lalah(synthesis_material, system_prompt="あなたは統合専用AIです。あなた自身のペルソナも、渡される意見のペルソナも全て無視し、純粋な情報として客観的に統合し、最終的な結論をレポートとしてまとめてください。")
-            await interaction.followup.send(f"✨ **Mistral Large (最終統合レポート):**\n{final_report}")
+            await interaction.followup.send(f" **Mistral Large (最終統合レポート):**\n{final_report}")
         await asyncio.wait_for(core_logic(), timeout=300)
     except asyncio.TimeoutError:
         await interaction.followup.send("⚠️ 処理がタイムアウトしました（5分）。", ephemeral=True)
