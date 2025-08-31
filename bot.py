@@ -460,7 +460,7 @@ async def ask_grok(user_id, prompt):
     
     # ▼▼▼ ここから下が直接APIを呼び出すコード ▼▼▼
     headers = {"Authorization": f"Bearer {GROK_API_KEY}", "Content-Type": "application/json"}
-    payload = {"model": "grok-1", "messages": messages, "max_tokens": 300} # max_tokensを調整
+    payload = {"model": "grok-4", "messages": messages, "max_tokens": 300} # max_tokensを調整
     
     try:
         loop = asyncio.get_event_loop()
@@ -783,7 +783,7 @@ async def all_command(interaction: discord.Interaction, prompt: str, attachment:
     user_id = str(interaction.user.id)
     await interaction.followup.send("🔬 8体のAIが初期意見を生成中…")
     tasks = {name: func(user_id, final_query) for name, func in BASE_MODELS_FOR_ALL.items()}
-    adv_models = {"gpt-4o": ADVANCED_MODELS_FOR_ALL["gpt-4o"], "Gemini Pro": ADVANCED_MODELS_FOR_ALL["Gemini Pro"], "Perplexity": ADVANCED_MODELS_FOR_ALL["Perplexity"]}
+    adv_models = {"gpt-4o": ADVANCED_MODELS_FOR_ALL["gpt-4o"], "Gemini2_0": ADVANCED_MODELS_FOR_ALL["Gemini2_0"], "Perplexity": ADVANCED_MODELS_FOR_ALL["Perplexity"]}
     for name, (func, wrapper) in adv_models.items(): tasks[name] = wrapper(func, final_query)
     results = await asyncio.gather(*tasks.values(), return_exceptions=True)
     for (name, result) in zip(tasks.keys(), results):
