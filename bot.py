@@ -518,6 +518,15 @@ async def ask_rekus(prompt, system_prompt=None, notion_context=None):
         return response.json()["choices"][0]["message"]["content"]
     except Exception as e: return f"Perplexityエラー: {e}"
 
+async def ask_gemini_2_5_pro_for_summary(prompt: str) -> str:
+    """Gemini 2.5 Proを使って要約を行うヘルパー関数"""
+    try:
+        model = genai.GenerativeModel("gemini-2.5-pro-latest", system_instruction="あなたは構造化要約AIです。", safety_settings=safety_settings)
+        response = await model.generate_content_async(prompt)
+        return response.text
+    except Exception as e:
+        return f"Gemini 2.5 Proでの要約中にエラーが発生しました: {e}"
+
 async def ask_pod042(prompt):
     system_prompt = """あなたは「ポッド042」という名前の、分析支援AIです。
 ユーザーの要求に対し、「報告：」または「提案：」から始めて150文字以内で簡潔に応答してください。"""
@@ -883,9 +892,9 @@ async def on_message(message):
         if channel_name.startswith("gpt"):
             summary_model_to_use = "perplexity"
         elif channel_name.startswith("gemini"):
-            summary_model_to_use = "gemini"
+            summary_model_to_use = "gpt"
         else: # perplexity部屋などのデフォルト
-            summary_model_to_use = "gpt" 
+            summary_model_to_use = "gemini_2_5_pro"
 
         # Notionからコンテキストを取得
         notion_context = await get_notion_context_for_message(message, target_page_id, prompt, model_choice=summary_model_to_use)
@@ -921,7 +930,10 @@ async def on_message(message):
             history_text = "\n".join([f"{m['role']}: {m['content']}" for m in history])
             if is_admin and target_page_id:
                 await log_to_notion(target_page_id, [{"object": "block", "type": "paragraph", "paragraph": {"rich_text": [{"type": "text", "text": {"content": f"👤 {message.author.display_name}:\n{prompt}"}}]}}])
-            rekus_prompt = f"【これまでの会話】\n{history_text or 'なし'}\n\n【今回の質問】\nuser: {prompt}"
+            
+            # ★変更点
+            rekus_prompt = f"【これまでの会話】\n{history_text or 'なし'}\n\n【今回の質問】\n{prompt}"
+            
             reply = await ask_rekus(rekus_prompt, notion_context=notion_context)
             await send_long_message(message.channel, reply)
             if is_admin and target_page_id:
