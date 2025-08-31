@@ -249,13 +249,18 @@ async def summarize_text_chunks_for_message(message: discord.Message, text: str,
         await message.channel.send("⚠️ 最終統合中にタイムアウトまたはエラーが発生しました。")
         return None
 
-async def summarize_text_chunks(interaction: discord.Interaction, text: str, query: str, model_choice: str):
-    """[スラッシュコマンド用] テキストをチャンク分割し、指定されたモデルで並列要約、Mistral Largeで統合する"""
+async def summarize_text_chunks_for_message(message: discord.Message, text: str, query: str, model_choice: str):
+    """[on_message用] テキストをチャンク分割し、指定されたモデルで並列要約、Mistral Largeで統合する"""
     chunk_size = 128000
     text_chunks = [text[i:i + chunk_size] for i in range(0, len(text), chunk_size)]
-    model_name_map = {"gpt": "gpt-4o", "gemini": "Gemini 1.5 Pro", "perplexity": "Perplexity Sonar"}
+    model_name_map = {
+        "gpt": "gpt-4o", 
+        "gemini": "Gemini 1.5 Pro", 
+        "perplexity": "Perplexity Sonar", 
+        "gemini_2_5_pro": "Gemini 2.5 Pro"
+    }
     model_name = model_name_map.get(model_choice, "不明なモデル")
-    await interaction.edit_original_response(content=f" テキスト抽出完了。{model_name}によるチャンク毎の並列要約を開始… (全{len(text_chunks)}チャンク)")
+    await message.channel.send(f" テキスト抽出完了。{model_name}によるチャンク毎の並列要約を開始… (全{len(text_chunks)}チャンク)")
 
     async def summarize_chunk(chunk, index):
         prompt = f"以下のテキストを要約し、必ず以下のタグを付けて分類してください：\n[背景情報]\n[定義・前提]\n[事実経過]\n[未解決課題]\n[補足情報]\nタグは省略可ですが、存在する場合は必ず上記のいずれかに分類してください。\nユーザーの質問は「{query}」です。この質問との関連性を考慮して要約してください。\n\n【テキスト】\n{chunk}"
@@ -266,15 +271,37 @@ async def summarize_text_chunks(interaction: discord.Interaction, text: str, que
                 summary_text = response.choices[0].message.content
             elif model_choice == "gemini":
                 summary_text = await ask_gemini_pro_for_summary(prompt)
+            
+            # ★追加点: Gemini 2.5 Proを呼び出す処理を追加
+            elif model_choice == "gemini_2_5_pro":
+                summary_text = await await ask_gemini_2_5_pro_for_summary(prompt)
+                
             elif model_choice == "perplexity":
                 summary_text = await ask_rekus_for_summary(prompt)
+                
             if "エラーが発生しました" in summary_text:
-                await interaction.followup.send(f"⚠️ チャンク {index+1} の要約中にエラー: {summary_text}", ephemeral=True)
+                await message.channel.send(f"⚠️ チャンク {index+1} の要約中にエラー: {summary_text}")
                 return None
             return summary_text
         except Exception as e:
-            await interaction.followup.send(f"⚠️ チャンク {index+1} の要約中にエラー: {e}", ephemeral=True)
+            await message.channel.send(f"⚠️ チャンク {index+1} の要約中にエラー: {e}")
             return None
+    
+    tasks = [summarize_chunk(chunk, i) for i, chunk in enumerate(text_chunks)]
+    chunk_summaries_results = await asyncio.gather(*tasks)
+    chunk_summaries = [summary for summary in chunk_summaries_results if summary is not None]
+
+    if not chunk_summaries:
+        await message.channel.send("❌ 全てのチャンクの要約に失敗しました。")
+        return None
+    await message.channel.send(" 全チャンクの要約完了。Mistral Largeが統合・分析します…")
+    combined = "\n---\n".join(chunk_summaries)
+    final_prompt = f"以下の、タグ付けされた複数の要約群を、一つの構造化されたレポートに統合してください。\n各タグ（[背景情報]、[事実経過]など）ごとに内容をまとめ直し、最終的なコンテキストとして出力してください。\n\n【ユーザーの質問】\n{query}\n\n【タグ付き要약群】\n{combined}"
+    try:
+        return await asyncio.wait_for(ask_lalah(final_prompt, system_prompt="あなたは構造化統合AIです。"), timeout=90)
+    except Exception:
+        await message.channel.send("⚠️ 最終統合中にタイムアウトまたはエラーが発生しました。")
+        return None
 
     tasks = [summarize_chunk(chunk, i) for i, chunk in enumerate(text_chunks)]
     chunk_summaries_results = await asyncio.gather(*tasks)
@@ -512,10 +539,14 @@ async def ask_rekus(prompt, system_prompt=None, notion_context=None):
     if notion_context:
         prompt = (f"以下はNotionの要約コンテキストです:\n{notion_context}\n\n"
                   f"質問: {prompt}\n\n"
-                  "この要約を参考に、必要に応じてWeb情報も活用して回答してください。")
-    base_prompt = system_prompt or "あなたは探索王レキュスです。与えられた情報を元に、外部調査も駆使して質問に対して回答してください。"
+                  "この要約を参考に回答してください。")
+    
+    # ★変更点: モデル名を "sonar-pro" に直接指定
+    model_name = "sonar-pro"
+    
+    base_prompt = system_prompt or "あなたは思索AIレキュスです。与えられた情報と思考を元に、ユーザーの質問に対して深い考察を加えて回答してください。"
     messages = [{"role": "system", "content": base_prompt}, {"role": "user", "content": prompt}]
-    payload = {"model": "sonar-pro", "messages": messages}
+    payload = {"model": model_name, "messages": messages}
     headers = {"Authorization": f"Bearer {PERPLEXITY_API_KEY}", "Content-Type": "application/json"}
     try:
         loop = asyncio.get_event_loop()
@@ -670,7 +701,14 @@ async def gemini_pro_command(interaction: discord.Interaction, prompt: str, atta
 
 @tree.command(name="perplexity", description="Perplexityを単体で呼び出します。")
 async def perplexity_command(interaction: discord.Interaction, prompt: str):
-    await advanced_ai_simple_runner(interaction, prompt, ask_rekus, "Perplexity Sonar")
+    # ★変更点: advanced_ai_simple_runner を使わずに直接呼び出す
+    await interaction.response.defer()
+    try:
+        # use_onlineは指定しない（デフォルトのFalse=オフライン考察モード）
+        reply = await ask_rekus(prompt)
+        await send_long_message(interaction, reply, is_followup=True)
+    except Exception as e:
+        await interaction.followup.send(f"🤖 Perplexity Sonar の処理中にエラーが発生しました: {e}")
 
 @tree.command(name="gpt5", description="GPT-5を単体で呼び出します。")
 async def gpt5_command(interaction: discord.Interaction, prompt: str):
@@ -766,8 +804,10 @@ async def critical_command(interaction: discord.Interaction, topic: str):
             if not target_page_id:
                 await interaction.edit_original_response(content="❌ このチャンネルはNotionページにリンクされていません。")
                 return
-            ### ▼ 修正点: model_choiceを明示的に指定 ▼ ###
-            context = await get_notion_context(interaction, target_page_id, topic, model_choice="gpt")
+            
+            # ★変更点： model_choiceを 'gemini' に変更
+            context = await get_notion_context(interaction, target_page_id, topic, model_choice="gemini")
+
             if not context: return
             await interaction.edit_original_response(content="🔬 11体のAIが初期意見を生成中…")
             prompt_with_context = f"以下の【参考情報】を元に、【ユーザーの質問】に回答してください。\n\n【ユーザーの質問】\n{topic}\n\n【参考情報】\n{context}"
@@ -805,15 +845,19 @@ async def logical_command(interaction: discord.Interaction, topic: str):
             if not target_page_id:
                 await interaction.edit_original_response(content="❌ このチャンネルはNotionページにリンクされていません。")
                 return
-            ### ▼ 修正点: model_choiceを明示的に指定 ▼ ###
-            context = await get_notion_context(interaction, target_page_id, topic, model_choice="gpt")
+            context = await get_notion_context(interaction, target_page_id, topic, model_choice="gemini")
             if not context: return
             await interaction.edit_original_response(content="⚖️ 内部討論と外部調査を並列で開始します…")
             prompt_with_context = f"以下の【参考情報】を元に、【ユーザーの質問】に回答してください。\n\n【ユーザーの質問】\n{topic}\n\n【参考情報】\n{context}"
             tasks = {
                 "肯定論者(gpt-4o)": get_full_response_and_summary(ask_kreios, prompt_with_context, system_prompt="あなたはこの議題の【肯定論者】です。議題を推進する最も強力な論拠を提示してください。"),
+                
+                # ★変更点: use_online=True を削除
                 "否定論者(Perplexity)": get_full_response_and_summary(ask_rekus, topic, system_prompt="あなたはこの議題の【否定論者】です。議題に反対する最も強力な反論を、客観的な事実やデータに基づいて提示してください。", notion_context=context),
+                
                 "中立分析官(Gemini Pro)": get_full_response_and_summary(ask_minerva, prompt_with_context, system_prompt="あなたはこの議題に関する【中立的な分析官】です。関連する社会的・倫理的な論点を、感情を排して提示してください。"),
+
+                # ★変更点: use_online=True を削除
                 "外部調査(Perplexity)": get_full_response_and_summary(ask_rekus, topic, notion_context=context)
             }
             results = await asyncio.gather(*tasks.values())
@@ -916,16 +960,21 @@ async def on_message(message):
             asyncio.create_task(run_long_gpt5_task(message, prompt, full_prompt, is_admin, target_page_id, thread_id))
 
         elif channel_name.startswith("gemini"):
-            await message.channel.send("⏳ Gemini 1.5 Proが思考を開始します…")
+            # ★変更点： ユーザーへの通知を 2.5 Pro に修正
+            await message.channel.send("⏳ Gemini 2.5 Proが思考を開始します…")
             history = gemini_thread_memory.get(thread_id, []) if is_memory_on else []
             history_text = "\n".join([f"{m['role']}: {m['content']}" for m in history])
             if is_admin and target_page_id:
                 await log_to_notion(target_page_id, [{"object": "block", "type": "paragraph", "paragraph": {"rich_text": [{"type": "text", "text": {"content": f"👤 {message.author.display_name}:\n{prompt}"}}]}}])
             full_prompt = f"【Notionページの要約】\n{notion_context or '参照なし'}\n\n【これまでの会話】\n{history_text or 'なし'}\n\n【今回の質問】\nuser: {prompt}"
+            
+            # 正しく Gemini 2.5 Pro を呼び出している
             reply = await ask_gemini_2_5_pro(full_prompt)
+            
             await send_long_message(message.channel, reply)
             if is_admin and target_page_id:
-                await log_response(target_page_id, reply, "Gemini 1.5 Pro")
+                # ★変更点： Notionへのログ記録を 2.5 Pro に修正
+                await log_response(target_page_id, reply, "Gemini 2.5 Pro")
             if is_memory_on and "エラー" not in reply:
                 history.extend([{"role": "user", "content": prompt}, {"role": "assistant", "content": reply}])
                 gemini_thread_memory[thread_id] = history[-10:]
@@ -937,10 +986,11 @@ async def on_message(message):
             if is_admin and target_page_id:
                 await log_to_notion(target_page_id, [{"object": "block", "type": "paragraph", "paragraph": {"rich_text": [{"type": "text", "text": {"content": f"👤 {message.author.display_name}:\n{prompt}"}}]}}])
             
-            # ★変更点
             rekus_prompt = f"【これまでの会話】\n{history_text or 'なし'}\n\n【今回の質問】\n{prompt}"
             
+            # ★変更点: use_onlineは指定しない（デフォルトのFalse=オフライン考察モード）
             reply = await ask_rekus(rekus_prompt, notion_context=notion_context)
+            
             await send_long_message(message.channel, reply)
             if is_admin and target_page_id:
                 await log_response(target_page_id, reply, "Perplexity Sonar")
