@@ -509,7 +509,7 @@ async def ask_rekus(prompt, system_prompt=None, notion_context=None):
                   "この要約を参考に、必要に応じてWeb情報も活用して回答してください。")
     base_prompt = system_prompt or "あなたは探索王レキュスです。与えられた情報を元に、外部調査も駆使して質問に対して回答してください。"
     messages = [{"role": "system", "content": base_prompt}, {"role": "user", "content": prompt}]
-    payload = {"model": "llama-3-sonar-large-32k-online", "messages": messages}
+    payload = {"model": "sonar-pro", "messages": messages}
     headers = {"Authorization": f"Bearer {PERPLEXITY_API_KEY}", "Content-Type": "application/json"}
     try:
         loop = asyncio.get_event_loop()
