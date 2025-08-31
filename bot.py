@@ -206,7 +206,7 @@ async def summarize_text_chunks_for_message(message: discord.Message, text: str,
     text_chunks = [text[i:i + chunk_size] for i in range(0, len(text), chunk_size)]
     model_name_map = {"gpt": "gpt-4o", "gemini": "Gemini 1.5 Pro", "perplexity": "Perplexity Sonar"}
     model_name = model_name_map.get(model_choice, "不明なモデル")
-    await message.channel.send(f"✅ テキスト抽出完了。{model_name}によるチャンク毎の並列要約を開始… (全{len(text_chunks)}チャンク)")
+    await message.channel.send(f" テキスト抽出完了。{model_name}によるチャンク毎の並列要約を開始… (全{len(text_chunks)}チャンク)")
 
     async def summarize_chunk(chunk, index):
         prompt = f"以下のテキストを要約し、必ず以下のタグを付けて分類してください：\n[背景情報]\n[定義・前提]\n[事実経過]\n[未解決課題]\n[補足情報]\nタグは省略可ですが、存在する場合は必ず上記のいずれかに分類してください。\nユーザーの質問は「{query}」です。この質問との関連性を考慮して要約してください。\n\n【テキスト】\n{chunk}"
