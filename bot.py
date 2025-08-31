@@ -803,7 +803,7 @@ async def critical_command(interaction: discord.Interaction, topic: str):
                 return
             context = await get_notion_context(interaction, target_page_id, topic)
             if not context: return
-            await interaction.edit_original_response(content="🔬 9体のAIが初期意見を生成中…")
+            await interaction.edit_original_response(content="🔬 11体のAIが初期意見を生成中…")
             prompt_with_context = f"以下の【参考情報】を元に、【ユーザーの質問】に回答してください。\n\n【ユーザーの質問】\n{topic}\n\n【参考情報】\n{context}"
             user_id = str(interaction.user.id)
             tasks = {name: func(user_id, prompt_with_context) for name, func in BASE_MODELS_FOR_ALL.items()}
@@ -891,15 +891,21 @@ async def sync_command(interaction: discord.Interaction):
         synced_commands = []
         if GUILD_ID:
             guild_obj = discord.Object(id=int(GUILD_ID))
-            print("Clearing guild commands...")
+            
+            # ★★★ この一行を追加 ★★★
             tree.clear_commands(guild=guild_obj)
+            
+            print("Clearing and syncing commands for guild...")
             await asyncio.wait_for(tree.sync(guild=guild_obj), timeout=30.0)
-            print("Syncing new commands to guild...")
+            
             tree.copy_global_to(guild=guild_obj)
             synced_commands = await asyncio.wait_for(tree.sync(guild=guild_obj), timeout=30.0)
+            print("Sync complete.")
         else:
             synced_commands = await asyncio.wait_for(tree.sync(), timeout=30.0)
+            
         await interaction.followup.send(f"✅ コマンドの同期が完了しました。同期数: {len(synced_commands)}件", ephemeral=True)
+        
     except asyncio.TimeoutError:
         await interaction.followup.send("❌ 同期がタイムアウトしました。Discord APIが混み合っている可能性があります。", ephemeral=True)
     except Exception as e:
