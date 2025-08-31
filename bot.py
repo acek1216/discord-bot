@@ -197,59 +197,9 @@ async def analyze_attachment_for_gpt5(attachment: discord.Attachment):
     else:
         return f"[未対応の添付ファイル形式: {attachment.filename}]"
 
-
 ### ▼ 修正点: 2つあったsummarize_text_chunksを1つに統合し、新しくsummarize_text_chunks_for_messageを作成 ▼ ###
 
-async def summarize_text_chunks_for_message(message: discord.Message, text: str, query: str, model_choice: str):
-    """[on_message用] テキストをチャンク分割し、指定されたモデルで並列要約、Mistral Largeで統合する"""
-    chunk_size = 128000
-    text_chunks = [text[i:i + chunk_size] for i in range(0, len(text), chunk_size)]
-    model_name_map = {
-        "gpt": "gpt-4o", 
-        "gemini": "Gemini 1.5 Pro", 
-        "perplexity": "Perplexity Sonar", 
-        "gemini_2_5_pro": "Gemini 2.5 Pro"  # ← この行を追加
-    }
-    model_name = model_name_map.get(model_choice, "不明なモデル") 
-    #
-    await message.channel.send(f" テキスト抽出完了。{model_name}によるチャンク毎の並列要約を開始… (全{len(text_chunks)}チャンク)")
-
-    async def summarize_chunk(chunk, index):
-        prompt = f"以下のテキストを要約し、必ず以下のタグを付けて分類してください：\n[背景情報]\n[定義・前提]\n[事実経過]\n[未解決課題]\n[補足情報]\nタグは省略可ですが、存在する場合は必ず上記のいずれかに分類してください。\nユーザーの質問は「{query}」です。この質問との関連性を考慮して要約してください。\n\n【テキスト】\n{chunk}"
-        try:
-            summary_text = ""
-            if model_choice == "gpt":
-                response = await openai_client.chat.completions.create(model="gpt-4o", messages=[{"role": "system", "content": "あなたは構造化要約AIです。"}, {"role": "user", "content": prompt}], max_tokens=2048, temperature=0.2)
-                summary_text = response.choices[0].message.content
-            elif model_choice == "gemini":
-                summary_text = await ask_gemini_pro_for_summary(prompt)
-            elif model_choice == "perplexity":
-                summary_text = await ask_rekus_for_summary(prompt)
-            if "エラーが発生しました" in summary_text:
-                await message.channel.send(f"⚠️ チャンク {index+1} の要約中にエラー: {summary_text}")
-                return None
-            return summary_text
-        except Exception as e:
-            await message.channel.send(f"⚠️ チャンク {index+1} の要約中にエラー: {e}")
-            return None
-    
-    tasks = [summarize_chunk(chunk, i) for i, chunk in enumerate(text_chunks)]
-    chunk_summaries_results = await asyncio.gather(*tasks)
-    chunk_summaries = [summary for summary in chunk_summaries_results if summary is not None]
-
-    if not chunk_summaries:
-        await message.channel.send("❌ 全てのチャンクの要約に失敗しました。")
-        return None
-    await message.channel.send(" 全チャンクの要約完了。Mistral Largeが統合・分析します…")
-    combined = "\n---\n".join(chunk_summaries)
-    final_prompt = f"以下の、タグ付けされた複数の要約群を、一つの構造化されたレポートに統合してください。\n各タグ（[背景情報]、[事実経過]など）ごとに内容をまとめ直し、最終的なコンテキストとして出力してください。\n\n【ユーザーの質問】\n{query}\n\n【タグ付き要약群】\n{combined}"
-    try:
-        return await asyncio.wait_for(ask_lalah(final_prompt, system_prompt="あなたは構造化統合AIです。"), timeout=90)
-    except Exception:
-        await message.channel.send("⚠️ 最終統合中にタイムアウトまたはエラーが発生しました。")
-        return None
-
-async def summarize_text_chunks_for_message(message: discord.Message, text: str, query: str, model_choice: str):
+    async def summarize_text_chunks_for_message(message: discord.Message, text: str, query: str, model_choice: str):
     """[on_message用] テキストをチャンク分割し、指定されたモデルで並列要約、Mistral Largeで統合する"""
     chunk_size = 128000
     text_chunks = [text[i:i + chunk_size] for i in range(0, len(text), chunk_size)]
@@ -260,7 +210,7 @@ async def summarize_text_chunks_for_message(message: discord.Message, text: str,
         "gemini_2_5_pro": "Gemini 2.5 Pro"
     }
     model_name = model_name_map.get(model_choice, "不明なモデル")
-    await message.channel.send(f" テキスト抽出完了。{model_name}によるチャンク毎の並列要約を開始… (全{len(text_chunks)}チャンク)")
+    await message.channel.send(f"✅ テキスト抽出完了。{model_name}によるチャンク毎の並列要約を開始… (全{len(text_chunks)}チャンク)")
 
     async def summarize_chunk(chunk, index):
         prompt = f"以下のテキストを要約し、必ず以下のタグを付けて分類してください：\n[背景情報]\n[定義・前提]\n[事実経過]\n[未解決課題]\n[補足情報]\nタグは省略可ですが、存在する場合は必ず上記のいずれかに分類してください。\nユーザーの質問は「{query}」です。この質問との関連性を考慮して要約してください。\n\n【テキスト】\n{chunk}"
@@ -271,11 +221,8 @@ async def summarize_text_chunks_for_message(message: discord.Message, text: str,
                 summary_text = response.choices[0].message.content
             elif model_choice == "gemini":
                 summary_text = await ask_gemini_pro_for_summary(prompt)
-            
-            # ★追加点: Gemini 2.5 Proを呼び出す処理を追加
             elif model_choice == "gemini_2_5_pro":
-                summary_text = await await ask_gemini_2_5_pro_for_summary(prompt)
-                
+                summary_text = await ask_gemini_2_5_pro_for_summary(prompt)
             elif model_choice == "perplexity":
                 summary_text = await ask_rekus_for_summary(prompt)
                 
@@ -301,22 +248,6 @@ async def summarize_text_chunks_for_message(message: discord.Message, text: str,
         return await asyncio.wait_for(ask_lalah(final_prompt, system_prompt="あなたは構造化統合AIです。"), timeout=90)
     except Exception:
         await message.channel.send("⚠️ 最終統合中にタイムアウトまたはエラーが発生しました。")
-        return None
-
-    tasks = [summarize_chunk(chunk, i) for i, chunk in enumerate(text_chunks)]
-    chunk_summaries_results = await asyncio.gather(*tasks)
-    chunk_summaries = [summary for summary in chunk_summaries_results if summary is not None]
-
-    if not chunk_summaries:
-        await interaction.edit_original_response(content="❌ 全てのチャンクの要約に失敗しました。")
-        return None
-    await interaction.edit_original_response(content=" 全チャンクの要約完了。Mistral Largeが統合・分析します…")
-    combined = "\n---\n".join(chunk_summaries)
-    final_prompt = f"以下の、タグ付けされた複数の要約群を、一つの構造化されたレポートに統合してください。\n各タグ（[背景情報]、[事実経過]など）ごとに内容をまとめ直し、最終的なコンテキストとして出力してください。\n\n【ユーザーの質問】\n{query}\n\n【タグ付き要약群】\n{combined}"
-    try:
-        return await asyncio.wait_for(ask_lalah(final_prompt, system_prompt="あなたは構造化統合AIです。"), timeout=90)
-    except Exception:
-        await interaction.followup.send("⚠️ 最終統合中にタイムアウトまたはエラーが発生しました。", ephemeral=True)
         return None
 
 ### ▼ 修正点: 2つのget_notion_context系関数を整理し、model_choiceを渡せるようにした ▼ ###
