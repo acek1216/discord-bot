@@ -695,20 +695,41 @@ async def minna_command(interaction: discord.Interaction, prompt: str):
 
 ADVANCED_MODELS_FOR_ALL = {"gpt-4o": (ask_kreios, get_full_response_and_summary), "Gemini Pro": (ask_minerva, get_full_response_and_summary), "Perplexity": (ask_rekus, get_full_response_and_summary), "Gemini 1.5 Pro": (ask_gemini_2_5_pro, get_full_response_and_summary), "gpt-5": (ask_gpt5, get_full_response_and_summary)}
 
+
 @tree.command(name="all", description="複数のAIが議題に同時に意見を出します。")
 @app_commands.describe(prompt="AIに尋ねる議題")
 async def all_command(interaction: discord.Interaction, prompt: str):
     await interaction.response.defer()
     user_id = str(interaction.user.id)
-    await interaction.followup.send("🔬 AI群が初期意見を生成中…")
-    tasks = {name: func(user_id, prompt) for name, func in BASE_MODELS_FOR_ALL.items()}
-    adv_models = {"gpt-4o": ADVANCED_MODELS_FOR_ALL["gpt-4o"], "Gemini Pro": ADVANCED_MODELS_FOR_ALL["Gemini Pro"], "Perplexity": ADVANCED_MODELS_FOR_ALL["Perplexity"]}
-    for name, (func, wrapper) in adv_models.items(): tasks[name] = wrapper(func, prompt)
+    await interaction.followup.send("🔬 AI群が意見を生成中…")
+
+    tasks = {}
+
+    # ベースモデルのタスクを追加
+    for name, func in BASE_MODELS_FOR_ALL.items():
+        tasks[name] = func(user_id, prompt)
+    
+    # 高機能モデルのタスクを追加 (要約処理をなくし、直接呼び出す)
+    adv_models_to_run = {
+        "gpt-4o": ADVANCED_MODELS_FOR_ALL["gpt-4o"][0],      # [0]で関数本体を取得
+        "Gemini Pro": ADVANCED_MODELS_FOR_ALL["Gemini Pro"][0],
+        "Perplexity": ADVANCED_MODELS_FOR_ALL["Perplexity"][0]
+    }
+    for name, func in adv_models_to_run.items():
+        tasks[name] = func(prompt) # 高機能AIは user_id を取らない
+
+    # 全てのAIを同時に実行
     results = await asyncio.gather(*tasks.values(), return_exceptions=True)
-    for (name, result) in zip(tasks.keys(), results):
-        _, summary = (result if isinstance(result, tuple) else (None, None))
-        display_text = f"エラー: {result}" if isinstance(result, Exception) else (summary or (result[0] if isinstance(result, tuple) else result))
-        await interaction.followup.send(f"**🔹 {name}の意見:**\n{display_text}")
+
+    # 結果を順番に表示 (シンプルな処理)
+    for name, result in zip(tasks.keys(), results):
+        if isinstance(result, Exception):
+            display_text = f"エラー: {result}"
+        else:
+            display_text = result
+        
+        # 長いメッセージも送れるように send_long_message を使う
+        await send_long_message(interaction, f"**🔹 {name}の意見:**\n{display_text}", is_followup=True)
 
 @tree.command(name="critical", description="Notion情報を元に全AIで議論し、多角的な結論を導きます。")
 @app_commands.describe(topic="議論したい議題")
