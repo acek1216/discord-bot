@@ -920,21 +920,15 @@ async def sync_command(interaction: discord.Interaction):
 
 @client.event
 async def on_ready():
-    print(f"✅ Login successful: {client.user}")
+    print("✅ Login successful. Preparing to clear GLOBAL commands...")
     try:
-        if GUILD_ID:
-            guild_obj = discord.Object(id=int(GUILD_ID))
-            # グローバルコマンドをギルドにコピーして同期する
-            tree.copy_global_to(guild=guild_obj)
-            cmds = await tree.sync(guild=guild_obj)
-            print(f"✅ Synced {len(cmds)} guild commands to {GUILD_ID}")
-        else:
-            # GUILD_IDがない場合はグローバルに同期する
-            cmds = await tree.sync()
-            print(f"✅ Synced {len(cmds)} global commands")
-
+        # グローバルコマンドをクリアする
+        tree.clear_commands(guild=None)
+        await tree.sync()
+        print("✅✅✅ Successfully cleared all GLOBAL commands.")
+        print("🛑 PLEASE REMOVE THIS TEMPORARY CODE NOW and revert to the normal on_ready function.")
     except Exception as e:
-        print(f"🚨 FATAL ERROR on command sync: {e}")
+        print(f"🚨 FAILED to clear global commands: {e}")
 
 @client.event
 async def on_message(message):
