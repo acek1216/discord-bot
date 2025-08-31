@@ -204,7 +204,7 @@ async def summarize_text_chunks_for_message(message: discord.Message, text: str,
     """[on_message用] テキストをチャンク分割し、指定されたモデルで並列要約、Mistral Largeで統合する"""
     chunk_size = 128000
     text_chunks = [text[i:i + chunk_size] for i in range(0, len(text), chunk_size)]
-     model_name_map = {
+    model_name_map = {
         "gpt": "gpt-4o", 
         "gemini": "Gemini 1.5 Pro", 
         "perplexity": "Perplexity Sonar", 
