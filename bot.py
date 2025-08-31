@@ -1036,26 +1036,30 @@ async def on_message(message):
 @app.on_event("startup")
 async def startup_event():
     """サーバー起動時にBotをバックグラウンドで起動する"""
-    # 起動時にAPIクライアントを初期化
     global openai_client, mistral_client, notion, llama_model_for_vertex
     
-    print("🤖 Initializing API clients...")
-    openai_client = AsyncOpenAI(api_key=OPENAI_API_KEY)
-    mistral_client = MistralAsyncClient(api_key=MISTRAL_API_KEY)
-    notion = Client(auth=NOTION_API_KEY)
-    genai.configure(api_key=GEMINI_API_KEY)
-    
     try:
-        print("🤖 Initializing Vertex AI...")
-        vertexai.init(project="stunning-agency-469102-b5", location="us-central1")
-        llama_model_for_vertex = GenerativeModel("publishers/meta/models/llama-3.3-70b-instruct-maas")
-        print("✅ Vertex AI initialized successfully.")
-    except Exception as e:
-        print(f"🚨 Vertex AI init failed (continue without it): {e}")
+        print("🤖 Initializing API clients...")
+        openai_client = AsyncOpenAI(api_key=OPENAI_API_KEY)
+        mistral_client = MistralAsyncClient(api_key=MISTRAL_API_KEY)
+        notion = Client(auth=NOTION_API_KEY)
+        genai.configure(api_key=GEMINI_API_KEY)
+        
+        try:
+            print("🤖 Initializing Vertex AI...")
+            vertexai.init(project="stunning-agency-469102-b5", location="us-central1")
+            llama_model_for_vertex = GenerativeModel("publishers/meta/models/llama-3.3-70b-instruct-maas")
+            print("✅ Vertex AI initialized successfully.")
+        except Exception as e:
+            print(f"🚨 Vertex AI init failed (continue without it): {e}")
 
-    # Botをバックグラウンドタスクとして起動
-    asyncio.create_task(client.start(DISCORD_TOKEN))
-    print("🚀 Discord Bot startup task has been created.")
+        # Botをバックグラウンドタスクとして起動
+        print("🚀 Creating Discord Bot startup task...")
+        asyncio.create_task(client.start(DISCORD_TOKEN))
+        print("✅ Discord Bot startup task has been created.")
+
+    except Exception as e:
+        print(f"🚨🚨🚨 FATAL ERROR during startup event: {e} 🚨🚨🚨")
 
 @app.get("/")
 def health_check():
