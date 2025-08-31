@@ -46,11 +46,12 @@ llama_model_for_vertex: GenerativeModel = None
 
 # --- 環境変数の読み込みと必須チェック ---
 def get_env_variable(var_name: str, is_secret: bool = True) -> str:
-    """環境変数を読み込む。存在しない場合はエラーを発生させる。"""
+    """環境変数を読み込む（テストのため、存在しなくても終了しない）"""
     value = os.getenv(var_name)
     if not value:
-        print(f"🚨 致命的なエラー: 環境変数 '{var_name}' が設定されていません。")
-        sys.exit(1)
+        # sys.exit(1)をコメントアウトし、代わりにエラー表示とダミー値を返す
+        print(f"⚠️ 警告: 環境変数 '{var_name}' が見つかりません。テストを続行します。")
+        return "DUMMY_VALUE_FOR_TESTING" # ダミーの文字列を返す
     if is_secret:
         print(f"🔑 環境変数 '{var_name}' を読み込みました (Value: ...{value[-4:]})")
     else:
@@ -887,14 +888,22 @@ async def on_ready():
     try:
         if GUILD_ID:
             guild_obj = discord.Object(id=int(GUILD_ID))
-            # 通常の同期処理
+            
+            # ▼▼▼【一時的なコード】ここから ▼▼▼
+            # ギルドに登録されたコマンドを一旦すべてクリアする
+            tree.clear_commands(guild=guild_obj)
+            await tree.sync(guild=guild_obj)
+            print(f"✅ ギルド {GUILD_ID} のコマンドをクリアしました。")
+            # ▲▲▲【一時的なコード】ここまで ▲▲▲
+
+            # 通常の同期処理を再度行う
             tree.copy_global_to(guild=guild_obj)
             cmds = await tree.sync(guild=guild_obj)
             print(f"✅ Synced {len(cmds)} guild commands to {GUILD_ID}:", [(c.name, c.id) for c in cmds])
         else:
-            # グローバルで運用する場合
             cmds = await tree.sync()
             print(f"✅ Synced {len(cmds)} global commands:", [(c.name, c.id) for c in cmds])
+
     except Exception as e:
         print(f"--- FATAL ERROR on command sync ---\n{type(e)=}\n{e=}\n-----------------------------------")
 
@@ -976,6 +985,47 @@ async def on_message(message):
             if is_memory_on and "エラー" not in reply:
                 history.extend([{"role": "user", "content": prompt}, {"role": "assistant", "content": reply}])
                 gemini_thread_memory[thread_id] = history[-10:]
+
+        elif channel_name.startswith("perplexity"):
+            await message.channel.send("Perplexity Sonarが思考を開始します…")
+            history = perplexity_thread_memory.get(thread_id, []) if is_memory_on else []
+            history_text = "\n".join([f"{m['role']}: {m['content']}" for m in history])
+
+            # ユーザーの質問をNotionに記録
+            if is_admin and target_page_id:
+                try:
+                    user_log_blocks = [{
+                        "object": "block", "type": "paragraph",
+                        "paragraph": { "rich_text": [{"type": "text", "text": {"content": f"👤 {message.author.display_name}:\n{prompt}"}}] }
+                    }]
+                    await log_to_notion(target_page_id, user_log_blocks)
+                except Exception as e:
+                    print(f"🚨 Notionへのユーザー発言の記録に失敗しました: {e}")
+                    pass
+
+            rekus_prompt = f"【これまでの会話】\n{history_text or 'なし'}\n\n【今回の質問】\nuser: {prompt}"
+            reply = await ask_rekus(rekus_prompt, notion_context=notion_context)
+            
+            if len(reply) <= 2000:
+                await message.channel.send(reply)
+            else:
+                for i in range(0, len(reply), 2000):
+                    await message.channel.send(reply[i:i+2000])
+
+            # AIの回答をNotionに記録
+            if is_admin and target_page_id:
+                try:
+                    await log_response(target_page_id, reply, "Perplexity Sonar")
+                except Exception as e:
+                    print(f"🚨 NotionへのAI回答の記録に失敗しました: {e}")
+                    pass
+
+            if is_memory_on and "エラー" not in str(reply):
+                history.extend([
+                    {"role": "user", "content": prompt},
+                    {"role": "assistant", "content": reply}
+                ])
+                perplexity_thread_memory[thread_id] = history[-10:]
 
     except Exception as e:
         print(f"on_messageでエラーが発生しました: {e}")
