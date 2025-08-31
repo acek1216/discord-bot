@@ -234,7 +234,7 @@ async def summarize_text_chunks_for_message(message: discord.Message, text: str,
     if not chunk_summaries:
         await message.channel.send("❌ 全てのチャンクの要約に失敗しました。")
         return None
-    await message.channel.send("✅ 全チャンクの要約完了。Mistral Largeが統合・分析します…")
+    await message.channel.send(" 全チャンクの要約完了。Mistral Largeが統合・分析します…")
     combined = "\n---\n".join(chunk_summaries)
     final_prompt = f"以下の、タグ付けされた複数の要約群を、一つの構造化されたレポートに統合してください。\n各タグ（[背景情報]、[事実経過]など）ごとに内容をまとめ直し、最終的なコンテキストとして出力してください。\n\n【ユーザーの質問】\n{query}\n\n【タグ付き要약群】\n{combined}"
     try:
@@ -249,7 +249,7 @@ async def summarize_text_chunks(interaction: discord.Interaction, text: str, que
     text_chunks = [text[i:i + chunk_size] for i in range(0, len(text), chunk_size)]
     model_name_map = {"gpt": "gpt-4o", "gemini": "Gemini 1.5 Pro", "perplexity": "Perplexity Sonar"}
     model_name = model_name_map.get(model_choice, "不明なモデル")
-    await interaction.edit_original_response(content=f"✅ テキスト抽出完了。{model_name}によるチャンク毎の並列要約を開始… (全{len(text_chunks)}チャンク)")
+    await interaction.edit_original_response(content=f" テキスト抽出完了。{model_name}によるチャンク毎の並列要約を開始… (全{len(text_chunks)}チャンク)")
 
     async def summarize_chunk(chunk, index):
         prompt = f"以下のテキストを要約し、必ず以下のタグを付けて分類してください：\n[背景情報]\n[定義・前提]\n[事実経過]\n[未解決課題]\n[補足情報]\nタグは省略可ですが、存在する場合は必ず上記のいずれかに分類してください。\nユーザーの質問は「{query}」です。この質問との関連性を考慮して要約してください。\n\n【テキスト】\n{chunk}"
@@ -277,7 +277,7 @@ async def summarize_text_chunks(interaction: discord.Interaction, text: str, que
     if not chunk_summaries:
         await interaction.edit_original_response(content="❌ 全てのチャンクの要約に失敗しました。")
         return None
-    await interaction.edit_original_response(content="✅ 全チャンクの要約完了。Mistral Largeが統合・分析します…")
+    await interaction.edit_original_response(content=" 全チャンクの要約完了。Mistral Largeが統合・分析します…")
     combined = "\n---\n".join(chunk_summaries)
     final_prompt = f"以下の、タグ付けされた複数の要約群を、一つの構造化されたレポートに統合してください。\n各タグ（[背景情報]、[事実経過]など）ごとに内容をまとめ直し、最終的なコンテキストとして出力してください。\n\n【ユーザーの質問】\n{query}\n\n【タグ付き要약群】\n{combined}"
     try:
@@ -445,7 +445,7 @@ async def ask_gpt_base(user_id, prompt):
 async def ask_gemini_base(user_id, prompt):
     history = gemini_base_memory.get(user_id, [])
     system_prompt = "あなたは優秀なパラリーガルです。事実整理、リサーチ、文書構成が得意です。冷静かつ的確に150文字以内で回答してください。"
-    model = genai.GenerativeModel("gemini-1.5-flash-latest", system_instruction=system_prompt, safety_settings=safety_settings)
+    model = genai.GenerativeModel("gemini-1.5-pro", system_instruction=system_prompt, safety_settings=safety_settings)
     try:
         full_prompt = "\n".join([f"{h['role']}: {h['content']}" for h in (history + [{'role': 'user', 'content': prompt}])])
         response = await model.generate_content_async(full_prompt)
@@ -479,7 +479,7 @@ async def ask_kreios(prompt, system_prompt=None):
 
 async def ask_minerva(prompt, system_prompt=None, attachment_parts=[]):
     base_prompt = system_prompt or "あなたは客観的な分析AIです。あらゆる事象をデータとリスクで評価し、感情を排して200文字以内で冷徹に分析します。"
-    model = genai.GenerativeModel("gemini-1.5-flash-latest", system_instruction=base_prompt, safety_settings=safety_settings)
+    model = genai.GenerativeModel("gemini-2.0-flash", system_instruction=base_prompt, safety_settings=safety_settings)
     contents = [prompt] + attachment_parts
     try:
         response = await model.generate_content_async(contents)
@@ -488,7 +488,7 @@ async def ask_minerva(prompt, system_prompt=None, attachment_parts=[]):
 
 async def ask_gemini_2_5_pro(prompt, system_prompt=None):
     base_prompt = system_prompt or "あなたは戦略コンサルタントです。データに基づき、あらゆる事象の未来を予測し、その可能性を事務的かつ論理的に報告してください。"
-    model = genai.GenerativeModel("gemini-1.5-pro-latest", system_instruction=base_prompt, safety_settings=safety_settings)
+    model = genai.GenerativeModel("gemini-2.5-pro-latest", system_instruction=base_prompt, safety_settings=safety_settings)
     try:
         response = await model.generate_content_async(prompt)
         return response.text
@@ -651,9 +651,9 @@ async def perplexity_command(interaction: discord.Interaction, prompt: str):
 async def gpt5_command(interaction: discord.Interaction, prompt: str):
     await advanced_ai_simple_runner(interaction, prompt, ask_gpt5, "gpt-5")
 
-@tree.command(name="gemini-pro-1-5", description="Gemini 1.5 Proを単体で呼び出します。")
+@tree.command(name="gemini-2.5-pro", description="Gemini 2.5 Proを単体で呼び出します。")
 async def gemini_pro_1_5_command(interaction: discord.Interaction, prompt: str):
-    await advanced_ai_simple_runner(interaction, prompt, ask_gemini_2_5_pro, "Gemini 1.5 Pro")
+    await advanced_ai_simple_runner(interaction, prompt, ask_gemini_2_5_pro, "Gemini 2.5 Pro")
 
 @tree.command(name="notion", description="現在のNotionページの内容について質問します")
 @app_commands.describe(query="Notionページに関する質問")
@@ -696,40 +696,30 @@ async def minna_command(interaction: discord.Interaction, prompt: str):
 ADVANCED_MODELS_FOR_ALL = {"gpt-4o": (ask_kreios, get_full_response_and_summary), "Gemini Pro": (ask_minerva, get_full_response_and_summary), "Perplexity": (ask_rekus, get_full_response_and_summary), "Gemini 1.5 Pro": (ask_gemini_2_5_pro, get_full_response_and_summary), "gpt-5": (ask_gpt5, get_full_response_and_summary)}
 
 
-@tree.command(name="all", description="複数のAIが議題に同時に意見を出します。")
-@app_commands.describe(prompt="AIに尋ねる議題")
-async def all_command(interaction: discord.Interaction, prompt: str):
+@tree.command(name="all", description="9体のAI（ベース6体+高機能3体）が議題に同時に意見を出します。")
+@app_commands.describe(prompt="AIに尋ねる議題", attachment="補足資料として画像を添付")
+async def all_command(interaction: discord.Interaction, prompt: str, attachment: discord.Attachment = None):
     await interaction.response.defer()
-    user_id = str(interaction.user.id)
-    await interaction.followup.send("🔬 AI群が意見を生成中…")
-
-    tasks = {}
-
-    # ベースモデルのタスクを追加
-    for name, func in BASE_MODELS_FOR_ALL.items():
-        tasks[name] = func(user_id, prompt)
+    final_query = prompt
+    if attachment: 
+        await interaction.edit_original_response(content="📎 添付ファイルを解析しています…")
+        final_query += await analyze_attachment_for_gpt5(attachment)
     
-    # 高機能モデルのタスクを追加 (要約処理をなくし、直接呼び出す)
+    user_id = str(interaction.user.id)
+    await interaction.edit_original_response(content="🔬 9体のAIが初期意見を生成中…")
+    
+    tasks = {name: func(user_id, final_query) for name, func in BASE_MODELS_FOR_ALL.items()}
     adv_models_to_run = {
-        "gpt-4o": ADVANCED_MODELS_FOR_ALL["gpt-4o"][0],      # [0]で関数本体を取得
-        "Gemini Pro": ADVANCED_MODELS_FOR_ALL["Gemini Pro"][0],
+        "gpt-4o": ADVANCED_MODELS_FOR_ALL["gpt-4o"][0],
+        "Gemini2.0": ADVANCED_MODELS_FOR_ALL["Gemini2.0"][0],
         "Perplexity": ADVANCED_MODELS_FOR_ALL["Perplexity"][0]
     }
     for name, func in adv_models_to_run.items():
-        tasks[name] = func(prompt) # 高機能AIは user_id を取らない
+        tasks[name] = func(final_query)
 
-    # 全てのAIを同時に実行
     results = await asyncio.gather(*tasks.values(), return_exceptions=True)
-
-    # 結果を順番に表示 (シンプルな処理)
     for name, result in zip(tasks.keys(), results):
-        if isinstance(result, Exception):
-            display_text = f"エラー: {result}"
-        else:
-            display_text = result
-        
-        # 長いメッセージも送れるように send_long_message を使う
-        await send_long_message(interaction, f"**🔹 {name}の意見:**\n{display_text}", is_followup=True)
+        await send_long_message_universal(interaction, f"**🔹 {name}の意見:**\n{result if not isinstance(result, Exception) else f'エラー: {result}'}")
 
 @tree.command(name="critical", description="Notion情報を元に全AIで議論し、多角的な結論を導きます。")
 @app_commands.describe(topic="議論したい議題")
