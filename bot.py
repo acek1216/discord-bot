@@ -597,6 +597,16 @@ async def advanced_ai_simple_runner(interaction: discord.Interaction, prompt: st
         await interaction.followup.send(f"🤖 {bot_name} の処理中にエラーが発生しました: {e}")
 
 # --- ここから下はスラッシュコマンドの定義 (一部修正あり) ---
+# ▼▼▼ この場所に追加 ▼▼▼
+BASE_MODELS_FOR_ALL = {
+    "GPT": ask_gpt_base,
+    "Gemini": ask_gemini_base,
+    "Mistral": ask_mistral_base,
+    "Claude": ask_claude,
+    "Llama": ask_llama,
+    "Grok": ask_grok
+}
+# ▲▲▲ ここまで ▲▲▲
 
 @tree.command(name="gpt", description="GPT(gpt-3.5-turbo)と短期記憶で対話します")
 async def gpt_command(interaction: discord.Interaction, prompt: str):
@@ -711,7 +721,7 @@ async def all_command(interaction: discord.Interaction, prompt: str, attachment:
     tasks = {name: func(user_id, final_query) for name, func in BASE_MODELS_FOR_ALL.items()}
     adv_models_to_run = {
         "gpt-4o": ADVANCED_MODELS_FOR_ALL["gpt-4o"][0],
-        "Gemini2.0": ADVANCED_MODELS_FOR_ALL["Gemini2.0"][0],
+        "Gemini Pro": ADVANCED_MODELS_FOR_ALL["Gemini Pro"][0],
         "Perplexity": ADVANCED_MODELS_FOR_ALL["Perplexity"][0]
     }
     for name, func in adv_models_to_run.items():
