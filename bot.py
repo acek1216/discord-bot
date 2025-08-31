@@ -925,6 +925,10 @@ async def on_ready():
 @client.event
 async def on_message(message):
     if message.author.bot or message.author.id in processing_users: return
+    
+    # ★★★ この行を追加 ★★★
+    if message.content.startswith("/"): return # スラッシュコマンドと思われるメッセージは無視する
+
     if message.content.startswith("!"):
         await message.channel.send("💡 `!`コマンドは廃止されました。今後は`/`で始まるスラッシュコマンドをご利用ください。")
         return
