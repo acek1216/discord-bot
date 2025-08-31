@@ -100,6 +100,7 @@ gemini_base_memory = {}
 mistral_base_memory = {}
 claude_base_memory = {}
 llama_base_memory = {}
+grok_base_memory = {}
 gpt_thread_memory = {}
 gemini_thread_memory = {}
 perplexity_thread_memory = {} 
@@ -255,6 +256,44 @@ async def summarize_text_chunks_for_message(message: discord.Message, text: str,
         return final_context
     except Exception:
         await message.channel.send("⚠️ 最終統合中にタイムアウトまたはエラーが発生しました。")
+        return None
+
+async def summarize_text_chunks(interaction: discord.Interaction, text: str, query: str):
+    """[追加] テキストをチャンク分割し、Geminiで並列要約、Mistral Largeで統合する（スラッシュコマンド用）"""
+    chunk_summarizer_model = genai.GenerativeModel("gemini-1.5-flash-latest", system_instruction="あなたは構造化要約AIです。")
+    chunk_size = 128000
+    text_chunks = [text[i:i + chunk_size] for i in range(0, len(text), chunk_size)]
+    
+    await interaction.edit_original_response(content=f"✅ テキスト抽出完了。Geminiによるチャンク毎の並列要約を開始… (全{len(text_chunks)}チャンク)")
+
+    async def summarize_chunk(chunk, index):
+        prompt = f"以下のテキストを要約し、必ず以下のタグを付けて分類してください：\n[背景情報]\n[定義・前提]\n[事実経過]\n[未解決課題]\n[補足情報]\nタグは省略可ですが、存在する場合は必ず上記のいずれかに分類してください。\nユーザーの質問は「{query}」です。この質問との関連性を考慮して要約してください。\n\n【テキスト】\n{chunk}"
+        try:
+            response = await asyncio.wait_for(chunk_summarizer_model.generate_content_async(prompt), timeout=120)
+            return response.text
+        except asyncio.TimeoutError:
+            await interaction.followup.send(f"⚠️ チャンク {index+1} の要約中にタイムアウトしました。", ephemeral=True)
+            return None
+        except Exception as e:
+            await interaction.followup.send(f"⚠️ チャンク {index+1} の要約中にエラー: {e}", ephemeral=True)
+            return None
+
+    tasks = [summarize_chunk(chunk, i) for i, chunk in enumerate(text_chunks)]
+    chunk_summaries_results = await asyncio.gather(*tasks)
+    chunk_summaries = [summary for summary in chunk_summaries_results if summary is not None]
+
+    if not chunk_summaries:
+        await interaction.edit_original_response(content="❌ 全てのチャンクの要約に失敗しました。")
+        return None
+
+    await interaction.edit_original_response(content="✅ 全チャンクの要約完了。Mistral Largeが統合・分析します…")
+    combined = "\n---\n".join(chunk_summaries)
+    prompt = f"以下の、タグ付けされた複数の要約群を、一つの構造化されたレポートに統合してください。\n各タグ（[背景情報]、[事実経過]など）ごとに内容をまとめ直し、最終的なコンテキストとして出力してください。\n\n【ユーザーの質問】\n{query}\n\n【タグ付き要약群】\n{combined}"
+    try:
+        final_context = await asyncio.wait_for(ask_lalah(prompt, system_prompt="あなたは構造化統合AIです。"), timeout=90)
+        return final_context
+    except Exception:
+        await interaction.followup.send("⚠️ 最終統合中にタイムアウトまたはエラーが発生しました。", ephemeral=True)
         return None
 
 async def get_notion_context_for_message(message: discord.Message, page_id: str, query: str):
@@ -848,22 +887,14 @@ async def on_ready():
     try:
         if GUILD_ID:
             guild_obj = discord.Object(id=int(GUILD_ID))
-            
-            # ▼▼▼【一時的なコード】ここから ▼▼▼
-            # ギルドに登録されたコマンドを一旦すべてクリアする
-            tree.clear_commands(guild=guild_obj)
-            await tree.sync(guild=guild_obj)
-            print(f"✅ ギルド {GUILD_ID} のコマンドをクリアしました。")
-            # ▲▲▲【一時的なコード】ここまで ▲▲▲
-
-            # 通常の同期処理を再度行う
+            # 通常の同期処理
             tree.copy_global_to(guild=guild_obj)
             cmds = await tree.sync(guild=guild_obj)
             print(f"✅ Synced {len(cmds)} guild commands to {GUILD_ID}:", [(c.name, c.id) for c in cmds])
         else:
+            # グローバルで運用する場合
             cmds = await tree.sync()
             print(f"✅ Synced {len(cmds)} global commands:", [(c.name, c.id) for c in cmds])
-
     except Exception as e:
         print(f"--- FATAL ERROR on command sync ---\n{type(e)=}\n{e=}\n-----------------------------------")
 
@@ -912,7 +943,7 @@ async def on_message(message):
             history = gemini_thread_memory.get(thread_id, []) if is_memory_on else []
             history_text = "\n".join([f"{m['role']}: {m['content']}" for m in history])
 
-            # ★★★ ここから追加 (ユーザーの質問をNotionに記録) ★★★
+            # ユーザーの質問をNotionに記録
             if is_admin and target_page_id:
                 try:
                     user_log_blocks = [{
@@ -922,8 +953,7 @@ async def on_message(message):
                     await log_to_notion(target_page_id, user_log_blocks)
                 except Exception as e:
                     print(f"🚨 Notionへのユーザー発言の記録に失敗しました: {e}")
-                    pass # 失敗しても処理は続行
-            # ★★★ ここまで追加 ★★★
+                    pass
 
             full_prompt = f"【Notionページの要約】\n{notion_context or '参照なし'}\n\n【これまでの会話】\n{history_text or 'なし'}\n\n【今回の質問】\nuser: {prompt}"
             
@@ -935,46 +965,17 @@ async def on_message(message):
                 for i in range(0, len(reply), 2000):
                     await message.channel.send(reply[i:i+2000])
 
-            # ★★★ ここから追加 (AIの回答をNotionに記録) ★★★
+            # AIの回答をNotionに記録
             if is_admin and target_page_id:
                 try:
                     await log_response(target_page_id, reply, "Gemini 2.5 Pro")
                 except Exception as e:
                     print(f"🚨 NotionへのAI回答の記録に失敗しました: {e}")
-                    pass # 失敗しても処理は続行
-            # ★★★ ここまで追加 ★★★S
+                    pass
 
             if is_memory_on and "エラー" not in reply:
                 history.extend([{"role": "user", "content": prompt}, {"role": "assistant", "content": reply}])
                 gemini_thread_memory[thread_id] = history[-10:]
-
-            # PerplexityはNotionコンテキストを特別扱いできるので、引数で渡す
-            rekus_prompt = f"【これまでの会話】\n{history_text or 'なし'}\n\n【今回の質問】\nuser: {prompt}"
-            reply = await ask_rekus(rekus_prompt, notion_context=notion_context)
-
-            # (応答ロジックは変更なし)
-            if len(reply) <= 2000:
-                await message.channel.send(reply)
-            else:
-                for i in range(0, len(reply), 2000):
-                    await message.channel.send(reply[i:i+2000])
-
-            # ★★★ ここから追加 (AIの回答をNotionに記録) ★★★
-            if is_admin and target_page_id:
-                try:
-                    await log_response(target_page_id, reply, "Perplexity Sonar")
-                except Exception as e:
-                    print(f"🚨 NotionへのAI回答の記録に失敗しました: {e}")
-                    pass # Notionへの記録が失敗しても、メインの処理は続行します
-            # ★★★ ここまで追加 ★★★
-
-            # (履歴保存ロジックは変更なし)
-            if is_memory_on and "エラー" not in str(reply):
-                history.extend([
-                    {"role": "user", "content": prompt},
-                    {"role": "assistant", "content": reply}
-                ])
-                perplexity_thread_memory[thread_id] = history[-10:]
 
     except Exception as e:
         print(f"on_messageでエラーが発生しました: {e}")
