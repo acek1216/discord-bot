@@ -964,8 +964,16 @@ async def startup_event():
             print("✅ Vertex AI initialized successfully.")
         except Exception as e:
             print(f"🚨 Vertex AI init failed (continue without it): {e}")
-        print("🚀 Creating Discord Bot startup task...")
-        asyncio.create_task(client.start(DISCORD_TOKEN))
+        
+        # ▼▼▼ ここを修正 ▼▼▼
+        # client.start() はブロッキングするため、バックグラウンドタスクで non-blocking な login/connect を呼び出す
+        async def start_bot():
+            await client.login(DISCORD_TOKEN)
+            await client.connect()
+
+        asyncio.create_task(start_bot())
+        # ▲▲▲ ここまで修正 ▲▲▲
+
         print("✅ Discord Bot startup task has been created.")
     except Exception as e:
         print(f"🚨🚨🚨 FATAL ERROR during startup event: {e} 🚨🚨🚨")
