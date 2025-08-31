@@ -729,8 +729,8 @@ async def all_command(interaction: discord.Interaction, prompt: str, attachment:
 
     results = await asyncio.gather(*tasks.values(), return_exceptions=True)
     for name, result in zip(tasks.keys(), results):
-        await send_long_message_universal(interaction, f"**🔹 {name}の意見:**\n{result if not isinstance(result, Exception) else f'エラー: {result}'}")
-
+        await send_long_message(interaction, f"**🔹 {name}の意見:**\n{result if not isinstance(result, Exception) else f'エラー: {result}'}", is_followup=True)
+        
 @tree.command(name="critical", description="Notion情報を元に全AIで議論し、多角的な結論を導きます。")
 @app_commands.describe(topic="議論したい議題")
 async def critical_command(interaction: discord.Interaction, topic: str):
