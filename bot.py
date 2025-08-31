@@ -881,30 +881,46 @@ async def logical_command(interaction: discord.Interaction, topic: str):
         safe_log("🚨 /logical コマンドで予期せぬエラー:", e)
         await interaction.followup.send(f"❌ コマンドの実行中に予期せぬエラーが発生しました: {e}", ephemeral=True)
 
-@client.event
-async def on_ready():
-    print(f"Login successful: {client.user}")
+@tree.command(name="sync", description="管理者専用：スラッシュコマンドをサーバーに同期します。")
+async def sync_command(interaction: discord.Interaction):
+    # このコマンドは管理者以外には見えないし、実行もできない
+    if str(interaction.user.id) != ADMIN_USER_ID:
+        await interaction.response.send_message("この操作を実行する権限がありません。", ephemeral=True)
+        return
+
+    await interaction.response.defer(ephemeral=True)
+    
+    synced_commands = []
+    cleared_commands = False
+
     try:
         if GUILD_ID:
             guild_obj = discord.Object(id=int(GUILD_ID))
             
-            # ▼▼▼【一時的なコード】ここから ▼▼▼
-            # ギルドに登録されたコマンドを一旦すべてクリアする
+            # 1. まずギルドコマンドをクリアする
             tree.clear_commands(guild=guild_obj)
             await tree.sync(guild=guild_obj)
-            print(f"✅ ギルド {GUILD_ID} のコマンドをクリアしました。")
-            # ▲▲▲【一時的なコード】ここまで ▲▲▲
-
-            # 通常の同期処理を再度行う
+            cleared_commands = True
+            
+            # 2. グローバルコマンドをギルドにコピーして同期する
             tree.copy_global_to(guild=guild_obj)
-            cmds = await tree.sync(guild=guild_obj)
-            print(f"✅ Synced {len(cmds)} guild commands to {GUILD_ID}:", [(c.name, c.id) for c in cmds])
+            synced_commands = await tree.sync(guild=guild_obj)
         else:
-            cmds = await tree.sync()
-            print(f"✅ Synced {len(cmds)} global commands:", [(c.name, c.id) for c in cmds])
+            # GUILD_IDがない場合はグローバルに同期する
+            synced_commands = await tree.sync()
 
+        clear_msg = "ギルドコマンドをクリアしました。\n" if cleared_commands else ""
+        await interaction.followup.send(
+            f"✅ コマンドの同期が完了しました。\n{clear_msg}"
+            f"同期されたコマンド数: {len(synced_commands)}件",
+            ephemeral=True
+        )
     except Exception as e:
-        print(f"--- FATAL ERROR on command sync ---\n{type(e)=}\n{e=}\n-----------------------------------")
+        await interaction.followup.send(f"❌ コマンドの同期中にエラーが発生しました:\n```{e}```", ephemeral=True)
+
+@client.event
+async def on_ready():
+    print(f"✅ Login successful: {client.user} (Commands will be synced manually)")
 
 @client.event
 async def on_message(message):
