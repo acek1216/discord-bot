@@ -46,12 +46,11 @@ llama_model_for_vertex: GenerativeModel = None
 
 # --- 環境変数の読み込みと必須チェック ---
 def get_env_variable(var_name: str, is_secret: bool = True) -> str:
-    """環境変数を読み込む（テストのため、存在しなくても終了しない）"""
+    """環境変数を読み込む。存在しない場合はエラーを発生させる。"""
     value = os.getenv(var_name)
     if not value:
-        # sys.exit(1)をコメントアウトし、代わりにエラー表示とダミー値を返す
-        print(f"⚠️ 警告: 環境変数 '{var_name}' が見つかりません。テストを続行します。")
-        return "DUMMY_VALUE_FOR_TESTING" # ダミーの文字列を返す
+        print(f"🚨 致命的なエラー: 環境変数 '{var_name}' が設定されていません。")
+        sys.exit(1)
     if is_secret:
         print(f"🔑 環境変数 '{var_name}' を読み込みました (Value: ...{value[-4:]})")
     else:
