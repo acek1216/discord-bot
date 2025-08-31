@@ -460,7 +460,7 @@ async def ask_grok(user_id, prompt):
     
     # ▼▼▼ ここから下が直接APIを呼び出すコード ▼▼▼
     headers = {"Authorization": f"Bearer {GROK_API_KEY}", "Content-Type": "application/json"}
-    payload = {"model": "grok-4", "messages": messages, "max_tokens": 300} # max_tokensを調整
+    payload = {"model": "grok-4", "messages": messages} # max_tokensを削除
     
     try:
         loop = asyncio.get_event_loop()
@@ -883,40 +883,27 @@ async def logical_command(interaction: discord.Interaction, topic: str):
 
 @tree.command(name="sync", description="管理者専用：スラッシュコマンドをサーバーに同期します。")
 async def sync_command(interaction: discord.Interaction):
-    # このコマンドは管理者以外には見えないし、実行もできない
     if str(interaction.user.id) != ADMIN_USER_ID:
         await interaction.response.send_message("この操作を実行する権限がありません。", ephemeral=True)
         return
-
     await interaction.response.defer(ephemeral=True)
-    
-    synced_commands = []
-    cleared_commands = False
-
     try:
+        synced_commands = []
         if GUILD_ID:
             guild_obj = discord.Object(id=int(GUILD_ID))
-            
-            # 1. まずギルドコマンドをクリアする
+            print("Clearing guild commands...")
             tree.clear_commands(guild=guild_obj)
-            await tree.sync(guild=guild_obj)
-            cleared_commands = True
-            
-            # 2. グローバルコマンドをギルドにコピーして同期する
+            await asyncio.wait_for(tree.sync(guild=guild_obj), timeout=30.0)
+            print("Syncing new commands to guild...")
             tree.copy_global_to(guild=guild_obj)
-            synced_commands = await tree.sync(guild=guild_obj)
+            synced_commands = await asyncio.wait_for(tree.sync(guild=guild_obj), timeout=30.0)
         else:
-            # GUILD_IDがない場合はグローバルに同期する
-            synced_commands = await tree.sync()
-
-        clear_msg = "ギルドコマンドをクリアしました。\n" if cleared_commands else ""
-        await interaction.followup.send(
-            f"✅ コマンドの同期が完了しました。\n{clear_msg}"
-            f"同期されたコマンド数: {len(synced_commands)}件",
-            ephemeral=True
-        )
+            synced_commands = await asyncio.wait_for(tree.sync(), timeout=30.0)
+        await interaction.followup.send(f"✅ コマンドの同期が完了しました。同期数: {len(synced_commands)}件", ephemeral=True)
+    except asyncio.TimeoutError:
+        await interaction.followup.send("❌ 同期がタイムアウトしました。Discord APIが混み合っている可能性があります。", ephemeral=True)
     except Exception as e:
-        await interaction.followup.send(f"❌ コマンドの同期中にエラーが発生しました:\n```{e}```", ephemeral=True)
+        await interaction.followup.send(f"❌ 同期中にエラーが発生しました:\n```{e}```", ephemeral=True)
 
 @client.event
 async def on_ready():
