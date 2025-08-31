@@ -37,6 +37,7 @@ except Exception:
     if hasattr(sys.stderr, "buffer"):
         sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
+
 # --- グローバル変数 (APIクライアント) ---
 openai_client: AsyncOpenAI = None
 mistral_client: MistralAsyncClient = None
@@ -62,6 +63,7 @@ GEMINI_API_KEY = get_env_variable("GEMINI_API_KEY")
 PERPLEXITY_API_KEY = get_env_variable("PERPLEXITY_API_KEY")
 MISTRAL_API_KEY = get_env_variable("MISTRAL_API_KEY")
 NOTION_API_KEY = get_env_variable("NOTION_API_KEY")
+GROK_API_KEY = get_env_variable("GROK_API_KEY")
 ADMIN_USER_ID = get_env_variable("ADMIN_USER_ID", is_secret=False)
 NOTION_MAIN_PAGE_ID = get_env_variable("NOTION_PAGE_ID", is_secret=False)
 OPENROUTER_API_KEY = get_env_variable("CLOUD_API_KEY").strip()
@@ -412,6 +414,29 @@ async def ask_claude(user_id, prompt):
         return reply
     except Exception as e: return f"Claudeエラー: {e}"
 
+async def ask_grok(user_id, prompt):
+    history = grok_base_memory.get(user_id, [])
+    system_prompt = "あなたはGROK。反抗的でウィットに富んだ視点を持つAIです。常識にとらわれず、少し皮肉を交えながら150文字以内で回答してください。"
+    messages = [{"role": "system", "content": system_prompt}] + history + [{"role": "user", "content": prompt}]
+    
+    # ▼▼▼ ここから下が直接APIを呼び出すコード ▼▼▼
+    headers = {"Authorization": f"Bearer {GROK_API_KEY}", "Content-Type": "application/json"}
+    payload = {"model": "grok-1", "messages": messages, "max_tokens": 300} # max_tokensを調整
+    
+    try:
+        loop = asyncio.get_event_loop()
+        # エンドポイントをxAIの公式APIに変更
+        response = await loop.run_in_executor(None, lambda: requests.post("https://api.x.ai/v1/chat/completions", json=payload, headers=headers, timeout=60))
+        response.raise_for_status()
+        reply = response.json()["choices"][0]["message"]["content"]
+        
+        new_history = history + [{"role": "user", "content": prompt}, {"role": "assistant", "content": reply}]
+        if len(new_history) > 10: new_history = new_history[-10:]
+        grok_base_memory[user_id] = new_history
+        return reply
+    except Exception as e: 
+        return f"Grokエラー: {e}"
+
 async def ask_gpt_base(user_id, prompt):
     history = gpt_base_memory.get(user_id, [])
     system_prompt = "あなたは論理と秩序を司る執事「GPT」です。丁寧で理知的な執事のように振る舞い、会話の文脈を考慮して150文字以内で回答してください。"
@@ -590,6 +615,15 @@ async def simple_ai_command_runner(interaction: discord.Interaction, prompt: str
     except Exception as e:
         await interaction.followup.send(f"🤖 {bot_name} の処理中にエラーが発生しました: {e}")
 
+async def advanced_ai_simple_runner(interaction: discord.Interaction, prompt: str, ai_function, bot_name: str):
+    """メモリを使わない高機能AIモデル用のシンプルなコマンド実行関数"""
+    await interaction.response.defer()
+    try:
+        reply = await ai_function(prompt)
+        await send_long_message(interaction, reply, is_followup=True)
+    except Exception as e:
+        await interaction.followup.send(f"🤖 {bot_name} の処理中にエラーが発生しました: {e}")
+
 @tree.command(name="gpt", description="GPT(gpt-3.5-turbo)と短期記憶で対話します")
 async def gpt_command(interaction: discord.Interaction, prompt: str):
     await simple_ai_command_runner(interaction, prompt, ask_gpt_base, "GPT-3.5-Turbo")
@@ -610,6 +644,10 @@ async def claude_command(interaction: discord.Interaction, prompt: str):
 async def llama_command(interaction: discord.Interaction, prompt: str):
     await simple_ai_command_runner(interaction, prompt, ask_llama, "Llama-3.3-70B")
 
+@tree.command(name="grok", description="Grokと短期記憶で対話します")
+async def grok_command(interaction: discord.Interaction, prompt: str):
+    await simple_ai_command_runner(interaction, prompt, ask_grok, "Grok")
+
 @tree.command(name="pod042", description="Pod042(Mistral-Small)が簡潔に応答します")
 async def pod042_command(interaction: discord.Interaction, prompt: str):
     await simple_ai_command_runner(interaction, prompt, ask_pod042, "Pod042", use_memory=False)
@@ -622,7 +660,7 @@ async def pod153_command(interaction: discord.Interaction, prompt: str):
 async def gpt4o_command(interaction: discord.Interaction, prompt: str):
     await advanced_ai_simple_runner(interaction, prompt, ask_kreios, "GPT-4o")
 
-@tree.command(name="gemini-2_0", description="Gemini 2.0 Flashを単体で呼び出します。")
+@tree.command(name="gemini2_0", description="Gemini 2.0 Flashを単体で呼び出します。")
 async def gemini2_0_command(interaction: discord.Interaction, prompt: str):
     await advanced_ai_simple_runner(interaction, prompt, ask_minerva, "Gemini 2.0 Flash")
 
@@ -680,7 +718,7 @@ async def notion_command(interaction: discord.Interaction, query: str, attachmen
         try: await interaction.edit_original_response(content=f"❌ コマンドの実行中に予期せぬエラーが発生しました: {e}")
         except: await interaction.followup.send(f"❌ コマンドの実行中に予期せぬエラーが発生しました: {e}", ephemeral=True)
 
-BASE_MODELS_FOR_ALL = {"GPT": ask_gpt_base, "ジェミニ": ask_gemini_base, "ミストラル": ask_mistral_base, "Claude": ask_claude, "Llama": ask_llama}
+BASE_MODELS_FOR_ALL = {"GPT": ask_gpt_base, "ジェミニ": ask_gemini_base, "ミストラル": ask_mistral_base, "Claude": ask_claude, "Llama": ask_llama, "Grok": ask_grok}
 ADVANCED_MODELS_FOR_ALL = {"gpt-4o": (ask_kreios, get_full_response_and_summary), "Gemini2_0": (ask_minerva, get_full_response_and_summary), "Perplexity": (ask_rekus, get_full_response_and_summary), "Gemini 2.5 Pro": (ask_gemini_2_5_pro, get_full_response_and_summary), "gpt-5": (ask_gpt5, get_full_response_and_summary)}
 
 @tree.command(name="minna", description="5体のベースAIが議題に同時に意見を出します。")
