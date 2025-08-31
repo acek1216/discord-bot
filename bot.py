@@ -950,10 +950,24 @@ async def on_message(message):
 @app.on_event("startup")
 async def startup_event():
     """サーバー起動時にBotをバックグラウンドで起動する"""
-    # ... (APIクライアントの初期化処理) ...
+    global openai_client, mistral_client, notion, llama_model_for_vertex
     try:
-        # ... (中略) ...
+        # --- ▼▼▼ この初期化コードが必須です ▼▼▼ ---
+        print("🤖 Initializing API clients...")
+        openai_client = AsyncOpenAI(api_key=OPENAI_API_KEY)
+        mistral_client = MistralAsyncClient(api_key=MISTRAL_API_KEY)
+        notion = Client(auth=NOTION_API_KEY)
+        genai.configure(api_key=GEMINI_API_KEY)
+        try:
+            print("🤖 Initializing Vertex AI...")
+            vertexai.init(project="stunning-agency-469102-b5", location="us-central1")
+            llama_model_for_vertex = GenerativeModel("publishers/meta/models/llama-3.3-70b-instruct-maas")
+            print("✅ Vertex AI initialized successfully.")
+        except Exception as e:
+            print(f"🚨 Vertex AI init failed (continue without it): {e}")
+        # --- ▲▲▲ ここまで ▲▲▲ ---
 
+        # Botをバックグラウンドで起動する処理
         async def start_bot():
             await client.login(DISCORD_TOKEN)
             await client.connect()
