@@ -444,7 +444,7 @@ async def ask_claude(user_id, prompt):
     payload = {"model": "anthropic/claude-3.5-haiku", "messages": messages}
     try:
         loop = asyncio.get_event_loop()
-        response = await loop.run_in_executor(None, lambda: requests.post("https://openrouter.ai/api/v1/chat/completions", json=payload, headers=headers))
+        response = await loop.run_in_executor(None, lambda: requests.post("https://openrouter.ai/api/v1/chat/completions", json=payload, headers=headers, timeout=60))
         response.raise_for_status()
         reply = response.json()["choices"][0]["message"]["content"]
         new_history = history + [{"role": "user", "content": prompt}, {"role": "assistant", "content": reply}]
@@ -774,14 +774,14 @@ async def minna_command(interaction: discord.Interaction, prompt: str, attachmen
         display_text = f"エラー: {result}" if isinstance(result, Exception) else result
         await interaction.followup.send(f"**🔹 {name}の意見:**\n{display_text}")
 
-@tree.command(name="all", description="8体のAI（ベース5体+高機能3体）が議題に同時に意見を出します。")
+@tree.command(name="all", description="9体のAI（ベース5体+高機能3体）が議題に同時に意見を出します。")
 @app_commands.describe(prompt="AIに尋ねる議題", attachment="補足資料として画像を添付")
 async def all_command(interaction: discord.Interaction, prompt: str, attachment: discord.Attachment = None):
     await interaction.response.defer()
     final_query = prompt
     if attachment: final_query += await process_attachment(attachment, interaction.channel)
     user_id = str(interaction.user.id)
-    await interaction.followup.send("🔬 8体のAIが初期意見を生成中…")
+    await interaction.followup.send("🔬 9体のAIが初期意見を生成中…")
     tasks = {name: func(user_id, final_query) for name, func in BASE_MODELS_FOR_ALL.items()}
     adv_models = {"gpt-4o": ADVANCED_MODELS_FOR_ALL["gpt-4o"], "Gemini2_0": ADVANCED_MODELS_FOR_ALL["Gemini2_0"], "Perplexity": ADVANCED_MODELS_FOR_ALL["Perplexity"]}
     for name, (func, wrapper) in adv_models.items(): tasks[name] = wrapper(func, final_query)
@@ -920,7 +920,21 @@ async def sync_command(interaction: discord.Interaction):
 
 @client.event
 async def on_ready():
-    print(f"✅ Login successful: {client.user} (Commands will be synced manually)")
+    print(f"✅ Login successful: {client.user}")
+    try:
+        if GUILD_ID:
+            guild_obj = discord.Object(id=int(GUILD_ID))
+            # グローバルコマンドをギルドにコピーして同期する
+            tree.copy_global_to(guild=guild_obj)
+            cmds = await tree.sync(guild=guild_obj)
+            print(f"✅ Synced {len(cmds)} guild commands to {GUILD_ID}")
+        else:
+            # GUILD_IDがない場合はグローバルに同期する
+            cmds = await tree.sync()
+            print(f"✅ Synced {len(cmds)} global commands")
+
+    except Exception as e:
+        print(f"🚨 FATAL ERROR on command sync: {e}")
 
 @client.event
 async def on_message(message):
@@ -1085,3 +1099,7 @@ async def startup_event():
 def health_check():
     """ヘルスチェック用のエンドポイント"""
     return {"status": "ok", "bot_is_connected": client.is_ready()}
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", "8080"))
+    uvicorn.run(app, host="0.0.0.0", port=port)
