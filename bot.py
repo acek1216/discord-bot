@@ -670,7 +670,7 @@ async def perplexity_command(interaction: discord.Interaction, prompt: str):
 async def gpt5_command(interaction: discord.Interaction, prompt: str):
     await advanced_ai_simple_runner(interaction, prompt, ask_gpt5, "gpt-5")
 
-@tree.command(name="gemini-2.5-pro", description="Gemini 2.5 Proを単体で呼び出します。")
+@tree.command(name="gemini-2-5-pro", description="Gemini 2.5 Proを単体で呼び出します。")
 async def gemini_pro_1_5_command(interaction: discord.Interaction, prompt: str):
     await advanced_ai_simple_runner(interaction, prompt, ask_gemini_2_5_pro, "Gemini 2.5 Pro")
 
