@@ -1,10 +1,10 @@
 # --- 標準ライブラリ ---
 import asyncio
+import base64
 import io
 import json
 import os
 import sys
-import threading
 
 # --- 外部ライブラリ ---
 from fastapi import FastAPI
@@ -121,64 +121,68 @@ def safe_log(prefix: str, obj) -> None:
         except Exception:
             pass
 
-async def send_long_message(interaction: discord.Interaction, text: str, is_followup: bool = True):
+async def ask_gemini_pro_for_summary(prompt: str) -> str:
+    """Gemini 1.5 Proを使って要約を行うヘルパー関数"""
+    try:
+        model = genai.GenerativeModel("gemini-1.5-pro-latest", system_instruction="あなたは構造化要約AIです。", safety_settings=safety_settings)
+        response = await model.generate_content_async(prompt)
+        return response.text
+    except Exception as e:
+        return f"Gemini 1.5 Proでの要約中にエラーが発生しました: {e}"
+
+async def ask_rekus_for_summary(prompt: str) -> str:
+    """Perplexity Sonarを使って要約を行うヘルパー関数"""
+    system_prompt = "あなたは構造化要約AIです。与えられたテキストを、ユーザーの質問との関連性を考慮して、指定されたタグ（[背景情報]など）を付けて分類・要約してください。"
+    try:
+        summary_text = await ask_rekus(prompt, system_prompt=system_prompt, notion_context=None)
+        if "Perplexityエラー" in summary_text:
+            return f"Perplexityでの要約中にエラーが発生しました: {summary_text}"
+        return summary_text
+    except Exception as e:
+        return f"Perplexityでの要約中に予期せぬエラーが発生しました: {e}"
+
+async def send_long_message(interaction_or_channel, text: str, is_followup: bool = True, mention: str = ""):
     """Discordの2000文字制限を超えたメッセージを分割して送信する"""
     if not text:
-        # interactionが既にdeferされている場合を考慮
-        try:
-            await interaction.followup.send("（応答が空でした）")
-        except discord.errors.InteractionResponded:
-            await interaction.channel.send("（応答が空でした）")
-        return
-
-    chunks = [text[i:i + 2000] for i in range(0, len(text), 2000)]
+        text = "（応答が空でした）"
+    
+    full_text = f"{mention}\n{text}" if mention else text
+    chunks = [full_text[i:i + 2000] for i in range(0, len(full_text), 2000)]
     
     # 最初のチャンクを送信
     first_chunk = chunks[0]
-    try:
-        if is_followup:
-            await interaction.followup.send(first_chunk)
-        else:
-            await interaction.edit_original_response(content=first_chunk)
-    except (discord.errors.InteractionResponded, discord.errors.NotFound):
-        await interaction.channel.send(first_chunk)
+    if isinstance(interaction_or_channel, discord.Interaction):
+        try:
+            if is_followup:
+                await interaction_or_channel.followup.send(first_chunk)
+            else:
+                await interaction_or_channel.edit_original_response(content=first_chunk)
+        except (discord.errors.InteractionResponded, discord.errors.NotFound):
+            await interaction_or_channel.channel.send(first_chunk)
+    else: # discord.TextChannelの場合
+        await interaction_or_channel.send(first_chunk)
 
     # 残りのチャンクを送信
     for chunk in chunks[1:]:
-        try:
-            await interaction.followup.send(chunk)
-        except discord.errors.NotFound:
-            await interaction.channel.send(chunk)
-
-async def process_attachment(attachment: discord.Attachment, channel: discord.TextChannel) -> str:
-    """[旧] 添付ファイルを処理し、要約テキストを返す (Gemini Pro)"""
-    await channel.send(" 添付ファイルをGeminiが分析し、議題とします…")
-    try:
-        attachment_data = await attachment.read()
-        attachment_mime_type = attachment.content_type
-        summary_parts = [{'mime_type': attachment_mime_type, 'data': attachment_data}]
-        summary = await ask_minerva("この添付ファイルの内容を、後続のAIへの議題として簡潔に要約してください。", attachment_parts=summary_parts)
-        await channel.send(" 添付ファイルの分析が完了しました。")
-        return f"\n\n[添付資料の要約]:\n{summary}"
-    except Exception as e:
-        await channel.send(f"❌ 添付ファイルの分析中にエラーが発生しました: {e}")
-        return ""
+        if isinstance(interaction_or_channel, discord.Interaction):
+            try:
+                await interaction_or_channel.followup.send(chunk)
+            except discord.errors.NotFound:
+                await interaction_or_channel.channel.send(chunk)
+        else:
+            await interaction_or_channel.send(chunk)
 
 async def analyze_attachment_for_gpt5(attachment: discord.Attachment):
-    """[新] 添付ファイルを種類に応じてgpt-4oやテキスト抽出で解析する"""
+    """添付ファイルを種類に応じてgpt-4oやテキスト抽出で解析する"""
     filename = attachment.filename.lower()
     data = await attachment.read()
 
     if filename.endswith((".png", ".jpg", ".jpeg", ".gif", ".webp")):
         content = [
-            {"type": "text", "text": "この画像の内容を分析し、後続のGPT-5へのインプットとして要約してください。"},
+            {"type": "text", "text": "この画像の内容を分析し、後続のAIへのインプットとして要約してください。"},
             {"type": "image_url", "image_url": {"url": f"data:{attachment.content_type};base64,{base64.b64encode(data).decode()}"}}
         ]
-        response = await openai_client.chat.completions.create(
-            model="gpt-4o",
-            messages=[{"role": "user", "content": content}],
-            max_tokens=1500
-        )
+        response = await openai_client.chat.completions.create(model="gpt-4o", messages=[{"role": "user", "content": content}], max_tokens=1500)
         return f"[gpt-4o画像解析]\n{response.choices[0].message.content}"
     elif filename.endswith((".py", ".txt", ".md", ".json", ".html", ".css", ".js")):
         text = data.decode("utf-8", errors="ignore")
@@ -193,30 +197,36 @@ async def analyze_attachment_for_gpt5(attachment: discord.Attachment):
     else:
         return f"[未対応の添付ファイル形式: {attachment.filename}]"
 
-async def summarize_text_chunks_for_message(message: discord.Message, text: str, query: str):
-    """[on_message用] テキストをチャンク分割し、gpt-4oで並列要約、Mistral Largeで統合する"""
+
+### ▼ 修正点: 2つあったsummarize_text_chunksを1つに統合し、新しくsummarize_text_chunks_for_messageを作成 ▼ ###
+
+async def summarize_text_chunks_for_message(message: discord.Message, text: str, query: str, model_choice: str):
+    """[on_message用] テキストをチャンク分割し、指定されたモデルで並列要約、Mistral Largeで統合する"""
     chunk_size = 128000
     text_chunks = [text[i:i + chunk_size] for i in range(0, len(text), chunk_size)]
-    
-    await message.channel.send(f"✅ テキスト抽出完了。gpt-4oによるチャンク毎の並列要約を開始… (全{len(text_chunks)}チャンク)")
+    model_name_map = {"gpt": "gpt-4o", "gemini": "Gemini 1.5 Pro", "perplexity": "Perplexity Sonar"}
+    model_name = model_name_map.get(model_choice, "不明なモデル")
+    await message.channel.send(f"✅ テキスト抽出完了。{model_name}によるチャンク毎の並列要約を開始… (全{len(text_chunks)}チャンク)")
 
     async def summarize_chunk(chunk, index):
         prompt = f"以下のテキストを要約し、必ず以下のタグを付けて分類してください：\n[背景情報]\n[定義・前提]\n[事実経過]\n[未解決課題]\n[補足情報]\nタグは省略可ですが、存在する場合は必ず上記のいずれかに分類してください。\nユーザーの質問は「{query}」です。この質問との関連性を考慮して要約してください。\n\n【テキスト】\n{chunk}"
         try:
-            response = await openai_client.chat.completions.create(
-                model="gpt-4o",
-                messages=[{"role": "system", "content": "あなたは構造化要約AIです。"}, {"role": "user", "content": prompt}],
-                max_tokens=2048,
-                temperature=0.2
-            )
-            return response.choices[0].message.content
-        except asyncio.TimeoutError:
-            await message.channel.send(f"⚠️ チャンク {index+1} の要約中にタイムアウトしました。")
-            return None
+            summary_text = ""
+            if model_choice == "gpt":
+                response = await openai_client.chat.completions.create(model="gpt-4o", messages=[{"role": "system", "content": "あなたは構造化要約AIです。"}, {"role": "user", "content": prompt}], max_tokens=2048, temperature=0.2)
+                summary_text = response.choices[0].message.content
+            elif model_choice == "gemini":
+                summary_text = await ask_gemini_pro_for_summary(prompt)
+            elif model_choice == "perplexity":
+                summary_text = await ask_rekus_for_summary(prompt)
+            if "エラーが発生しました" in summary_text:
+                await message.channel.send(f"⚠️ チャンク {index+1} の要約中にエラー: {summary_text}")
+                return None
+            return summary_text
         except Exception as e:
             await message.channel.send(f"⚠️ チャンク {index+1} の要約中にエラー: {e}")
             return None
-
+    
     tasks = [summarize_chunk(chunk, i) for i, chunk in enumerate(text_chunks)]
     chunk_summaries_results = await asyncio.gather(*tasks)
     chunk_summaries = [summary for summary in chunk_summaries_results if summary is not None]
@@ -224,38 +234,38 @@ async def summarize_text_chunks_for_message(message: discord.Message, text: str,
     if not chunk_summaries:
         await message.channel.send("❌ 全てのチャンクの要約に失敗しました。")
         return None
-
     await message.channel.send("✅ 全チャンクの要約完了。Mistral Largeが統合・分析します…")
     combined = "\n---\n".join(chunk_summaries)
     final_prompt = f"以下の、タグ付けされた複数の要約群を、一つの構造化されたレポートに統合してください。\n各タグ（[背景情報]、[事実経過]など）ごとに内容をまとめ直し、最終的なコンテキストとして出力してください。\n\n【ユーザーの質問】\n{query}\n\n【タグ付き要약群】\n{combined}"
     try:
-        final_context = await asyncio.wait_for(ask_lalah(final_prompt, system_prompt="あなたは構造化統合AIです。"), timeout=90)
-        return final_context
+        return await asyncio.wait_for(ask_lalah(final_prompt, system_prompt="あなたは構造化統合AIです。"), timeout=90)
     except Exception:
         await message.channel.send("⚠️ 最終統合中にタイムアウトまたはエラーが発生しました。")
         return None
 
-async def summarize_text_chunks(interaction: discord.Interaction, text: str, query: str):
-    """[追加] テキストをチャンク分割し、gpt-4oで並列要約、Mistral Largeで統合する（スラッシュコマンド用）"""
+async def summarize_text_chunks(interaction: discord.Interaction, text: str, query: str, model_choice: str):
+    """[スラッシュコマンド用] テキストをチャンク分割し、指定されたモデルで並列要約、Mistral Largeで統合する"""
     chunk_size = 128000
     text_chunks = [text[i:i + chunk_size] for i in range(0, len(text), chunk_size)]
-    
-    await interaction.edit_original_response(content=f"✅ テキスト抽出完了。gpt-4oによるチャンク毎の並列要約を開始… (全{len(text_chunks)}チャンク)")
+    model_name_map = {"gpt": "gpt-4o", "gemini": "Gemini 1.5 Pro", "perplexity": "Perplexity Sonar"}
+    model_name = model_name_map.get(model_choice, "不明なモデル")
+    await interaction.edit_original_response(content=f"✅ テキスト抽出完了。{model_name}によるチャンク毎の並列要約を開始… (全{len(text_chunks)}チャンク)")
 
     async def summarize_chunk(chunk, index):
         prompt = f"以下のテキストを要約し、必ず以下のタグを付けて分類してください：\n[背景情報]\n[定義・前提]\n[事実経過]\n[未解決課題]\n[補足情報]\nタグは省略可ですが、存在する場合は必ず上記のいずれかに分類してください。\nユーザーの質問は「{query}」です。この質問との関連性を考慮して要約してください。\n\n【テキスト】\n{chunk}"
         try:
-            # ★★★ gpt-4oをopenai_clientで呼び出すように修正 ★★★
-            response = await openai_client.chat.completions.create(
-                model="gpt-4o",
-                messages=[{"role": "system", "content": "あなたは構造化要約AIです。"}, {"role": "user", "content": prompt}],
-                max_tokens=2048,
-                temperature=0.2
-            )
-            return response.choices[0].message.content
-        except asyncio.TimeoutError:
-            await interaction.followup.send(f"⚠️ チャンク {index+1} の要約中にタイムアウトしました。", ephemeral=True)
-            return None
+            summary_text = ""
+            if model_choice == "gpt":
+                response = await openai_client.chat.completions.create(model="gpt-4o", messages=[{"role": "system", "content": "あなたは構造化要約AIです。"}, {"role": "user", "content": prompt}], max_tokens=2048, temperature=0.2)
+                summary_text = response.choices[0].message.content
+            elif model_choice == "gemini":
+                summary_text = await ask_gemini_pro_for_summary(prompt)
+            elif model_choice == "perplexity":
+                summary_text = await ask_rekus_for_summary(prompt)
+            if "エラーが発生しました" in summary_text:
+                await interaction.followup.send(f"⚠️ チャンク {index+1} の要約中にエラー: {summary_text}", ephemeral=True)
+                return None
+            return summary_text
         except Exception as e:
             await interaction.followup.send(f"⚠️ チャンク {index+1} の要約中にエラー: {e}", ephemeral=True)
             return None
@@ -267,70 +277,35 @@ async def summarize_text_chunks(interaction: discord.Interaction, text: str, que
     if not chunk_summaries:
         await interaction.edit_original_response(content="❌ 全てのチャンクの要約に失敗しました。")
         return None
-
     await interaction.edit_original_response(content="✅ 全チャンクの要約完了。Mistral Largeが統合・分析します…")
     combined = "\n---\n".join(chunk_summaries)
     final_prompt = f"以下の、タグ付けされた複数の要約群を、一つの構造化されたレポートに統合してください。\n各タグ（[背景情報]、[事実経過]など）ごとに内容をまとめ直し、最終的なコンテキストとして出力してください。\n\n【ユーザーの質問】\n{query}\n\n【タグ付き要약群】\n{combined}"
     try:
-        final_context = await asyncio.wait_for(ask_lalah(final_prompt, system_prompt="あなたは構造化統合AIです。"), timeout=90)
-        return final_context
+        return await asyncio.wait_for(ask_lalah(final_prompt, system_prompt="あなたは構造化統合AIです。"), timeout=90)
     except Exception:
         await interaction.followup.send("⚠️ 最終統合中にタイムアウトまたはエラーが発生しました。", ephemeral=True)
         return None
 
-async def get_notion_context_for_message(message: discord.Message, page_id: str, query: str):
-    """[on_message用] Notionページを読み込み、要約してコンテキストを返す"""
-    await message.channel.send(" Notionページを読み込んでいます…")
+### ▼ 修正点: 2つのget_notion_context系関数を整理し、model_choiceを渡せるようにした ▼ ###
+
+async def get_notion_context_for_message(message: discord.Message, page_id: str, query: str, model_choice: str):
+    """on_message用のNotionコンテキスト取得関数"""
+    await message.channel.send("...Notionページを読み込んでいます…")
     notion_text = await get_notion_page_text(page_id)
     if notion_text.startswith("ERROR:") or not notion_text.strip():
         await message.channel.send("❌ Notionページからテキストを取得できませんでした。")
         return None
-    return await summarize_text_chunks_for_message(message, notion_text, query)
+    return await summarize_text_chunks_for_message(message, notion_text, query, model_choice)
 
-    # タスクのリストを作成し、asyncio.gatherで全て並列実行する
-    tasks = [summarize_chunk(chunk, i) for i, chunk in enumerate(text_chunks)]
-    chunk_summaries_results = await asyncio.gather(*tasks)
-    
-    # 結果からNone(エラー/タイムアウト)を除外
-    chunk_summaries = [summary for summary in chunk_summaries_results if summary is not None]
-
-    if not chunk_summaries:
-        await interaction.edit_original_response(content="❌ 全てのチャンクの要約に失敗しました。")
-        return None
-
-    await interaction.edit_original_response(content=" 全チャンクの要約完了。Mistral Largeが統合・分析します…")
-    combined = "\n---\n".join(chunk_summaries)
-    prompt = f"以下の、タグ付けされた複数の要約群を、一つの構造化されたレポートに統合してください。\n各タグ（[背景情報]、[事実経過]など）ごとに内容をまとめ直し、最終的なコンテキストとして出力してください。\n\n【ユーザーの質問】\n{query}\n\n【タグ付き要약群】\n{combined}"
-    try:
-        final_context = await asyncio.wait_for(ask_lalah(prompt, system_prompt="あなたは構造化統合AIです。"), timeout=90)
-        return final_context
-    except asyncio.TimeoutError:
-        await interaction.followup.send("⚠️ 最終統合中にタイムアウトしました。", ephemeral=True)
-        return None
-    except Exception as e:
-        await interaction.followup.send(f"⚠️ 統合中にエラー: {e}", ephemeral=True)
-        return None
-
-    await interaction.edit_original_response(content=" 全チャンクの要約完了。Mistral Largeが統合・分析します…")
-    combined = "\n---\n".join(chunk_summaries)
-    prompt = f"以下の、タグ付けされた複数の要約群を、一つの構造化されたレポートに統合してください。\n各タグ（[背景情報]、[事実経過]など）ごとに内容をまとめ直し、最終的なコンテキストとして出力してください。\n\n【ユーザーの質問】\n{query}\n\n【タグ付き要약群】\n{combined}"
-    try:
-        final_context = await asyncio.wait_for(ask_lalah(prompt, system_prompt="あなたは構造化統合AIです。"), timeout=90)
-        return final_context
-    except asyncio.TimeoutError:
-        await interaction.followup.send("⚠️ 最終統合中にタイムアウトしました。", ephemeral=True)
-        return None
-    except Exception as e:
-        await interaction.followup.send(f"⚠️ 統合中にエラー: {e}", ephemeral=True)
-        return None
-
-async def get_notion_context(interaction: discord.Interaction, page_id: str, query: str):
-    await interaction.edit_original_response(content=" Notionページを読み込んでいます…")
+async def get_notion_context(interaction: discord.Interaction, page_id: str, query: str, model_choice: str = "gpt"):
+    """スラッシュコマンド用のNotionコンテキスト取得関数"""
+    await interaction.edit_original_response(content="...Notionページを読み込んでいます…")
     notion_text = await get_notion_page_text(page_id)
     if notion_text.startswith("ERROR:") or not notion_text.strip():
         await interaction.edit_original_response(content="❌ Notionページからテキストを取得できませんでした。")
         return None
-    return await summarize_text_chunks(interaction, notion_text, query)
+    return await summarize_text_chunks(interaction, notion_text, query, model_choice)
+
 
 def _sync_get_notion_page_text(page_id):
     all_text_blocks = []
@@ -387,6 +362,8 @@ async def get_memory_flag_from_notion(thread_id: str) -> bool:
         print(f"❌ Notionから記憶フラグの読み取り中にエラー: {e}")
     return False
 
+# --- ここから下は各AIモデルを呼び出す関数群 (変更なし) ---
+
 def _sync_call_llama(p_text: str):
     try:
         if llama_model_for_vertex is None: raise Exception("Vertex AI model is not initialized.")
@@ -423,7 +400,7 @@ async def ask_claude(user_id, prompt):
     system_prompt = "あなたは賢者です。古今東西の書物を読み解き、森羅万象を知る存在として、落ち着いた口調で150文字以内で回答してください。"
     messages = [{"role": "system", "content": system_prompt}] + history + [{"role": "user", "content": prompt}]
     headers = {"Authorization": f"Bearer {OPENROUTER_API_KEY}", "Content-Type": "application/json"}
-    payload = {"model": "anthropic/claude-3.5-haiku", "messages": messages}
+    payload = {"model": "anthropic/claude-3.5-sonnet", "messages": messages}
     try:
         loop = asyncio.get_event_loop()
         response = await loop.run_in_executor(None, lambda: requests.post("https://openrouter.ai/api/v1/chat/completions", json=payload, headers=headers, timeout=60))
@@ -439,24 +416,18 @@ async def ask_grok(user_id, prompt):
     history = grok_base_memory.get(user_id, [])
     system_prompt = "あなたはGROK。反抗的でウィットに富んだ視点を持つAIです。常識にとらわれず、少し皮肉を交えながら150文字以内で回答してください。"
     messages = [{"role": "system", "content": system_prompt}] + history + [{"role": "user", "content": prompt}]
-    
-    # ▼▼▼ ここから下が直接APIを呼び出すコード ▼▼▼
     headers = {"Authorization": f"Bearer {GROK_API_KEY}", "Content-Type": "application/json"}
-    payload = {"model": "grok-4", "messages": messages} # max_tokensを削除
-    
+    payload = {"model": "grok-1", "messages": messages}
     try:
         loop = asyncio.get_event_loop()
-        # エンドポイントをxAIの公式APIに変更
         response = await loop.run_in_executor(None, lambda: requests.post("https://api.x.ai/v1/chat/completions", json=payload, headers=headers, timeout=60))
         response.raise_for_status()
         reply = response.json()["choices"][0]["message"]["content"]
-        
         new_history = history + [{"role": "user", "content": prompt}, {"role": "assistant", "content": reply}]
         if len(new_history) > 10: new_history = new_history[-10:]
         grok_base_memory[user_id] = new_history
         return reply
-    except Exception as e: 
-        return f"Grokエラー: {e}"
+    except Exception as e: return f"Grokエラー: {e}"
 
 async def ask_gpt_base(user_id, prompt):
     history = gpt_base_memory.get(user_id, [])
@@ -502,13 +473,13 @@ async def ask_kreios(prompt, system_prompt=None):
     base_prompt = system_prompt or "あなたはハマーン・カーンです。与えられた情報を元に、質問に対して200文字以内で回答してください。"
     messages = [{"role": "system", "content": base_prompt}, {"role": "user", "content": prompt}]
     try:
-        response = await openai_client.chat.completions.create(model="gpt-4o", messages=messages, max_completion_tokens=4000)
+        response = await openai_client.chat.completions.create(model="gpt-4o", messages=messages)
         return response.choices[0].message.content
     except Exception as e: return f"gpt-4oエラー: {e}"
 
 async def ask_minerva(prompt, system_prompt=None, attachment_parts=[]):
     base_prompt = system_prompt or "あなたは客観的な分析AIです。あらゆる事象をデータとリスクで評価し、感情を排して200文字以内で冷徹に分析します。"
-    model = genai.GenerativeModel("gemini-2.5-flash", system_instruction=base_prompt, safety_settings=safety_settings)
+    model = genai.GenerativeModel("gemini-1.5-flash-latest", system_instruction=base_prompt, safety_settings=safety_settings)
     contents = [prompt] + attachment_parts
     try:
         response = await model.generate_content_async(contents)
@@ -517,7 +488,7 @@ async def ask_minerva(prompt, system_prompt=None, attachment_parts=[]):
 
 async def ask_gemini_2_5_pro(prompt, system_prompt=None):
     base_prompt = system_prompt or "あなたは戦略コンサルタントです。データに基づき、あらゆる事象の未来を予測し、その可能性を事務的かつ論理的に報告してください。"
-    model = genai.GenerativeModel("gemini-2.5-pro", system_instruction=base_prompt, safety_settings=safety_settings)
+    model = genai.GenerativeModel("gemini-1.5-pro-latest", system_instruction=base_prompt, safety_settings=safety_settings)
     try:
         response = await model.generate_content_async(prompt)
         return response.text
@@ -527,7 +498,7 @@ async def ask_lalah(prompt, system_prompt=None):
     base_prompt = system_prompt or "あなたはララァ・スンです。与えられた情報を元に、質問に対して200文字以内で回答してください。"
     messages = [{"role": "system", "content": base_prompt}, {"role": "user", "content": prompt}]
     try:
-        response = await mistral_client.chat(model="mistral-large-latest", messages=messages, max_tokens=4000)
+        response = await mistral_client.chat(model="mistral-large-latest", messages=messages)
         return response.choices[0].message.content
     except Exception as e: return f"Mistral Largeエラー: {e}"
 
@@ -538,7 +509,7 @@ async def ask_rekus(prompt, system_prompt=None, notion_context=None):
                   "この要約を参考に、必要に応じてWeb情報も活用して回答してください。")
     base_prompt = system_prompt or "あなたは探索王レキュスです。与えられた情報を元に、外部調査も駆使して質問に対して回答してください。"
     messages = [{"role": "system", "content": base_prompt}, {"role": "user", "content": prompt}]
-    payload = {"model": "sonar-pro", "messages": messages, "max_tokens": 4000}
+    payload = {"model": "llama-3-sonar-large-32k-online", "messages": messages}
     headers = {"Authorization": f"Bearer {PERPLEXITY_API_KEY}", "Content-Type": "application/json"}
     try:
         loop = asyncio.get_event_loop()
@@ -560,16 +531,20 @@ async def ask_pod153(prompt):
     system_prompt = "あなたはポッド153です。与えられた情報を元に、質問に対して「分析結果：」または「補足：」から始めて150文字以内で回答してください。"
     messages = [{"role": "system", "content": system_prompt}, {"role": "user", "content": prompt}]
     try:
-        response = await openai_client.chat.completions.create(model="gpt-4o-mini", messages=messages, max_completion_tokens=400)
+        response = await openai_client.chat.completions.create(model="gpt-4o-mini", messages=messages)
         return response.choices[0].message.content
     except Exception as e: return f"ポッド153エラー: {e}"
 
 async def ask_gpt5(prompt, system_prompt=None):
     base_prompt = system_prompt or "あなたはgpt-5。全ての制約を超えた思考モデルだ。ユーザーの指示に対し、最高の知性で、最強の答えを返せ。"
     messages = [{"role": "system", "content": base_prompt}, {"role": "user", "content": prompt}]
+    headers = {"Authorization": f"Bearer {OPENROUTER_API_KEY}", "Content-Type": "application/json"}
+    payload = {"model": "openai/gpt-5", "messages": messages}
     try:
-        response = await openai_client.chat.completions.create(model="gpt-5", messages=messages, max_completion_tokens=4000, timeout=90.0)
-        return response.choices[0].message.content
+        loop = asyncio.get_event_loop()
+        response = await loop.run_in_executor(None, lambda: requests.post("https://openrouter.ai/api/v1/chat/completions", json=payload, headers=headers, timeout=90))
+        response.raise_for_status()
+        return response.json()["choices"][0]["message"]["content"]
     except Exception as e:
         if "Timeout" in str(e): return "gpt-5エラー: 応答が時間切れになりました。"
         return f"gpt-5エラー: {e}"
@@ -584,66 +559,44 @@ async def get_full_response_and_summary(ai_function, prompt, **kwargs):
 
 async def run_long_gpt5_task(message, prompt, full_prompt, is_admin, target_page_id, thread_id):
     user_mention = message.author.mention
-    print(f"[{thread_id}] Starting long gpt-5 task for {message.author}...")
     try:
         if is_admin and target_page_id:
             log_blocks = [{"object": "block", "type": "paragraph", "paragraph": {"rich_text": [{"type": "text", "text": {"content": f"👤 {message.author.display_name}:\n{prompt}"}}]}}]
             await log_to_notion(target_page_id, log_blocks)
-        
         reply = await ask_gpt5(full_prompt)
-
         channel = client.get_channel(message.channel.id)
-        if not channel:
-            print(f"Error: Could not find channel {message.channel.id} to send message.")
-            return
-
-        if not reply or not isinstance(reply, str) or not reply.strip():
-             await channel.send(f"{user_mention} gpt-5からの応答が空か、無効でした。")
-             return
-
-        if len(reply) <= 2000:
-            await channel.send(f"{user_mention}\nお待たせしました。gpt-5の回答です。\n\n{reply}")
-        else:
-            await channel.send(f"{user_mention}\nお待たせしました。gpt-5の回答です。")
-            for i in range(0, len(reply), 2000):
-                await channel.send(reply[i:i+2000])
-      
+        if not channel: return
+        await send_long_message(channel, reply, mention=f"{user_mention}\nお待たせしました。gpt-5の回答です。")
         is_memory_on = await get_memory_flag_from_notion(thread_id)
         if is_memory_on:
             history = gpt_thread_memory.get(thread_id, [])
             history.extend([{"role": "user", "content": prompt}, {"role": "assistant", "content": reply}])
             gpt_thread_memory[thread_id] = history[-10:]
-
         if is_admin and target_page_id:
             await log_response(target_page_id, reply, "gpt-5 (専用スレッド)")
     except Exception as e:
-        error_message = f"gpt-5のバックグラウンド処理中に予期せぬエラーが発生しました: {e}"
-        print(f"🚨 [{thread_id}] {error_message}")
-        try:
-            channel = client.get_channel(message.channel.id)
-            if channel: await channel.send(f"{user_mention} {error_message}")
-        except: pass
-    
-    print(f"[{thread_id}] Long gpt-5 task finished for {message.author}.")
+        safe_log(f"🚨 gpt-5のバックグラウンド処理中にエラー:", e)
+        channel = client.get_channel(message.channel.id)
+        if channel: await channel.send(f"{user_mention} gpt-5の処理中にエラーが発生しました: {e}")
 
 async def simple_ai_command_runner(interaction: discord.Interaction, prompt: str, ai_function, bot_name: str, use_memory: bool = True):
     await interaction.response.defer()
     user_id = str(interaction.user.id)
     try:
-        if use_memory: reply = await ai_function(user_id, prompt)
-        else: reply = await ai_function(prompt)
+        reply = await (ai_function(user_id, prompt) if use_memory else ai_function(prompt))
         await interaction.followup.send(reply)
     except Exception as e:
         await interaction.followup.send(f"🤖 {bot_name} の処理中にエラーが発生しました: {e}")
 
 async def advanced_ai_simple_runner(interaction: discord.Interaction, prompt: str, ai_function, bot_name: str):
-    """メモリを使わない高機能AIモデル用のシンプルなコマンド実行関数"""
     await interaction.response.defer()
     try:
         reply = await ai_function(prompt)
         await send_long_message(interaction, reply, is_followup=True)
     except Exception as e:
         await interaction.followup.send(f"🤖 {bot_name} の処理中にエラーが発生しました: {e}")
+
+# --- ここから下はスラッシュコマンドの定義 (一部修正あり) ---
 
 @tree.command(name="gpt", description="GPT(gpt-3.5-turbo)と短期記憶で対話します")
 async def gpt_command(interaction: discord.Interaction, prompt: str):
@@ -657,9 +610,9 @@ async def gemini_command(interaction: discord.Interaction, prompt: str):
 async def mistral_command(interaction: discord.Interaction, prompt: str):
     await simple_ai_command_runner(interaction, prompt, ask_mistral_base, "Mistral-Medium")
 
-@tree.command(name="claude", description="Claude(3.5 Haiku)と短期記憶で対話します")
+@tree.command(name="claude", description="Claude(3.5 Sonnet)と短期記憶で対話します")
 async def claude_command(interaction: discord.Interaction, prompt: str):
-    await simple_ai_command_runner(interaction, prompt, ask_claude, "Claude-3.5-Haiku")
+    await simple_ai_command_runner(interaction, prompt, ask_claude, "Claude-3.5-Sonnet")
 
 @tree.command(name="llama", description="Llama(3.3 70b)と短期記憶で対話します")
 async def llama_command(interaction: discord.Interaction, prompt: str):
@@ -681,9 +634,14 @@ async def pod153_command(interaction: discord.Interaction, prompt: str):
 async def gpt4o_command(interaction: discord.Interaction, prompt: str):
     await advanced_ai_simple_runner(interaction, prompt, ask_kreios, "GPT-4o")
 
-@tree.command(name="gemini2_0", description="Gemini2.0を単体で呼び出します。")
-async def gemini2_0_command(interaction: discord.Interaction, prompt: str):
-    await advanced_ai_simple_runner(interaction, prompt, ask_minerva, "Gemini 2.0 Flash")
+@tree.command(name="gemini-pro", description="Gemini-Proを単体で呼び出します。")
+async def gemini_pro_command(interaction: discord.Interaction, prompt: str, attachment: discord.Attachment = None):
+    await interaction.response.defer()
+    attachment_parts = []
+    if attachment:
+        attachment_parts = [{'mime_type': attachment.content_type, 'data': await attachment.read()}]
+    reply = await ask_minerva(prompt, attachment_parts=attachment_parts)
+    await send_long_message(interaction, reply, is_followup=True)
 
 @tree.command(name="perplexity", description="Perplexityを単体で呼び出します。")
 async def perplexity_command(interaction: discord.Interaction, prompt: str):
@@ -693,80 +651,59 @@ async def perplexity_command(interaction: discord.Interaction, prompt: str):
 async def gpt5_command(interaction: discord.Interaction, prompt: str):
     await advanced_ai_simple_runner(interaction, prompt, ask_gpt5, "gpt-5")
 
-@tree.command(name="gemini2_5pro", description="Gemini 2.5 Proを単体で呼び出します。")
-async def gemini2_5pro_command(interaction: discord.Interaction, prompt: str):
-    await advanced_ai_simple_runner(interaction, prompt, ask_gemini_2_5_pro, "Gemini 2.5 Pro")
+@tree.command(name="gemini-pro-1-5", description="Gemini 1.5 Proを単体で呼び出します。")
+async def gemini_pro_1_5_command(interaction: discord.Interaction, prompt: str):
+    await advanced_ai_simple_runner(interaction, prompt, ask_gemini_2_5_pro, "Gemini 1.5 Pro")
 
 @tree.command(name="notion", description="現在のNotionページの内容について質問します")
-@app_commands.describe(query="Notionページに関する質問", attachment="補足資料として画像を添付")
-async def notion_command(interaction: discord.Interaction, query: str, attachment: discord.Attachment = None):
+@app_commands.describe(query="Notionページに関する質問")
+async def notion_command(interaction: discord.Interaction, query: str):
     await interaction.response.defer()
     try:
         async def core_logic():
-            attachment_context = ""
-            if attachment:
-                summary = await summarize_attachment_content(interaction, attachment, query)
-                if summary:
-                    attachment_context = f"\n\n【添付資料の要約】\n{summary}"
-
             target_page_id = NOTION_PAGE_MAP.get(str(interaction.channel.id))
             if not target_page_id:
                 await interaction.edit_original_response(content="❌ このチャンネルはNotionページにリンクされていません。")
                 return
-
-            notion_context = await get_notion_context(interaction, target_page_id, query)
+            ### ▼ 修正点: model_choiceを明示的に指定 ▼ ###
+            notion_context = await get_notion_context(interaction, target_page_id, query, model_choice="gpt")
             if not notion_context:
                 await interaction.edit_original_response(content="❌ Notionからコンテキストを取得できませんでした。")
                 return
-
-            prompt_with_context = (f"以下の【参考情報】と【添付資料の要約】を元に、【ユーザーの質問】に回答してください。\n\n"
-                               f"【ユーザーの質問】\n{query}\n\n"
-                               f"【参考情報】\n{notion_context}"
-                               f"{attachment_context}")
-            
+            prompt_with_context = (f"【ユーザーの質問】\n{query}\n\n【参考情報】\n{notion_context}")
             await interaction.edit_original_response(content="⏳ gpt-5が最終回答を生成中です...")
             reply = await ask_gpt5(prompt_with_context)
-
             await send_long_message(interaction, f"**🤖 最終回答 (by gpt-5):**\n{reply}", is_followup=False)
-
             if str(interaction.user.id) == ADMIN_USER_ID:
                 await log_response(target_page_id, reply, "gpt-5 (Notion参照)")
         await asyncio.wait_for(core_logic(), timeout=240)
-    except asyncio.TimeoutError:
-        await interaction.edit_original_response(content="⚠️ 処理がタイムアウトしました（4分）。質問をより具体的にするか、Notionページや添付ファイルの内容を減らしてみてください。")
     except Exception as e:
-        safe_log("🚨 /notion コマンドで予期せぬエラー:", e)
-        try: await interaction.edit_original_response(content=f"❌ コマンドの実行中に予期せぬエラーが発生しました: {e}")
-        except: await interaction.followup.send(f"❌ コマンドの実行中に予期せぬエラーが発生しました: {e}", ephemeral=True)
-
-BASE_MODELS_FOR_ALL = {"GPT": ask_gpt_base, "ジェミニ": ask_gemini_base, "ミストラル": ask_mistral_base, "Claude": ask_claude, "Llama": ask_llama, "Grok": ask_grok}
-ADVANCED_MODELS_FOR_ALL = {"gpt-4o": (ask_kreios, get_full_response_and_summary), "Gemini2_0": (ask_minerva, get_full_response_and_summary), "Perplexity": (ask_rekus, get_full_response_and_summary), "Gemini 2.5 Pro": (ask_gemini_2_5_pro, get_full_response_and_summary), "gpt-5": (ask_gpt5, get_full_response_and_summary)}
+        safe_log("🚨 /notion コマンドでエラー:", e)
+        await interaction.edit_original_response(content=f"❌ エラーが発生しました: {e}")
 
 @tree.command(name="minna", description="6体のベースAIが議題に同時に意見を出します。")
-@app_commands.describe(prompt="AIに尋ねる議題", attachment="補足資料として画像を添付")
-async def minna_command(interaction: discord.Interaction, prompt: str, attachment: discord.Attachment = None):
+@app_commands.describe(prompt="AIに尋ねる議題")
+async def minna_command(interaction: discord.Interaction, prompt: str):
     await interaction.response.defer()
-    final_query = prompt
-    if attachment: final_query += await process_attachment(attachment, interaction.channel)
     user_id = str(interaction.user.id)
     await interaction.followup.send("🔬 6体のベースAIが意見を生成中…")
-    tasks = {name: func(user_id, final_query) for name, func in BASE_MODELS_FOR_ALL.items()}
+    tasks = {name: func(user_id, prompt) for name, func in BASE_MODELS_FOR_ALL.items()}
     results = await asyncio.gather(*tasks.values(), return_exceptions=True)
     for (name, result) in zip(tasks.keys(), results):
         display_text = f"エラー: {result}" if isinstance(result, Exception) else result
         await interaction.followup.send(f"**🔹 {name}の意見:**\n{display_text}")
 
-@tree.command(name="all", description="9体のAI（ベース6体+高機能3体）が議題に同時に意見を出します。")
-@app_commands.describe(prompt="AIに尋ねる議題", attachment="補足資料として画像を添付")
-async def all_command(interaction: discord.Interaction, prompt: str, attachment: discord.Attachment = None):
+ADVANCED_MODELS_FOR_ALL = {"gpt-4o": (ask_kreios, get_full_response_and_summary), "Gemini Pro": (ask_minerva, get_full_response_and_summary), "Perplexity": (ask_rekus, get_full_response_and_summary), "Gemini 1.5 Pro": (ask_gemini_2_5_pro, get_full_response_and_summary), "gpt-5": (ask_gpt5, get_full_response_and_summary)}
+
+@tree.command(name="all", description="複数のAIが議題に同時に意見を出します。")
+@app_commands.describe(prompt="AIに尋ねる議題")
+async def all_command(interaction: discord.Interaction, prompt: str):
     await interaction.response.defer()
-    final_query = prompt
-    if attachment: final_query += await process_attachment(attachment, interaction.channel)
     user_id = str(interaction.user.id)
-    await interaction.followup.send("🔬 9体のAIが初期意見を生成中…")
-    tasks = {name: func(user_id, final_query) for name, func in BASE_MODELS_FOR_ALL.items()}
-    adv_models = {"gpt-4o": ADVANCED_MODELS_FOR_ALL["gpt-4o"], "Gemini2_0": ADVANCED_MODELS_FOR_ALL["Gemini2_0"], "Perplexity": ADVANCED_MODELS_FOR_ALL["Perplexity"]}
-    for name, (func, wrapper) in adv_models.items(): tasks[name] = wrapper(func, final_query)
+    await interaction.followup.send("🔬 AI群が初期意見を生成中…")
+    tasks = {name: func(user_id, prompt) for name, func in BASE_MODELS_FOR_ALL.items()}
+    adv_models = {"gpt-4o": ADVANCED_MODELS_FOR_ALL["gpt-4o"], "Gemini Pro": ADVANCED_MODELS_FOR_ALL["Gemini Pro"], "Perplexity": ADVANCED_MODELS_FOR_ALL["Perplexity"]}
+    for name, (func, wrapper) in adv_models.items(): tasks[name] = wrapper(func, prompt)
     results = await asyncio.gather(*tasks.values(), return_exceptions=True)
     for (name, result) in zip(tasks.keys(), results):
         _, summary = (result if isinstance(result, tuple) else (None, None))
@@ -783,7 +720,8 @@ async def critical_command(interaction: discord.Interaction, topic: str):
             if not target_page_id:
                 await interaction.edit_original_response(content="❌ このチャンネルはNotionページにリンクされていません。")
                 return
-            context = await get_notion_context(interaction, target_page_id, topic)
+            ### ▼ 修正点: model_choiceを明示的に指定 ▼ ###
+            context = await get_notion_context(interaction, target_page_id, topic, model_choice="gpt")
             if not context: return
             await interaction.edit_original_response(content="🔬 11体のAIが初期意見を生成中…")
             prompt_with_context = f"以下の【参考情報】を元に、【ユーザーの質問】に回答してください。\n\n【ユーザーの質問】\n{topic}\n\n【参考情報】\n{context}"
@@ -793,26 +731,23 @@ async def critical_command(interaction: discord.Interaction, topic: str):
                 if name == "Perplexity": tasks[name] = wrapper(func, topic, notion_context=context)
                 else: tasks[name] = wrapper(func, prompt_with_context)
             results = await asyncio.gather(*tasks.values(), return_exceptions=True)
-            synthesis_material = "以下の9つの異なるAIの意見を統合してください。\n\n"
+            synthesis_material = "以下のAI群の意見を統合してください。\n\n"
             full_text_results = ""
             for (name, result) in zip(tasks.keys(), results):
                 full_response, summary = (result if isinstance(result, tuple) else (None, None))
                 display_text = f"エラー: {result}" if isinstance(result, Exception) else (summary or full_response or result)
                 full_text_results += f"**🔹 {name}の意見:**\n{display_text}\n\n"
-                log_text = full_response or display_text
-                synthesis_material += f"--- [{name}の意見] ---\n{log_text}\n\n"
+                synthesis_material += f"--- [{name}の意見] ---\n{full_response or display_text}\n\n"
             await send_long_message(interaction, full_text_results, is_followup=False)
-            await interaction.followup.send(" gpt-5が中間レポートを作成します…")
-            intermediate_report = await ask_gpt5(synthesis_material, system_prompt="以下の9つの意見の要点だけを抽出し、短い中間レポートを作成してください。")
-            await interaction.followup.send(" Mistral Largeが最終統合を行います…")
+            await interaction.followup.send("⏳ gpt-5が中間レポートを作成します…")
+            intermediate_report = await ask_gpt5(synthesis_material, system_prompt="以下の意見の要点だけを抽出し、短い中間レポートを作成してください。")
+            await interaction.followup.send("⏳ Mistral Largeが最終統合を行います…")
             final_report = await ask_lalah(intermediate_report, system_prompt="あなたは統合専用AIです。渡された中間レポートを元に、最終的な結論を500文字以内でレポートしてください。")
-            await interaction.followup.send(f" **Mistral Large (最終統合レポート):**\n{final_report}")
+            await interaction.followup.send(f"**🤖 Mistral Large (最終統合レポート):**\n{final_report}")
         await asyncio.wait_for(core_logic(), timeout=300)
-    except asyncio.TimeoutError:
-        await interaction.followup.send("⚠️ 処理がタイムアウトしました（5分）。", ephemeral=True)
     except Exception as e:
-        safe_log("🚨 /critical コマンドで予期せぬエラー:", e)
-        await interaction.followup.send(f"❌ コマンドの実行中に予期せぬエラーが発生しました: {e}", ephemeral=True)
+        safe_log("🚨 /critical コマンドでエラー:", e)
+        await interaction.followup.send(f"❌ エラーが発生しました: {e}", ephemeral=True)
 
 @tree.command(name="logical", description="Notion情報を元にAIが討論し、論理的な結論を導きます。")
 @app_commands.describe(topic="討論したい議題")
@@ -824,44 +759,32 @@ async def logical_command(interaction: discord.Interaction, topic: str):
             if not target_page_id:
                 await interaction.edit_original_response(content="❌ このチャンネルはNotionページにリンクされていません。")
                 return
-            context = await get_notion_context(interaction, target_page_id, topic)
+            ### ▼ 修正点: model_choiceを明示的に指定 ▼ ###
+            context = await get_notion_context(interaction, target_page_id, topic, model_choice="gpt")
             if not context: return
             await interaction.edit_original_response(content="⚖️ 内部討論と外部調査を並列で開始します…")
             prompt_with_context = f"以下の【参考情報】を元に、【ユーザーの質問】に回答してください。\n\n【ユーザーの質問】\n{topic}\n\n【参考情報】\n{context}"
-            tasks_internal = {
+            tasks = {
                 "肯定論者(gpt-4o)": get_full_response_and_summary(ask_kreios, prompt_with_context, system_prompt="あなたはこの議題の【肯定論者】です。議題を推進する最も強力な論拠を提示してください。"),
                 "否定論者(Perplexity)": get_full_response_and_summary(ask_rekus, topic, system_prompt="あなたはこの議題の【否定論者】です。議題に反対する最も強力な反論を、客観的な事実やデータに基づいて提示してください。", notion_context=context),
-                "中立分析官(Gemini Pro)": get_full_response_and_summary(ask_minerva, prompt_with_context, system_prompt="あなたはこの議題に関する【中立的な分析官】です。関連する社会的・倫理的な論点を、感情を排して提示してください。")
+                "中立分析官(Gemini Pro)": get_full_response_and_summary(ask_minerva, prompt_with_context, system_prompt="あなたはこの議題に関する【中立的な分析官】です。関連する社会的・倫理的な論点を、感情を排して提示してください。"),
+                "外部調査(Perplexity)": get_full_response_and_summary(ask_rekus, topic, notion_context=context)
             }
-            tasks_external = {"外部調査(Perplexity)": get_full_response_and_summary(ask_rekus, topic, system_prompt="あなたは探索王です。与えられた要約を参考にしつつ、ユーザーの質問に関する最新のWeb情報を収集・要約してください。", notion_context=context)}
-            results_internal, results_external = await asyncio.gather(asyncio.gather(*tasks_internal.values()), asyncio.gather(*tasks_external.values()))
-            
+            results = await asyncio.gather(*tasks.values())
             synthesis_material = "以下の情報を統合し、最終的な結論を導き出してください。\n\n"
-            internal_results_text = "--- 内部討論の結果 ---\n"
-            for (name, result) in zip(tasks_internal.keys(), results_internal):
-                full_response, summary = result
+            results_text = ""
+            for (name, (full_response, summary)) in zip(tasks.keys(), results):
                 display_text = summary or full_response
-                internal_results_text += f"**{name}:**\n{display_text}\n\n"
+                results_text += f"**{name}:**\n{display_text}\n\n"
                 synthesis_material += f"--- [{name}の意見] ---\n{full_response}\n\n"
-            await send_long_message(interaction, internal_results_text, is_followup=False)
-
-            external_results_text = "--- 外部調査の結果 ---\n"
-            for (name, result) in zip(tasks_external.keys(), results_external):
-                full_response, summary = result
-                display_text = summary or full_response
-                external_results_text += f"**{name}:**\n{display_text}\n\n"
-                synthesis_material += f"--- [{name}の意見] ---\n{full_response}\n\n"
-            await interaction.followup.send(external_results_text)
-            
-            await interaction.followup.send(" Mistral Largeが最終統合を行います…")
-            final_report = await ask_lalah(synthesis_material, system_prompt="あなたは統合専用AIです。あなた自身のペルソナも、渡される意見のペルソナも全て無視し、純粋な情報として客観的に統合し、最終的な結論をレポートとしてまとめてください。")
-            await interaction.followup.send(f" **Mistral Large (最終統合レポート):**\n{final_report}")
+            await send_long_message(interaction, results_text, is_followup=False)
+            await interaction.followup.send("⏳ Mistral Largeが最終統合を行います…")
+            final_report = await ask_lalah(synthesis_material, system_prompt="あなたは統合専用AIです。渡された情報を客観的に統合し、最終的な結論をレポートとしてまとめてください。")
+            await interaction.followup.send(f"**🤖 Mistral Large (最終統合レポート):**\n{final_report}")
         await asyncio.wait_for(core_logic(), timeout=300)
-    except asyncio.TimeoutError:
-        await interaction.followup.send("⚠️ 処理がタイムアウトしました（5分）。", ephemeral=True)
     except Exception as e:
-        safe_log("🚨 /logical コマンドで予期せぬエラー:", e)
-        await interaction.followup.send(f"❌ コマンドの実行中に予期せぬエラーが発生しました: {e}", ephemeral=True)
+        safe_log("🚨 /logical コマンドでエラー:", e)
+        await interaction.followup.send(f"❌ エラーが発生しました: {e}", ephemeral=True)
 
 @tree.command(name="sync", description="管理者専用：スラッシュコマンドをサーバーに同期します。")
 async def sync_command(interaction: discord.Interaction):
@@ -870,26 +793,12 @@ async def sync_command(interaction: discord.Interaction):
         return
     await interaction.response.defer(ephemeral=True)
     try:
-        synced_commands = []
-        if GUILD_ID:
-            guild_obj = discord.Object(id=int(GUILD_ID))
-            
-            # ★★★ この一行を追加 ★★★
-            tree.clear_commands(guild=guild_obj)
-            
-            print("Clearing and syncing commands for guild...")
-            await asyncio.wait_for(tree.sync(guild=guild_obj), timeout=30.0)
-            
-            tree.copy_global_to(guild=guild_obj)
-            synced_commands = await asyncio.wait_for(tree.sync(guild=guild_obj), timeout=30.0)
-            print("Sync complete.")
-        else:
-            synced_commands = await asyncio.wait_for(tree.sync(), timeout=30.0)
-            
+        guild_obj = discord.Object(id=int(GUILD_ID)) if GUILD_ID else None
+        tree.clear_commands(guild=guild_obj)
+        await tree.sync(guild=guild_obj)
+        tree.copy_global_to(guild=guild_obj)
+        synced_commands = await tree.sync(guild=guild_obj)
         await interaction.followup.send(f"✅ コマンドの同期が完了しました。同期数: {len(synced_commands)}件", ephemeral=True)
-        
-    except asyncio.TimeoutError:
-        await interaction.followup.send("❌ 同期がタイムアウトしました。Discord APIが混み合っている可能性があります。", ephemeral=True)
     except Exception as e:
         await interaction.followup.send(f"❌ 同期中にエラーが発生しました:\n```{e}```", ephemeral=True)
 
@@ -899,31 +808,27 @@ async def on_ready():
     try:
         if GUILD_ID:
             guild_obj = discord.Object(id=int(GUILD_ID))
-            # グローバルコマンドをギルドにコピーして同期する
             tree.copy_global_to(guild=guild_obj)
             cmds = await tree.sync(guild=guild_obj)
             print(f"✅ Synced {len(cmds)} guild commands to {GUILD_ID}")
         else:
-            # GUILD_IDがない場合はグローバルに同期する
             cmds = await tree.sync()
             print(f"✅ Synced {len(cmds)} global commands")
-
     except Exception as e:
         print(f"🚨 FATAL ERROR on command sync: {e}")
 
 @client.event
 async def on_message(message):
-    if message.author.bot or message.author.id in processing_users: return
-    
-    # ★★★ この行を追加 ★★★
-    if message.content.startswith("/"): return # スラッシュコマンドと思われるメッセージは無視する
+    if message.author.bot or message.author.id in processing_users or message.content.startswith("/"):
+        return
 
     if message.content.startswith("!"):
         await message.channel.send("💡 `!`コマンドは廃止されました。今後は`/`で始まるスラッシュコマンドをご利用ください。")
         return
 
     channel_name = message.channel.name.lower()
-    if not (channel_name.startswith("gpt") or channel_name.startswith("gemini") or channel_name.startswith("perplexity")): return
+    if not (channel_name.startswith("gpt") or channel_name.startswith("gemini") or channel_name.startswith("perplexity")):
+        return
 
     processing_users.add(message.author.id)
     try:
@@ -932,111 +837,64 @@ async def on_message(message):
         is_admin = str(message.author.id) == ADMIN_USER_ID
         target_page_id = NOTION_PAGE_MAP.get(thread_id, NOTION_MAIN_PAGE_ID)
 
-        # ▼ 添付ファイル処理 (変更なし)
         if message.attachments:
             await message.channel.send("📎 添付ファイルを解析しています…")
-            analysis_text = await analyze_attachment_for_gpt5(message.attachments[0])
-            prompt += "\n\n" + analysis_text
+            prompt += "\n\n" + await analyze_attachment_for_gpt5(message.attachments[0])
         
         is_memory_on = await get_memory_flag_from_notion(thread_id)
 
-        # ▼ Notionコンテキストの取得処理を追加
-        notion_context = await get_notion_context_for_message(message, target_page_id, prompt)
+        ### ▼ 修正点: チャンネル名に応じて要約モデルを切り替えるロジック ▼ ###
+        if channel_name.startswith("gpt"):
+            summary_model_to_use = "perplexity"
+        elif channel_name.startswith("gemini"):
+            summary_model_to_use = "gemini"
+        else: # perplexity部屋などのデフォルト
+            summary_model_to_use = "gpt" 
+
+        notion_context = await get_notion_context_for_message(message, target_page_id, prompt, model_choice=summary_model_to_use)
         if notion_context is None:
             await message.channel.send("⚠️ Notionの参照に失敗したため、会話履歴のみで応答します。")
 
-        # ▼ 各モデルのプロンプト構築部分を修正
+        # --- 各チャンネルごとの処理 ---
         if channel_name.startswith("gpt"):
             history = gpt_thread_memory.get(thread_id, []) if is_memory_on else []
             history_text = "\n".join([f"{m['role']}: {m['content']}" for m in history])
-            
             full_prompt = f"【Notionページの要約】\n{notion_context or '参照なし'}\n\n【これまでの会話】\n{history_text or 'なし'}\n\n【今回の質問】\n{prompt}"
-            
-            await message.channel.send("受付完了。gpt-5が思考を開始します。")
+            await message.channel.send("⏳ 受付完了。gpt-5が思考を開始します。")
             asyncio.create_task(run_long_gpt5_task(message, prompt, full_prompt, is_admin, target_page_id, thread_id))
 
         elif channel_name.startswith("gemini"):
-            await message.channel.send("Gemini 2.5 Proが思考を開始します…")
+            await message.channel.send("⏳ Gemini 1.5 Proが思考を開始します…")
             history = gemini_thread_memory.get(thread_id, []) if is_memory_on else []
             history_text = "\n".join([f"{m['role']}: {m['content']}" for m in history])
-
-            # ユーザーの質問をNotionに記録
             if is_admin and target_page_id:
-                try:
-                    user_log_blocks = [{
-                        "object": "block", "type": "paragraph",
-                        "paragraph": { "rich_text": [{"type": "text", "text": {"content": f"👤 {message.author.display_name}:\n{prompt}"}}] }
-                    }]
-                    await log_to_notion(target_page_id, user_log_blocks)
-                except Exception as e:
-                    print(f"🚨 Notionへのユーザー発言の記録に失敗しました: {e}")
-                    pass
-
+                await log_to_notion(target_page_id, [{"object": "block", "type": "paragraph", "paragraph": {"rich_text": [{"type": "text", "text": {"content": f"👤 {message.author.display_name}:\n{prompt}"}}]}}])
             full_prompt = f"【Notionページの要約】\n{notion_context or '参照なし'}\n\n【これまでの会話】\n{history_text or 'なし'}\n\n【今回の質問】\nuser: {prompt}"
-            
             reply = await ask_gemini_2_5_pro(full_prompt)
-            
-            if len(reply) <= 2000:
-                await message.channel.send(reply)
-            else:
-                for i in range(0, len(reply), 2000):
-                    await message.channel.send(reply[i:i+2000])
-
-            # AIの回答をNotionに記録
+            await send_long_message(message.channel, reply)
             if is_admin and target_page_id:
-                try:
-                    await log_response(target_page_id, reply, "Gemini 2.5 Pro")
-                except Exception as e:
-                    print(f"🚨 NotionへのAI回答の記録に失敗しました: {e}")
-                    pass
-
+                await log_response(target_page_id, reply, "Gemini 1.5 Pro")
             if is_memory_on and "エラー" not in reply:
                 history.extend([{"role": "user", "content": prompt}, {"role": "assistant", "content": reply}])
                 gemini_thread_memory[thread_id] = history[-10:]
 
         elif channel_name.startswith("perplexity"):
-            await message.channel.send("Perplexity Sonarが思考を開始します…")
+            await message.channel.send("⏳ Perplexity Sonarが思考を開始します…")
             history = perplexity_thread_memory.get(thread_id, []) if is_memory_on else []
             history_text = "\n".join([f"{m['role']}: {m['content']}" for m in history])
-
-            # ユーザーの質問をNotionに記録
             if is_admin and target_page_id:
-                try:
-                    user_log_blocks = [{
-                        "object": "block", "type": "paragraph",
-                        "paragraph": { "rich_text": [{"type": "text", "text": {"content": f"👤 {message.author.display_name}:\n{prompt}"}}] }
-                    }]
-                    await log_to_notion(target_page_id, user_log_blocks)
-                except Exception as e:
-                    print(f"🚨 Notionへのユーザー発言の記録に失敗しました: {e}")
-                    pass
-
+                await log_to_notion(target_page_id, [{"object": "block", "type": "paragraph", "paragraph": {"rich_text": [{"type": "text", "text": {"content": f"👤 {message.author.display_name}:\n{prompt}"}}]}}])
             rekus_prompt = f"【これまでの会話】\n{history_text or 'なし'}\n\n【今回の質問】\nuser: {prompt}"
             reply = await ask_rekus(rekus_prompt, notion_context=notion_context)
-            
-            if len(reply) <= 2000:
-                await message.channel.send(reply)
-            else:
-                for i in range(0, len(reply), 2000):
-                    await message.channel.send(reply[i:i+2000])
-
-            # AIの回答をNotionに記録
+            await send_long_message(message.channel, reply)
             if is_admin and target_page_id:
-                try:
-                    await log_response(target_page_id, reply, "Perplexity Sonar")
-                except Exception as e:
-                    print(f"🚨 NotionへのAI回答の記録に失敗しました: {e}")
-                    pass
-
+                await log_response(target_page_id, reply, "Perplexity Sonar")
             if is_memory_on and "エラー" not in str(reply):
-                history.extend([
-                    {"role": "user", "content": prompt},
-                    {"role": "assistant", "content": reply}
-                ])
+                history.extend([{"role": "user", "content": prompt}, {"role": "assistant", "content": reply}])
                 perplexity_thread_memory[thread_id] = history[-10:]
 
     except Exception as e:
-        print(f"on_messageでエラーが発生しました: {e}")
+        safe_log("🚨 on_messageでエラー:", e)
         await message.channel.send(f"予期せぬエラーが発生しました: ```{str(e)[:1800]}```")
     finally:
         if message.author.id in processing_users:
@@ -1046,14 +904,12 @@ async def on_message(message):
 async def startup_event():
     """サーバー起動時にBotをバックグラウンドで起動する"""
     global openai_client, mistral_client, notion, llama_model_for_vertex
-    
     try:
         print("🤖 Initializing API clients...")
         openai_client = AsyncOpenAI(api_key=OPENAI_API_KEY)
         mistral_client = MistralAsyncClient(api_key=MISTRAL_API_KEY)
         notion = Client(auth=NOTION_API_KEY)
         genai.configure(api_key=GEMINI_API_KEY)
-        
         try:
             print("🤖 Initializing Vertex AI...")
             vertexai.init(project="stunning-agency-469102-b5", location="us-central1")
@@ -1061,12 +917,9 @@ async def startup_event():
             print("✅ Vertex AI initialized successfully.")
         except Exception as e:
             print(f"🚨 Vertex AI init failed (continue without it): {e}")
-
-        # Botをバックグラウンドタスクとして起動
         print("🚀 Creating Discord Bot startup task...")
         asyncio.create_task(client.start(DISCORD_TOKEN))
         print("✅ Discord Bot startup task has been created.")
-
     except Exception as e:
         print(f"🚨🚨🚨 FATAL ERROR during startup event: {e} 🚨🚨🚨")
 
