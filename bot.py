@@ -728,9 +728,19 @@ async def all_command(interaction: discord.Interaction, prompt: str, attachment:
         tasks[name] = func(final_query)
 
     results = await asyncio.gather(*tasks.values(), return_exceptions=True)
-    for name, result in zip(tasks.keys(), results):
-        await send_long_message(interaction, f"**🔹 {name}の意見:**\n{result if not isinstance(result, Exception) else f'エラー: {result}'}", is_followup=True)
-        
+    
+    # 最初の意見は interaction.edit_original_response で送信
+    first_name = list(tasks.keys())[0]
+    first_result = results[0]
+    first_display_text = f"**🔹 {first_name}の意見:**\n{first_result if not isinstance(first_result, Exception) else f'エラー: {first_result}'}"
+    await interaction.edit_original_response(content=first_display_text[:2000]) # 2000文字に切り詰めて送信
+
+    # 残りの意見を interaction.followup.send で送信
+    for name, result in list(zip(tasks.keys(), results))[1:]:
+        display_text = f"**🔹 {name}の意見:**\n{result if not isinstance(result, Exception) else f'エラー: {result}'}"
+        # send_long_message を使って2000文字を超えるメッセージを分割送信
+        await send_long_message(interaction, display_text, is_followup=True)
+
 @tree.command(name="critical", description="Notion情報を元に全AIで議論し、多角的な結論を導きます。")
 @app_commands.describe(topic="議論したい議題")
 async def critical_command(interaction: discord.Interaction, topic: str):
@@ -840,31 +850,36 @@ async def on_ready():
 
 @client.event
 async def on_message(message):
-    if message.author.bot or message.author.id in processing_users or message.content.startswith("/"):
+    # ボット自身やスラッシュコマンドのメッセージは無視
+    if message.author.bot or message.content.startswith("/"):
         return
 
+    # 旧コマンド「!」への案内
     if message.content.startswith("!"):
         await message.channel.send("💡 `!`コマンドは廃止されました。今後は`/`で始まるスラッシュコマンドをご利用ください。")
         return
 
+    # 特定のチャンネル名でなければ無視
     channel_name = message.channel.name.lower()
     if not (channel_name.startswith("gpt") or channel_name.startswith("gemini") or channel_name.startswith("perplexity")):
         return
 
-    processing_users.add(message.author.id)
+    # --- メインの処理 ---
     try:
         prompt = message.content
         thread_id = str(message.channel.id)
         is_admin = str(message.author.id) == ADMIN_USER_ID
         target_page_id = NOTION_PAGE_MAP.get(thread_id, NOTION_MAIN_PAGE_ID)
 
+        # 添付ファイルの処理
         if message.attachments:
             await message.channel.send("📎 添付ファイルを解析しています…")
             prompt += "\n\n" + await analyze_attachment_for_gpt5(message.attachments[0])
         
+        # Notionから記憶フラグを取得
         is_memory_on = await get_memory_flag_from_notion(thread_id)
 
-        ### ▼ 修正点: チャンネル名に応じて要約モデルを切り替えるロジック ▼ ###
+        # チャンネル名に応じてNotion要約モデルを切り替え
         if channel_name.startswith("gpt"):
             summary_model_to_use = "perplexity"
         elif channel_name.startswith("gemini"):
@@ -872,11 +887,12 @@ async def on_message(message):
         else: # perplexity部屋などのデフォルト
             summary_model_to_use = "gpt" 
 
+        # Notionからコンテキストを取得
         notion_context = await get_notion_context_for_message(message, target_page_id, prompt, model_choice=summary_model_to_use)
         if notion_context is None:
             await message.channel.send("⚠️ Notionの参照に失敗したため、会話履歴のみで応答します。")
 
-        # --- 各チャンネルごとの処理 ---
+        # --- 各チャンネルごとのAI呼び出し処理 ---
         if channel_name.startswith("gpt"):
             history = gpt_thread_memory.get(thread_id, []) if is_memory_on else []
             history_text = "\n".join([f"{m['role']}: {m['content']}" for m in history])
@@ -914,12 +930,10 @@ async def on_message(message):
                 history.extend([{"role": "user", "content": prompt}, {"role": "assistant", "content": reply}])
                 perplexity_thread_memory[thread_id] = history[-10:]
 
+    # --- エラー処理 ---
     except Exception as e:
         safe_log("🚨 on_messageでエラー:", e)
         await message.channel.send(f"予期せぬエラーが発生しました: ```{str(e)[:1800]}```")
-    finally:
-        if message.author.id in processing_users:
-            processing_users.remove(message.author.id)
             
 @app.on_event("startup")
 async def startup_event():
