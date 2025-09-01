@@ -687,7 +687,7 @@ async def minna_command(interaction: discord.Interaction, prompt: str):
         display_text = f"エラー: {result}" if isinstance(result, Exception) else result
         await interaction.followup.send(f"**🔹 {name}の意見:**\n{display_text}")
 
-ADVANCED_MODELS_FOR_ALL = {"gpt-4o": (ask_kreios, get_full_response_and_summary), "Gemini Pro": (ask_minerva, get_full_response_and_summary), "Perplexity": (ask_rekus, get_full_response_and_summary), "Gemini 1.5 Pro": (ask_gemini_2_5_pro, get_full_response_and_summary), "gpt-5": (ask_gpt5, get_full_response_and_summary)}
+ADVANCED_MODELS_FOR_ALL = {"gpt-4o": (ask_kreios, get_full_response_and_summary), "Gemini Pro": (ask_minerva, get_full_response_and_summary), "Perplexity": (ask_rekus, get_full_response_and_summary), "Gemini 2.5 Pro": (ask_gemini_2_5_pro, get_full_response_and_summary), "gpt-5": (ask_gpt5, get_full_response_and_summary)}
 
 
 @tree.command(name="all", description="9体のAI（ベース6体+高機能3体）が議題に同時に意見を出します。")
