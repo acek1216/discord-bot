@@ -845,7 +845,7 @@ async def logical_command(interaction: discord.Interaction, topic: str):
             await interaction.followup.send(f"**🤖 gpt-5 (最終統合レポート):**\n{final_report}")
 
         # タイムアウトを5分に設定
-        await asyncio.wait_for(core_logic(), timeout=300)
+        await asyncio.wait_for(core_logic(), timeout=600)
 
     except Exception as e:
         safe_log("🚨 /logical コマンドでエラー:", e)
