@@ -474,7 +474,7 @@ async def ask_rekus(prompt, system_prompt=None, notion_context=None):
     # ★変更点: モデル名を "sonar-pro" に直接指定
     model_name = "sonar-pro"
     
-    base_prompt = system_prompt or "あなたは思索AIレキュスです。与えられた情報と思考を元に、ユーザーの質問に対して深い考察を加えて回答してください。"
+    base_prompt = system_prompt or "あなたは思索AIレキュスです。与えられた情報と思考を元に、ユーザーの質問に対して深い考察を加えて200字以内で回答してください。"
     messages = [{"role": "system", "content": base_prompt}, {"role": "user", "content": prompt}]
     payload = {"model": model_name, "messages": messages}
     headers = {"Authorization": f"Bearer {PERPLEXITY_API_KEY}", "Content-Type": "application/json"}
