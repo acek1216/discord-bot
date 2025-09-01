@@ -201,14 +201,14 @@ async def analyze_attachment_for_gpt5(attachment: discord.Attachment):
 
     async def summarize_text_chunks_for_message(message: discord.Message, text: str, query: str, model_choice: str):
     """[on_message用] テキストをチャンク分割し、指定されたモデルで並列要約、Mistral Largeで統合する"""
-    chunk_size = 128000
-    text_chunks = [text[i:i + chunk_size] for i in range(0, len(text), chunk_size)]
-    model_name_map = {
-        "gpt": "gpt-4o", 
-        "gemini": "Gemini 1.5 Pro", 
-        "perplexity": "Perplexity Sonar", 
-        "gemini_2_5_pro": "Gemini 2.5 Pro"
-    }
+        chunk_size = 128000
+        text_chunks = [text[i:i + chunk_size] for i in range(0, len(text), chunk_size)]
+        model_name_map = {
+            "gpt": "gpt-4o", 
+            "gemini": "Gemini 1.5 Pro", 
+            "perplexity": "Perplexity Sonar", 
+            "gemini_2_5_pro": "Gemini 2.5 Pro"
+        }
     model_name = model_name_map.get(model_choice, "不明なモデル")
     await message.channel.send(f"✅ テキスト抽出完了。{model_name}によるチャンク毎の並列要約を開始… (全{len(text_chunks)}チャンク)")
 
