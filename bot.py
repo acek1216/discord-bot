@@ -199,16 +199,18 @@ async def analyze_attachment_for_gpt5(attachment: discord.Attachment):
 
 ### ▼ 修正点: 2つあったsummarize_text_chunksを1つに統合し、新しくsummarize_text_chunks_for_messageを作成 ▼ ###
 
-    async def summarize_text_chunks_for_message(message: discord.Message, text: str, query: str, model_choice: str):
+    ### ▼ 修正点: 2つあったsummarize_text_chunksを1つに統合し、新しくsummarize_text_chunks_for_messageを作成 ▼ ###
+
+async def summarize_text_chunks_for_message(message: discord.Message, text: str, query: str, model_choice: str):
     """[on_message用] テキストをチャンク分割し、指定されたモデルで並列要約、Mistral Largeで統合する"""
-        chunk_size = 128000
-        text_chunks = [text[i:i + chunk_size] for i in range(0, len(text), chunk_size)]
-        model_name_map = {
-            "gpt": "gpt-4o", 
-            "gemini": "Gemini 1.5 Pro", 
-            "perplexity": "Perplexity Sonar", 
-            "gemini_2_5_pro": "Gemini 2.5 Pro"
-        }
+    chunk_size = 128000
+    text_chunks = [text[i:i + chunk_size] for i in range(0, len(text), chunk_size)]
+    model_name_map = {
+        "gpt": "gpt-4o",
+        "gemini": "Gemini 1.5 Pro",
+        "perplexity": "Perplexity Sonar",
+        "gemini_2_5_pro": "Gemini 2.5 Pro"
+    }
     model_name = model_name_map.get(model_choice, "不明なモデル")
     await message.channel.send(f"✅ テキスト抽出完了。{model_name}によるチャンク毎の並列要約を開始… (全{len(text_chunks)}チャンク)")
 
@@ -222,10 +224,10 @@ async def analyze_attachment_for_gpt5(attachment: discord.Attachment):
             elif model_choice == "gemini":
                 summary_text = await ask_gemini_pro_for_summary(prompt)
             elif model_choice == "gemini-2.5-pro":
-                summary_text = await ask_gemini-2_5-pro_for_summary(prompt)
+                summary_text = await ask_gemini_2_5_pro_for_summary(prompt)
             elif model_choice == "perplexity":
                 summary_text = await ask_rekus_for_summary(prompt)
-                
+
             if "エラーが発生しました" in summary_text:
                 await message.channel.send(f"⚠️ チャンク {index+1} の要約中にエラー: {summary_text}")
                 return None
@@ -233,6 +235,24 @@ async def analyze_attachment_for_gpt5(attachment: discord.Attachment):
         except Exception as e:
             await message.channel.send(f"⚠️ チャンク {index+1} の要約中にエラー: {e}")
             return None
+
+    tasks = [summarize_chunk(chunk, i) for i, chunk in enumerate(text_chunks)]
+    chunk_summaries_results = await asyncio.gather(*tasks)
+    chunk_summaries = [summary for summary in chunk_summaries_results if summary is not None]
+
+    if not chunk_summaries:
+        await message.channel.send("❌ 全てのチャンクの要約に失敗しました。")
+        return None
+    await message.channel.send(" 全チャンクの要約完了。Mistral Largeが統合・分析します…")
+    combined = "\n---\n".join(chunk_summaries)
+    final_prompt = f"以下の、タグ付けされた複数の要約群を、一つの構造化されたレポートに統合してください。\n各タグ（[背景情報]、[事実経過]など）ごとに内容をまとめ直し、最終的なコンテキストとして出力してください。\n\n【ユーザーの質問】\n{query}\n\n【タグ付き要약群】\n{combined}"
+    try:
+        return await asyncio.wait_for(ask_lalah(final_prompt, system_prompt="あなたは構造化統合AIです。"), timeout=90)
+    except asyncio.TimeoutError:
+        await message.channel.send("⚠️ 最終統合中にタイムアウトまたはエラーが発生しました。")
+        return None
+
+### ▼ 修正点: 2つのget_notion_context系関数を整理し、model_choiceを渡せるようにした ▼ ###
     
     tasks = [summarize_chunk(chunk, i) for i, chunk in enumerate(text_chunks)]
     chunk_summaries_results = await asyncio.gather(*tasks)
