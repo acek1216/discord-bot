@@ -281,7 +281,7 @@ async def get_notion_context_for_message(message: discord.Message, page_id: str,
     if notion_text.startswith("ERROR:") or not notion_text.strip():
         await message.channel.send("❌ Notionページからテキストを取得できませんでした。")
         return None
-    return await summarize_text_chunks_for_message(message, notion_text, query, model_choice)
+    return await summarize_text_chunks_for_message(message.channel, notion_text, query, model_choice)
 
 async def get_notion_context(interaction: discord.Interaction, page_id: str, query: str, model_choice: str = "gpt"):
     """スラッシュコマンド用のNotionコンテキスト取得関数"""
