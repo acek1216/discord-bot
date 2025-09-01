@@ -199,8 +199,6 @@ async def analyze_attachment_for_gpt5(attachment: discord.Attachment):
 
 ### ▼ 修正点: 2つあったsummarize_text_chunksを1つに統合し、新しくsummarize_text_chunks_for_messageを作成 ▼ ###
 
-    ### ▼ 修正点: 2つあったsummarize_text_chunksを1つに統合し、新しくsummarize_text_chunks_for_messageを作成 ▼ ###
-
 async def summarize_text_chunks_for_message(message: discord.Message, text: str, query: str, model_choice: str):
     """[on_message用] テキストをチャンク分割し、指定されたモデルで並列要約、Mistral Largeで統合する"""
     chunk_size = 128000
@@ -270,8 +268,7 @@ async def get_notion_context(interaction: discord.Interaction, page_id: str, que
     if notion_text.startswith("ERROR:") or not notion_text.strip():
         await interaction.edit_original_response(content="❌ Notionページからテキストを取得できませんでした。")
         return None
-    return await summarize_text_chunks(interaction, notion_text, query, model_choice)
-
+    return await summarize_text_chunks_for_message(interaction.channel, notion_text, query, model_choice)
 
 def _sync_get_notion_page_text(page_id):
     all_text_blocks = []
