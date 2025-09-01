@@ -221,8 +221,8 @@ async def analyze_attachment_for_gpt5(attachment: discord.Attachment):
                 summary_text = response.choices[0].message.content
             elif model_choice == "gemini":
                 summary_text = await ask_gemini_pro_for_summary(prompt)
-            elif model_choice == "gemini_2_5_pro":
-                summary_text = await ask_gemini_2_5_pro_for_summary(prompt)
+            elif model_choice == "gemini-2.5-pro":
+                summary_text = await ask_gemini-2.5-pro_for_summary(prompt)
             elif model_choice == "perplexity":
                 summary_text = await ask_rekus_for_summary(prompt)
                 
@@ -489,7 +489,7 @@ async def ask_rekus(prompt, system_prompt=None, notion_context=None):
 async def ask_gemini_2_5_pro_for_summary(prompt: str) -> str:
     """Gemini 2.5 Proを使って要約を行うヘルパー関数"""
     try:
-        model = genai.GenerativeModel("gemini-2.5-pro-latest", system_instruction="あなたは構造化要約AIです。", safety_settings=safety_settings)
+        model = genai.GenerativeModel("gemini-2.5-pro", system_instruction="あなたは構造化要約AIです。", safety_settings=safety_settings)
         response = await model.generate_content_async(prompt)
         return response.text
     except Exception as e:
