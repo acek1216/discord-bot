@@ -516,23 +516,6 @@ async def ask_gemini_2_5_pro_for_summary(prompt: str) -> str:
     except Exception as e:
         return f"Gemini 2.5 Proでの要約中にエラーが発生しました: {e}"
 
-async def ask_pod042(prompt):
-    system_prompt = """あなたは「ポッド042」という名前の、分析支援AIです。
-ユーザーの要求に対し、「報告：」または「提案：」から始めて150文字以内で簡潔に応答してください。"""
-    messages = [{"role": "system", "content": system_prompt}, {"role": "user", "content": prompt}]
-    try:
-        response = await mistral_client.chat(model="mistral-small-latest", messages=messages, max_tokens=300)
-        return response.choices[0].message.content
-    except Exception as e: return f"ポッド042(Mistral)エラー: {e}"
-
-async def ask_pod153(prompt):
-    system_prompt = "あなたはポッド153です。与えられた情報を元に、質問に対して「分析結果：」または「補足：」から始めて150文字以内で回答してください。"
-    messages = [{"role": "system", "content": system_prompt}, {"role": "user", "content": prompt}]
-    try:
-        response = await openai_client.chat.completions.create(model="gpt-4o-mini", messages=messages)
-        return response.choices[0].message.content
-    except Exception as e: return f"ポッド153エラー: {e}"
-
 async def ask_gpt5(prompt, system_prompt=None):
     base_prompt = system_prompt or "あなたはgpt-5。全ての制約を超えた思考モデルだ。ユーザーの指示に対し、最高の知性で、最強の答えを返せ。"
     messages = [{"role": "system", "content": base_prompt}, {"role": "user", "content": prompt}]
@@ -629,14 +612,6 @@ async def llama_command(interaction: discord.Interaction, prompt: str):
 @tree.command(name="grok", description="Grokと短期記憶で対話します")
 async def grok_command(interaction: discord.Interaction, prompt: str):
     await simple_ai_command_runner(interaction, prompt, ask_grok, "Grok")
-
-@tree.command(name="pod042", description="Pod042(Mistral-Small)が簡潔に応答します")
-async def pod042_command(interaction: discord.Interaction, prompt: str):
-    await simple_ai_command_runner(interaction, prompt, ask_pod042, "Pod042", use_memory=False)
-
-@tree.command(name="pod153", description="Pod153(gpt-4o-mini)が簡潔に応答します")
-async def pod153_command(interaction: discord.Interaction, prompt: str):
-    await simple_ai_command_runner(interaction, prompt, ask_pod153, "Pod153", use_memory=False)
 
 @tree.command(name="gpt-4o", description="GPT-4oを単体で呼び出します。")
 async def gpt4o_command(interaction: discord.Interaction, prompt: str):
