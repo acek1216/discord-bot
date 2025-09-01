@@ -793,40 +793,92 @@ async def logical_command(interaction: discord.Interaction, topic: str):
     await interaction.response.defer()
     try:
         async def core_logic():
+            # --- ステップ1 & 2: Notion要約(Gemini)と統合(Mistral) ---
             target_page_id = NOTION_PAGE_MAP.get(str(interaction.channel.id))
             if not target_page_id:
                 await interaction.edit_original_response(content="❌ このチャンネルはNotionページにリンクされていません。")
                 return
-            context = await get_notion_context(interaction, target_page_id, topic, model_choice="gemini")
-            if not context: return
-            await interaction.edit_original_response(content="⚖️ 内部討論と外部調査を並列で開始します…")
-            prompt_with_context = f"以下の【参考情報】を元に、【ユーザーの質問】に回答してください。\n\n【ユーザーの質問】\n{topic}\n\n【参考情報】\n{context}"
-            tasks = {
-                "肯定論者(gpt-4o)": get_full_response_and_summary(ask_kreios, prompt_with_context, system_prompt="あなたはこの議題の【肯定論者】です。議題を推進する最も強力な論拠を提示してください。"),
-                
-                # ★変更点: use_online=True を削除
-                "否定論者(Perplexity)": get_full_response_and_summary(ask_rekus, topic, system_prompt="あなたはこの議題の【否定論者】です。議題に反対する最も強力な反論を、客観的な事実やデータに基づいて提示してください。", notion_context=context),
-                
-                "中立分析官(Gemini Pro)": get_full_response_and_summary(ask_minerva, prompt_with_context, system_prompt="あなたはこの議題に関する【中立的な分析官】です。関連する社会的・倫理的な論点を、感情を排して提示してください。"),
 
-                # ★変更点: use_online=True を削除
-                "外部調査(Perplexity)": get_full_response_and_summary(ask_rekus, topic, notion_context=context)
+            # model_choice="gemini" を指定することで、Gemini 1.5 Proが要約を担当します
+            context = await get_notion_context(interaction, target_page_id, topic, model_choice="gemini")
+            if not context:
+                # get_notion_context内でエラーメッセージは送信済み
+                return
+
+            await interaction.edit_original_response(content="⚖️ 内部討論と外部調査を並列で開始します…")
+            prompt_with_context = (f"以下の【参考情報】を元に、【ユーザーの質問】に回答してください。\n\n"
+                                   f"【ユーザーの質問】\n{topic}\n\n"
+                                   f"【参考情報】\n{context}")
+
+            # --- ステップ3, 4, 5, 6: 各AIによる並列討論 ---
+            user_id = str(interaction.user.id)
+            tasks = {
+                # 3. 肯定論者: gpt-4o
+                "肯定論者(gpt-4o)": get_full_response_and_summary(
+                    ask_kreios,
+                    prompt_with_context,
+                    system_prompt="あなたはこの議題の【肯定論者】です。議題を推進する最も強力な論拠を提示してください。"
+                ),
+                # 4. 否定論者: Grok
+                "否定論者(Grok)": ask_grok(
+                    user_id,
+                    f"{prompt_with_context}\n\n上記を踏まえ、あなたはこの議題の【否定論者】として、議題に反対する最も強力な反論を、常識にとらわれず少し皮肉を交えながら提示してください。"
+                ),
+                # 5. 中立分析官: Gemini Pro
+                "中立分析官(Gemini Pro)": get_full_response_and_summary(
+                    ask_minerva,
+                    prompt_with_context,
+                    system_prompt="あなたはこの議題に関する【中立的な分析官】です。関連する社会的・倫理的な論点を、感情を排して提示してください。"
+                ),
+                # 6. 外部調査: Perplexity
+                "外部調査(Perplexity)": get_full_response_and_summary(
+                    ask_rekus,
+                    topic,
+                    notion_context=context
+                )
             }
-            results = await asyncio.gather(*tasks.values())
+
+            results = await asyncio.gather(*tasks.values(), return_exceptions=True)
+
             synthesis_material = "以下の情報を統合し、最終的な結論を導き出してください。\n\n"
             results_text = ""
-            for (name, (full_response, summary)) in zip(tasks.keys(), results):
-                display_text = summary or full_response
+            for (name, result) in zip(tasks.keys(), results):
+                if isinstance(result, Exception):
+                    display_text = f"エラー: {result}"
+                    full_response = display_text
+                # Grokは短い回答なので要約なし
+                elif name == "否定論者(Grok)":
+                    display_text = result
+                    full_response = result
+                # 他のAIは(full_response, summary)のタプルで返ってくる
+                else:
+                    full_response, summary = result
+                    display_text = summary or full_response
+
                 results_text += f"**{name}:**\n{display_text}\n\n"
                 synthesis_material += f"--- [{name}の意見] ---\n{full_response}\n\n"
+
+            # 討論結果を一度表示
             await send_long_message(interaction, results_text, is_followup=False)
-            await interaction.followup.send("⏳ Mistral Largeが最終統合を行います…")
-            final_report = await ask_lalah(synthesis_material, system_prompt="あなたは統合専用AIです。渡された情報を客観的に統合し、最終的な結論をレポートとしてまとめてください。")
-            await interaction.followup.send(f"**🤖 Mistral Large (最終統合レポート):**\n{final_report}")
+
+            # --- ステップ7: 最終回答 ---
+            await interaction.followup.send("⏳ gpt-5が最終統合を行います…")
+            final_report = await ask_gpt5(
+                synthesis_material,
+                system_prompt="あなたは統合専用AIです。渡された情報を客観的に統合し、最終的な結論をレポートとしてまとめてください。"
+            )
+            await interaction.followup.send(f"**🤖 gpt-5 (最終統合レポート):**\n{final_report}")
+
+        # タイムアウトを5分に設定
         await asyncio.wait_for(core_logic(), timeout=300)
+
     except Exception as e:
         safe_log("🚨 /logical コマンドでエラー:", e)
-        await interaction.followup.send(f"❌ エラーが発生しました: {e}", ephemeral=True)
+        try:
+            await interaction.followup.send(f"❌ エラーが発生しました: {e}", ephemeral=True)
+        except discord.errors.InteractionResponded:
+            # フォローアップが既に送信されている場合
+            pass
 
 @tree.command(name="sync", description="管理者専用：スラッシュコマンドをサーバーに同期します。")
 async def sync_command(interaction: discord.Interaction):
