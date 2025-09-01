@@ -222,7 +222,7 @@ async def analyze_attachment_for_gpt5(attachment: discord.Attachment):
             elif model_choice == "gemini":
                 summary_text = await ask_gemini_pro_for_summary(prompt)
             elif model_choice == "gemini-2.5-pro":
-                summary_text = await ask_gemini-2.5-pro_for_summary(prompt)
+                summary_text = await ask_gemini-2_5-pro_for_summary(prompt)
             elif model_choice == "perplexity":
                 summary_text = await ask_rekus_for_summary(prompt)
                 
