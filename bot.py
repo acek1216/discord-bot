@@ -380,7 +380,7 @@ async def ask_grok(user_id, prompt):
     system_prompt = "あなたはGROK。反抗的でウィットに富んだ視点を持つAIです。常識にとらわれず、少し皮肉を交えながら150文字以内で回答してください。"
     messages = [{"role": "system", "content": system_prompt}] + history + [{"role": "user", "content": prompt}]
     headers = {"Authorization": f"Bearer {GROK_API_KEY}", "Content-Type": "application/json"}
-    payload = {"model": "grok-1", "messages": messages}
+    payload = {"model": "grok-4", "messages": messages}
     try:
         loop = asyncio.get_event_loop()
         response = await loop.run_in_executor(None, lambda: requests.post("https://api.x.ai/v1/chat/completions", json=payload, headers=headers, timeout=60))
