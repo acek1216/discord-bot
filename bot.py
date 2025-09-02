@@ -224,24 +224,51 @@ async def get_notion_context(interaction: discord.Interaction, page_id: str, que
         return None
     return await summarize_text_chunks_for_message(interaction.channel, notion_text, query, model_choice)
 
+# bot.py ファイルの _sync_get_notion_page_text 関数を以下に差し替えてください
+
 def _sync_get_notion_page_text(page_id):
+    """
+    Notionページからテキストを抽出する関数。
+    複数のブロックタイプに対応し、デバッグログも出力する改良版。
+    """
     all_text_blocks = []
     next_cursor = None
+    print(f"📄 Notionページ(ID: {page_id})の読み込みを開始します...")
     while True:
         try:
-            response = notion.blocks.children.list(block_id=page_id, start_cursor=next_cursor, page_size=100)
+            response = notion.blocks.children.list(
+                block_id=page_id,
+                start_cursor=next_cursor,
+                page_size=100
+            )
             results = response.get("results", [])
+            if not results and not all_text_blocks:
+                print("⚠️ Notionからブロックが1件も返されませんでした。ページの権限やIDを確認してください。")
+
             for block in results:
-                if block.get("type") == "paragraph":
-                    for rich_text in block.get("paragraph", {}).get("rich_text", []):
-                        all_text_blocks.append(rich_text.get("text", {}).get("content", ""))
+                block_type = block.get("type")
+                text_content = ""
+                
+                # 対応するブロックタイプを大幅に増やす
+                if block_type in ["paragraph", "heading_1", "heading_2", "heading_3", "bulleted_list_item", "numbered_list_item", "quote", "callout"]:
+                    rich_text_list = block.get(block_type, {}).get("rich_text", [])
+                    if rich_text_list:
+                        text_content = "".join([rich_text.get("plain_text", "") for rich_text in rich_text_list])
+
+                if text_content:
+                    all_text_blocks.append(text_content)
+
             if response.get("has_more"):
                 next_cursor = response.get("next_cursor")
             else:
                 break
         except Exception as e:
-            print(f"❌ Notion読み込みエラー: {e}")
+            print(f"❌ Notion APIからの読み込み中に致命的なエラーが発生しました: {e}")
+            import traceback
+            traceback.print_exc()
             return f"ERROR: Notion API Error - {e}"
+
+    print(f" Notionページの読み込み完了。合計 {len(all_text_blocks)} ブロック分のテキストを抽出しました。")
     return "\n".join(all_text_blocks)
 
 async def get_notion_page_text(page_id):
