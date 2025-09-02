@@ -539,6 +539,31 @@ async def all_command(interaction: discord.Interaction, prompt: str, attachment:
         display_text = f"**🔹 {name}の意見:**\n{result if not isinstance(result, Exception) else f'エラー: {result}'}"
         await send_long_message(interaction, display_text, is_followup=True)
 
+@tree.command(name="chain", description="複数AIがリレー形式で意見を継続していきます")
+@app_commands.describe(topic="連鎖させたい議題")
+async def chain_command(interaction: discord.Interaction, topic: str):
+    await interaction.response.defer()
+    ai_order = [
+        ("GPT", ask_gpt_base),
+        ("Gemini", ask_gemini_base),
+        ("Mistral", ask_mistral_base),
+        ("Claude", ask_claude),
+        ("Llama", ask_llama),
+        ("Grok", ask_grok)
+    ]
+    user_id = str(interaction.user.id)
+    previous_opinion = f"【議題】\n{topic}"
+    chain_results = []
+    for name, ai_func in ai_order:
+        prompt = f"{previous_opinion}\n\nあなたは{name}です。前のAIの意見を参考に、さらに深めてください。"
+        try:
+            opinion = await ai_func(user_id, prompt)
+        except Exception as e:
+            opinion = f"{name}エラー: {e}"
+        chain_results.append(f"◆ {name}の意見:\n{opinion}")
+        previous_opinion = opinion  
+    await send_long_message(interaction, "\n\n".join(chain_results), is_followup=True)
+
 @tree.command(name="critical", description="Notion情報を元に全AIで議論し、多角的な結論を導きます。")
 @app_commands.describe(topic="議論したい議題")
 async def critical_command(interaction: discord.Interaction, topic: str):
