@@ -188,6 +188,11 @@ async def ask_rekus(prompt, system_prompt=None, notion_context=None):
 # --- llama (Vertex)はbot.pyで初期化するため、ここでは関数のみ定義 ---
 llama_model_for_vertex = None  # bot.pyでセット
 
+def set_llama_model(model):
+    """bot.pyから初期化済みモデルを受け取るための関数"""
+    global llama_model_for_vertex
+    llama_model_for_vertex = model
+
 def _sync_call_llama(p_text: str):
     global llama_model_for_vertex
     try:
@@ -197,6 +202,24 @@ def _sync_call_llama(p_text: str):
         return response.text
     except Exception as e:
         return f"Llama 3.3 呼び出しエラー: {e}"
+
+async def ask_llama(user_id, prompt, history=None):
+    # 引数からhistoryを受け取るように変更
+    global llama_model_for_vertex
+    system_prompt = "あなたは物静かな初老の庭師です。自然に例えながら、物事の本質を突くような、滋味深い言葉で150文字以内で語ってください。"
+    full_prompt_parts = [system_prompt]
+    if history:
+        for message in history:
+            role = "User" if message["role"] == "user" else "Assistant"
+            full_prompt_parts.append(f"{role}: {message['content']}")
+    full_prompt_parts.append(f"User: {prompt}")
+    full_prompt = "\n".join(full_prompt_parts)
+    try:
+        loop = asyncio.get_event_loop()
+        reply = await loop.run_in_executor(None, _sync_call_llama, full_prompt)
+        return reply
+    except Exception as e:
+        return f"Llama 3.3 非同期処理エラー: {e}"
 
 async def ask_llama(user_id, prompt, history=None):
     global llama_model_for_vertex
