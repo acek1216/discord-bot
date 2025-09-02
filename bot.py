@@ -107,6 +107,7 @@ gpt_thread_memory = {}
 gemini_thread_memory = {}
 perplexity_thread_memory = {} 
 processing_users = set()
+processing_channels = set()
 
 # --- ヘルパー関数 ---
 async def ask_gemini_pro_for_summary(prompt: str) -> str:
@@ -154,6 +155,77 @@ async def analyze_attachment_for_gpt5(attachment: discord.Attachment):
     else:
         return f"[未対応の添付ファイル形式: {attachment.filename}]"
 
+async def run_genius_channel_task(message, prompt, target_page_id):
+    """ "genius" チャンネル専用のAI評議会タスクを実行し、完了後にロックを解除する """
+    thread_id = str(message.channel.id)
+    try:
+        # 1. Notionコンテキストの取得とMistral Largeによる初回要約
+        await message.channel.send("📜 まずMistral Largeが議題と背景情報を要約します...")
+        
+        notion_raw_text = await get_notion_page_text(target_page_id)
+        if notion_raw_text.startswith("ERROR:") or not notion_raw_text.strip():
+            await message.channel.send("⚠️ Notionページからテキストを取得できませんでした。議題のみで進行します。")
+            notion_raw_text = "参照なし"
+
+        summary_prompt = f"以下の背景情報とユーザーの議題を、後続のAIが分析しやすいように構造化して要約してください。\n\n【背景情報】\n{notion_raw_text[:20000]}\n\n【ユーザーの議題】\n{prompt}"
+        initial_summary = await ask_lalah(summary_prompt, system_prompt="あなたは議論の進行役です。与えられた情報を整理し、論点を明確にするためのサマリーを作成してください。")
+
+        if "エラー" in str(initial_summary):
+            await message.channel.send(f"⚠️ 初回要約中にエラーが発生しました: {initial_summary}")
+            return
+
+        await send_long_message(message.channel, f"**📝 Mistral Largeによる論点サマリー:**\n{initial_summary}")
+        
+        # 2. AI評議会による並列分析
+        await message.channel.send("🤖 AI評議会（GPT-5, Perplexity, Gemini 2.5 Pro）が並列で分析を開始...")
+
+        full_prompt_for_council = f"【論点サマリー】\n{initial_summary}\n\n上記のサマリーを踏まえ、ユーザーの最初の議題「{prompt}」について、あなたの役割に基づいた分析レポートを作成してください。"
+
+        tasks = {
+            "GPT-5": ask_gpt5(full_prompt_for_council, system_prompt="あなたはこの議題に関する第一線の研究者です。最も先進的で鋭い視点から分析レポートを作成してください。"),
+            "Perplexity": ask_rekus(full_prompt_for_council, system_prompt="あなたは外部調査の専門家です。関連情報や最新の動向を調査し、客観的な事実に基づいたレポートを作成してください。"),
+            "Gemini 2.5 Pro": ask_gemini_2_5_pro(full_prompt_for_council, system_prompt="あなたはこの議題に関するリスクアナリストです。潜在的な問題点や倫理的課題を中心に、批判的な視点から分析レポートを作成してください。")
+        }
+        
+        results = await asyncio.gather(*tasks.values(), return_exceptions=True)
+        
+        # 3. 各レポートを投稿
+        synthesis_material = "以下の3つの専門家レポートを統合し、最終的な結論を導き出してください。\n\n"
+        council_reports = {}
+        for (name, result) in zip(tasks.keys(), results):
+            report_text = f"エラー: {result}" if isinstance(result, Exception) else result
+            await send_long_message(message.channel, f"**分析レポート by {name}:**\n{report_text}")
+            synthesis_material += f"--- [{name}のレポート] ---\n{report_text}\n\n"
+            council_reports[name] = report_text
+    
+        # 4. 統合AI (Claude 3.5) による最終レポート作成
+        await message.channel.send("🧠 統合AI（Claude 3.5 Sonnet）が全レポートを統合し、最終結論を生成します...")
+        final_report = await ask_claude("genius_user", synthesis_material, history=[])
+        
+        await send_long_message(message.channel, f"**👑 最終統合レポート by Claude 3.5 Sonnet:**\n{final_report}")
+
+        # 5. Notionへの全ログ書き込み
+        is_admin = str(message.author.id) == ADMIN_USER_ID
+        if is_admin and target_page_id:
+            await log_response(target_page_id, initial_summary, "Mistral Large (初回要約)")
+            if not isinstance(council_reports.get("GPT-5"), Exception):
+                await log_response(target_page_id, council_reports.get("GPT-5"), "GPT-5 (評議会)")
+            if not isinstance(council_reports.get("Perplexity"), Exception):
+                await log_response(target_page_id, council_reports.get("Perplexity"), "Perplexity (評議会)")
+            if not isinstance(council_reports.get("Gemini 2.5 Pro"), Exception):
+                await log_response(target_page_id, council_reports.get("Gemini 2.5 Pro"), "Gemini 2.5 Pro (評議会)")
+            if not isinstance(final_report, Exception):
+                await log_response(target_page_id, final_report, "Claude 3.5 Sonnet (最終統合)")
+
+    except Exception as e:
+        safe_log("🚨 geniusチャンネルのタスク実行中にエラー:", e)
+        await message.channel.send(f"分析シーケンス中にエラーが発生しました: {e}")
+    finally:
+        # 処理が成功しても失敗しても、必ず最後にロックを解除する
+        if thread_id in processing_channels:
+            processing_channels.remove(thread_id)
+        print(f" geniusチャンネルの処理が完了し、ロックを解除しました (Channel ID: {thread_id})")
+
 async def summarize_text_chunks_for_message(channel, text: str, query: str, model_choice: str):
     """[on_message/interaction用] テキストをチャンク分割し、指定されたモデルで並列要約、Mistral Largeで統合する"""
     chunk_size = 128000
@@ -178,8 +250,7 @@ async def summarize_text_chunks_for_message(channel, text: str, query: str, mode
             elif model_choice == "gemini":
                 summary_text = await ask_gemini_pro_for_summary(prompt)
             elif model_choice == "gemini-2.5-pro":
-                # この関数名はai_clients.pyに存在するか確認が必要です。
-                # 存在しない場合は ask_gemini_2_5_pro_for_summary に変更してください。
+                # ai_clients.py に ask_gemini_2_5_pro_for_summary があることを確認
                 summary_text = await ask_gemini_2_5_pro_for_summary(prompt)
             elif model_choice == "perplexity":
                 summary_text = await ask_rekus_for_summary(prompt)
@@ -205,31 +276,14 @@ async def summarize_text_chunks_for_message(channel, text: str, query: str, mode
     final_prompt = f"以下の、タグ付けされた複数の要約群を、一つの構造化されたレポートに統合してください。\n各タグ（[背景情報]、[事実経過]など）ごとに内容をまとめ直し、最終的なコンテキストとして出力してください。\n\n【ユーザーの質問】\n{query}\n\n【タグ付き要약群】\n{combined}"
     
     try:
-        # ask_lalah (Mistral Large) を呼び出して最終的な要約を取得
         final_summary = await ask_lalah(final_prompt)
         if "エラー" in str(final_summary):
             await channel.send(f"⚠️ Mistral Largeによる最終統合中にエラーが発生しました: {final_summary}")
             return None
-        
-        # 成功した場合、最終要約を返す
         return final_summary
     except Exception as e:
         await channel.send(f"❌ Mistral Largeによる最終統合中に予期せぬエラーが発生しました: {e}")
         return None
-
-    tasks = [summarize_chunk(chunk, i) for i, chunk in enumerate(text_chunks)]
-    chunk_summaries_results = await asyncio.gather(*tasks)
-    chunk_summaries = [summary for summary in chunk_summaries_results if summary is not None]
-
-    if not chunk_summaries:
-        
-        await channel.send("❌ 全てのチャンクの要約に失敗しました。")
-        return None
-
-    await channel.send(" 全チャンクの要約完了。Mistral Largeが統合・分析します…")
-    combined = "\n---\n".join(chunk_summaries)
-    final_prompt = f"以下の、タグ付けされた複数の要約群を、一つの構造化されたレポートに統合してください。\n各タグ（[背景情報]、[事実経過]など）ごとに内容をまとめ直し、最終的なコンテキストとして出力してください。\n\n【ユーザーの質問】\n{query}\n\n【タグ付き要약群】\n{combined}"
-    
     
 async def get_notion_context_for_message(message: discord.Message, page_id: str, query: str, model_choice: str):
     """on_message用のNotionコンテキスト取得関数"""
@@ -724,6 +778,7 @@ async def on_ready():
     except Exception as e:
         print(f"🚨 FATAL ERROR on command sync: {e}")
 
+
 @client.event
 async def on_message(message):
     if message.author.bot or message.content.startswith("/"):
@@ -734,9 +789,45 @@ async def on_message(message):
         return
 
     channel_name = message.channel.name.lower()
-    if not (channel_name.startswith("gpt") or channel_name.startswith("gemini") or channel_name.startswith("perplexity") or channel_name.startswith("genius")): 
-        return
+    
+    # ▼▼▼【ここから genius チャンネルの分岐を追加】▼▼▼
+    if channel_name.startswith("genius"):
+        thread_id = str(message.channel.id)
 
+        if thread_id in processing_channels:
+            await message.channel.send("⏳ 現在、前の処理を実行中です。完了までしばらくお待ちください。", delete_after=10)
+            return
+
+        try:
+            prompt = message.content
+            is_admin = str(message.author.id) == ADMIN_USER_ID
+            target_page_id = NOTION_PAGE_MAP.get(thread_id, NOTION_MAIN_PAGE_ID)
+
+            if message.attachments:
+                await message.channel.send("📎 添付ファイルを解析しています…")
+                prompt += "\n\n" + await analyze_attachment_for_gpt5(message.attachments[0])
+
+            if is_admin and target_page_id:
+                await log_to_notion(target_page_id, [{"object": "block", "type": "paragraph", "paragraph": {"rich_text": [{"type": "text", "text": {"content": f"👤 {message.author.display_name}:\n{prompt}"}}]}}])
+
+            # 処理を開始する直前にチャンネルをロック
+            processing_channels.add(thread_id)
+            asyncio.create_task(run_genius_channel_task(message, prompt, target_page_id))
+            return
+            
+        except Exception as e:
+            safe_log("🚨 on_message (genius)でエラー:", e)
+            await message.channel.send(f"予期せぬエラーが発生しました: ```{str(e)[:1800]}```")
+            # エラーが発生した場合もロックを解除
+            if thread_id in processing_channels:
+                processing_channels.remove(thread_id)
+            return
+    # ▲▲▲【ここまで genius チャンネルの処理】▲▲▲
+
+    # --- 以下、他のチャンネルの処理 ---
+    if not (channel_name.startswith("gpt") or channel_name.startswith("gemini") or channel_name.startswith("perplexity")):
+        return
+        
     try:
         prompt = message.content
         thread_id = str(message.channel.id)
