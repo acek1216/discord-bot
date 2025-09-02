@@ -167,7 +167,8 @@ async def run_genius_channel_task(message, prompt, target_page_id):
             await message.channel.send("⚠️ Notionページからテキストを取得できませんでした。議題のみで進行します。")
             notion_raw_text = "参照なし"
 
-        summary_prompt = f"以下の背景情報とユーザーの議題を、後続のAIが分析しやすいように構造化して要約してください。\n\n【背景情報】\n{notion_raw_text[:20000]}\n\n【ユーザーの議題】\n{prompt}"
+        # 要約プロンプトに文字数制限の指示を追加
+        summary_prompt = f"以下の背景情報とユーザーの議題を、後続のAIが分析しやすいように構造化してください。最終的なサマリーは、要点を800字程度で簡潔にまとめてください。\n\n【背景情報】\n{notion_raw_text[:20000]}\n\n【ユーザーの議題】\n{prompt}"
         initial_summary = await ask_lalah(summary_prompt, system_prompt="あなたは議論の進行役です。与えられた情報を整理し、論点を明確にするためのサマリーを作成してください。")
 
         if "エラー" in str(initial_summary):
@@ -181,10 +182,11 @@ async def run_genius_channel_task(message, prompt, target_page_id):
 
         full_prompt_for_council = f"【論点サマリー】\n{initial_summary}\n\n上記のサマリーを踏まえ、ユーザーの最初の議題「{prompt}」について、あなたの役割に基づいた分析レポートを作成してください。"
 
+        # 各AIのシステムプロンプトに文字数制限を追加
         tasks = {
-            "GPT-5": ask_gpt5(full_prompt_for_council, system_prompt="あなたはこの議題に関する第一線の研究者です。最も先進的で鋭い視点から分析レポートを作成してください。"),
-            "Perplexity": ask_rekus(full_prompt_for_council, system_prompt="あなたは外部調査の専門家です。関連情報や最新の動向を調査し、客観的な事実に基づいたレポートを作成してください。"),
-            "Gemini 2.5 Pro": ask_gemini_2_5_pro(full_prompt_for_council, system_prompt="あなたはこの議題に関するリスクアナリストです。潜在的な問題点や倫理的課題を中心に、批判的な視点から分析レポートを作成してください。")
+            "GPT-5": ask_gpt5(full_prompt_for_council, system_prompt="あなたはこの議題に関する第一線の研究者です。最も先進的で鋭い視点から、要点を800字程度に絞って分析レポートを作成してください。"),
+            "Perplexity": ask_rekus(full_prompt_for_council, system_prompt="あなたは外部調査の専門家です。関連情報や最新の動向を調査し、客観的な事実に基づいたレポートを800字程度で作成してください。"),
+            "Gemini 2.5 Pro": ask_gemini_2_5_pro(full_prompt_for_council, system_prompt="あなたはこの議題に関するリスクアナリストです。潜在的な問題点や倫理的課題を中心に、批判的な視点からの分析レポートを800字程度で作成してください。")
         }
         
         results = await asyncio.gather(*tasks.values(), return_exceptions=True)
@@ -224,7 +226,7 @@ async def run_genius_channel_task(message, prompt, target_page_id):
         # 処理が成功しても失敗しても、必ず最後にロックを解除する
         if thread_id in processing_channels:
             processing_channels.remove(thread_id)
-        print(f" geniusチャンネルの処理が完了し、ロックを解除しました (Channel ID: {thread_id})")
+        print(f"✅ geniusチャンネルの処理が完了し、ロックを解除しました (Channel ID: {thread_id})")
 
 async def summarize_text_chunks_for_message(channel, text: str, query: str, model_choice: str):
     """[on_message/interaction用] テキストをチャンク分割し、指定されたモデルで並列要約、Mistral Largeで統合する"""
@@ -312,7 +314,7 @@ def _sync_get_notion_page_text(page_id):
     """
     all_text_blocks = []
     next_cursor = None
-    print(f"📄 Notionページ(ID: {page_id})の読み込みを開始します...")
+    print(f" Notionページ(ID: {page_id})の読み込みを開始します...")
     while True:
         try:
             response = notion.blocks.children.list(
@@ -517,7 +519,7 @@ async def perplexity_command(interaction: discord.Interaction, prompt: str):
         reply = await ask_rekus(prompt)
         await send_long_message(interaction, reply, is_followup=True)
     except Exception as e:
-        await interaction.followup.send(f"🤖 Perplexity Sonar の処理中にエラーが発生しました: {e}")
+        await interaction.followup.send(f" Perplexity Sonar の処理中にエラーが発生しました: {e}")
 
 @tree.command(name="gpt5", description="GPT-5を単体で呼び出します。")
 async def gpt5_command(interaction: discord.Interaction, prompt: str):
@@ -545,7 +547,7 @@ async def notion_command(interaction: discord.Interaction, query: str):
             prompt_with_context = (f"【ユーザーの質問】\n{query}\n\n【参考情報】\n{notion_context}")
             await interaction.edit_original_response(content="⏳ gpt-5が最終回答を生成中です...")
             reply = await ask_gpt5(prompt_with_context)
-            await send_long_message(interaction, f"**🤖 最終回答 (by gpt-5):**\n{reply}", is_followup=False)
+            await send_long_message(interaction, f"** 最終回答 (by gpt-5):**\n{reply}", is_followup=False)
             if str(interaction.user.id) == ADMIN_USER_ID:
                 await log_response(target_page_id, reply, "gpt-5 (Notion参照)")
         await asyncio.wait_for(core_logic(), timeout=240)
@@ -655,11 +657,11 @@ async def critical_command(interaction: discord.Interaction, topic: str):
                 full_text_results += f"**🔹 {name}の意見:**\n{display_text}\n\n"
                 synthesis_material += f"--- [{name}の意見] ---\n{full_response or display_text}\n\n"
             await send_long_message(interaction, full_text_results, is_followup=False)
-            await interaction.followup.send("⏳ gpt-5が中間レポートを作成します…")
+            await interaction.followup.send(" gpt-5が中間レポートを作成します…")
             intermediate_report = await ask_gpt5(synthesis_material, system_prompt="以下の意見の要点だけを抽出し、短い中間レポートを作成してください。")
-            await interaction.followup.send("⏳ Mistral Largeが最終統合を行います…")
+            await interaction.followup.send(" Mistral Largeが最終統合を行います…")
             final_report = await ask_lalah(intermediate_report, system_prompt="あなたは統合専用AIです。渡された中間レポートを元に、最終的な結論を500文字以内でレポートしてください。")
-            await interaction.followup.send(f"**🤖 Mistral Large (最終統合レポート):**\n{final_report}")
+            await interaction.followup.send(f"** Mistral Large (最終統合レポート):**\n{final_report}")
         await asyncio.wait_for(core_logic(), timeout=600)
     except Exception as e:
         safe_log("🚨 /critical コマンドでエラー:", e)
@@ -731,12 +733,12 @@ async def logical_command(interaction: discord.Interaction, topic: str):
 
             await send_long_message(interaction, results_text, is_followup=False)
 
-            await interaction.followup.send("⏳ gpt-5が最終統合を行います…")
+            await interaction.followup.send(" gpt-5が最終統合を行います…")
             final_report = await ask_gpt5(
                 synthesis_material,
                 system_prompt="あなたは統合専用AIです。渡された情報を客観的に統合し、最終的な結論をレポートとしてまとめてください。"
             )
-            await interaction.followup.send(f"**🤖 gpt-5 (最終統合レポート):**\n{final_report}")
+            await interaction.followup.send(f"** gpt-5 (最終統合レポート):**\n{final_report}")
 
         await asyncio.wait_for(core_logic(), timeout=600)
 
@@ -790,7 +792,7 @@ async def on_message(message):
 
     channel_name = message.channel.name.lower()
     
-    # ▼▼▼【ここから genius チャンネルの分岐を追加】▼▼▼
+    # "genius" チャンネルの処理
     if channel_name.startswith("genius"):
         thread_id = str(message.channel.id)
 
@@ -822,10 +824,9 @@ async def on_message(message):
             if thread_id in processing_channels:
                 processing_channels.remove(thread_id)
             return
-    # ▲▲▲【ここまで genius チャンネルの処理】▲▲▲
 
-    # --- 以下、他のチャンネルの処理 ---
-    if not (channel_name.startswith("gpt") or channel_name.startswith("gemini") or channel_name.startswith("perplexity")):
+    # "claude部屋" を含む各専用部屋の処理
+    if not (channel_name.startswith("gpt") or channel_name.startswith("gemini") or channel_name.startswith("perplexity") or channel_name.startswith("claude")):
         return
         
     try:
@@ -835,16 +836,49 @@ async def on_message(message):
         target_page_id = NOTION_PAGE_MAP.get(thread_id, NOTION_MAIN_PAGE_ID)
 
         if message.attachments:
-            await message.channel.send("📎 添付ファイルを解析しています…")
-            prompt += "\n\n" + await analyze_attachment_for_gpt5(message.attachments[0])
+            # 添付ファイルはClaude部屋では一旦無視するか、別途処理を定義
+            if not channel_name.startswith("claude"):
+                 await message.channel.send("📎 添付ファイルを解析しています…")
+                 prompt += "\n\n" + await analyze_attachment_for_gpt5(message.attachments[0])
+
+        # --- "Claude部屋" の専用ロジック ---
+        if channel_name.startswith("claude"):
+            # 進捗を出さずにNotionを読み込む
+            notion_raw_text = await get_notion_page_text(target_page_id)
+            if notion_raw_text.startswith("ERROR:") or not notion_raw_text.strip():
+                await message.channel.send("❌ Notionページからテキストを取得できませんでした。")
+                return
+            
+            # 管理者の場合、ユーザーの発言をNotionに記録
+            if is_admin and target_page_id:
+                await log_to_notion(target_page_id, [{"object": "block", "type": "paragraph", "paragraph": {"rich_text": [{"type": "text", "text": {"content": f"👤 {message.author.display_name}:\n{prompt}"}}]}}])
+
+            full_prompt = (
+                f"以下の【参考情報】を元に、【ユーザーの質問】に回答してください。\n\n"
+                f"【参考情報】\n{notion_raw_text}\n\n"
+                f"【ユーザーの質問】\n{prompt}"
+            )
+            
+            # Botに「考え中」のステータスを表示させる
+            async with message.channel.typing():
+                reply = await ask_claude("claude_user", full_prompt, history=[])
+                await send_long_message(message.channel, reply)
+
+            # 管理者の場合、Botの返答をNotionに記録
+            if is_admin and target_page_id:
+                await log_response(target_page_id, reply, "Claude (専用部屋)")
+            return
         
+        # --- ここまでがClaude部屋の処理 ---
+
+        # 以下、既存のgpt, gemini, perplexity部屋の処理
         is_memory_on = await get_memory_flag_from_notion(thread_id)
 
         if channel_name.startswith("gpt"):
             summary_model_to_use = "perplexity"
         elif channel_name.startswith("gemini"):
             summary_model_to_use = "gpt"
-        else: 
+        else: # perplexity
             summary_model_to_use = "gemini_2_5_pro"
 
         notion_context = await get_notion_context_for_message(message, target_page_id, prompt, model_choice=summary_model_to_use)
