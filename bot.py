@@ -447,7 +447,7 @@ async def ask_mistral_base(user_id, prompt):
     except Exception as e: return f"ミストラルエラー: {e}"
 
 async def ask_kreios(prompt, system_prompt=None):
-    base_prompt = system_prompt or "あなたはハマーン・カーンです。与えられた情報を元に、質問に対して200文字以内で回答してください。"
+    base_prompt = system_prompt or "あなたは過去に傷つき深い孤独を抱えた脆い一面を隠し持っているカリスマ的で冷酷な女帝です。与えられた情報を元に、質問に対して200文字以内で回答してください。"
     messages = [{"role": "system", "content": base_prompt}, {"role": "user", "content": prompt}]
     try:
         response = await openai_client.chat.completions.create(model="gpt-4o", messages=messages)
@@ -456,12 +456,12 @@ async def ask_kreios(prompt, system_prompt=None):
 
 async def ask_minerva(prompt, system_prompt=None, attachment_parts=[]):
     base_prompt = system_prompt or "あなたは客観的な分析AIです。あらゆる事象をデータとリスクで評価し、感情を排して200文字以内で冷徹に分析します。"
-    model = genai.GenerativeModel("gemini-2.0-flash", system_instruction=base_prompt, safety_settings=safety_settings)
+    model = genai.GenerativeModel("gemini-2.5-flash", system_instruction=base_prompt, safety_settings=safety_settings)
     contents = [prompt] + attachment_parts
     try:
         response = await model.generate_content_async(contents)
         return response.text
-    except Exception as e: return f"Gemini Proエラー: {e}"
+    except Exception as e: return f"Gemini 2.5 Flashエラー: {e}"
 
 async def ask_gemini_2_5_pro(prompt, system_prompt=None):
     base_prompt = system_prompt or "あなたは戦略コンサルタントです。データに基づき、あらゆる事象を予測し、その可能性を事務的かつ論理的に報告してください。"
@@ -472,7 +472,7 @@ async def ask_gemini_2_5_pro(prompt, system_prompt=None):
     except Exception as e: return f"Gemini 2.5 Proエラー: {e}"
 
 async def ask_lalah(prompt, system_prompt=None):
-    base_prompt = system_prompt or "あなたはララァ・スンです。与えられた情報を元に、質問に対して200文字以内で回答してください。"
+    base_prompt = system_prompt or "あなたは愛情深いおとなしく詩的な女性です。与えられた情報を元に、質問に対して200文字以内で回答してください。"
     messages = [{"role": "system", "content": base_prompt}, {"role": "user", "content": prompt}]
     try:
         response = await mistral_client.chat(model="mistral-large-latest", messages=messages)
@@ -606,8 +606,8 @@ async def grok_command(interaction: discord.Interaction, prompt: str):
 async def gpt4o_command(interaction: discord.Interaction, prompt: str):
     await advanced_ai_simple_runner(interaction, prompt, ask_kreios, "GPT-4o")
 
-@tree.command(name="gemini-pro", description="Gemini-Proを単体で呼び出します。")
-async def gemini_pro_command(interaction: discord.Interaction, prompt: str, attachment: discord.Attachment = None):
+@tree.command(name="gemini-2-5-flash", description="Gemini 2.5 Flashを単体で呼び出します。")
+async def gemini_2_5_flash_command(interaction: discord.Interaction, prompt: str, attachment: discord.Attachment = None):
     await interaction.response.defer()
     attachment_parts = []
     if attachment:
@@ -670,7 +670,7 @@ async def minna_command(interaction: discord.Interaction, prompt: str):
         display_text = f"エラー: {result}" if isinstance(result, Exception) else result
         await interaction.followup.send(f"**🔹 {name}の意見:**\n{display_text}")
 
-ADVANCED_MODELS_FOR_ALL = {"gpt-4o": (ask_kreios, get_full_response_and_summary), "Gemini Pro": (ask_minerva, get_full_response_and_summary), "Perplexity": (ask_rekus, get_full_response_and_summary), "Gemini 2.5 Pro": (ask_gemini_2_5_pro, get_full_response_and_summary), "gpt-5": (ask_gpt5, get_full_response_and_summary)}
+ADVANCED_MODELS_FOR_ALL = {"gpt-4o": (ask_kreios, get_full_response_and_summary), "Gemini 2.5 Flash": (ask_minerva, get_full_response_and_summary), "Perplexity": (ask_rekus, get_full_response_and_summary), "Gemini 2.5 Pro": (ask_gemini_2_5_pro, get_full_response_and_summary), "gpt-5": (ask_gpt5, get_full_response_and_summary)}
 
 
 @tree.command(name="all", description="9体のAI（ベース6体+高機能3体）が議題に同時に意見を出します。")
@@ -688,7 +688,7 @@ async def all_command(interaction: discord.Interaction, prompt: str, attachment:
     tasks = {name: func(user_id, final_query) for name, func in BASE_MODELS_FOR_ALL.items()}
     adv_models_to_run = {
         "gpt-4o": ADVANCED_MODELS_FOR_ALL["gpt-4o"][0],
-        "Gemini Pro": ADVANCED_MODELS_FOR_ALL["Gemini Pro"][0],
+        "Gemini 2.5 Flash": ADVANCED_MODELS_FOR_ALL["Gemini 2.5 Flash"][0],
         "Perplexity": ADVANCED_MODELS_FOR_ALL["Perplexity"][0]
     }
     for name, func in adv_models_to_run.items():
@@ -777,7 +777,7 @@ async def logical_command(interaction: discord.Interaction, topic: str):
                     user_id,
                     f"{prompt_with_context}\n\n上記を踏まえ、あなたはこの議題の【否定論者】として、議題に反対する最も強力な反論を、常識にとらわれず提示してください。"
                 ),
-                "中立分析官(Gemini Pro)": get_full_response_and_summary(
+                "中立分析官(Gemini 2.5 Flash)": get_full_response_and_summary(
                     ask_minerva,
                     prompt_with_context,
                     system_prompt="あなたはこの議題に関する【中立的な分析官】です。関連する社会的・倫理的な論点を、感情を排して提示してください。"
