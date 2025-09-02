@@ -341,8 +341,6 @@ async def get_memory_flag_from_notion(thread_id: str) -> bool:
         print(f"❌ Notionから記憶フラグの読み取り中にエラー: {e}")
     return False
 
-# --- ここから下は各AIモデルを呼び出す関数群 (変更なし) ---
-
 def _sync_call_llama(p_text: str):
     try:
         if llama_model_for_vertex is None: raise Exception("Vertex AI model is not initialized.")
@@ -777,7 +775,7 @@ async def logical_command(interaction: discord.Interaction, topic: str):
                 ),
                 "否定論者(Grok)": ask_grok(
                     user_id,
-                    f"{prompt_with_context}\n\n上記を踏まえ、あなたはこの議題の【否定論者】として、議題に反対する最も強力な反論を、常識にとらわれず少し皮肉を交えながら提示してください。"
+                    f"{prompt_with_context}\n\n上記を踏まえ、あなたはこの議題の【否定論者】として、議題に反対する最も強力な反論を、常識にとらわれず提示してください。"
                 ),
                 "中立分析官(Gemini Pro)": get_full_response_and_summary(
                     ask_minerva,
