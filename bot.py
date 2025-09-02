@@ -178,19 +178,44 @@ async def summarize_text_chunks_for_message(channel, text: str, query: str, mode
             elif model_choice == "gemini":
                 summary_text = await ask_gemini_pro_for_summary(prompt)
             elif model_choice == "gemini-2.5-pro":
+                # この関数名はai_clients.pyに存在するか確認が必要です。
+                # 存在しない場合は ask_gemini_2_5_pro_for_summary に変更してください。
                 summary_text = await ask_gemini_2_5_pro_for_summary(prompt)
             elif model_choice == "perplexity":
                 summary_text = await ask_rekus_for_summary(prompt)
 
             if "エラーが発生しました" in summary_text:
-                
                 await channel.send(f"⚠️ チャンク {index+1} の要約中にエラー: {summary_text}")
                 return None
             return summary_text
         except Exception as e:
-            
             await channel.send(f"⚠️ チャンク {index+1} の要約中にエラー: {e}")
             return None
+
+    tasks = [summarize_chunk(chunk, i) for i, chunk in enumerate(text_chunks)]
+    chunk_summaries_results = await asyncio.gather(*tasks)
+    chunk_summaries = [summary for summary in chunk_summaries_results if summary is not None]
+
+    if not chunk_summaries:
+        await channel.send("❌ 全てのチャンクの要約に失敗しました。")
+        return None
+
+    await channel.send(" 全チャンクの要約完了。Mistral Largeが統合・分析します…")
+    combined = "\n---\n".join(chunk_summaries)
+    final_prompt = f"以下の、タグ付けされた複数の要約群を、一つの構造化されたレポートに統合してください。\n各タグ（[背景情報]、[事実経過]など）ごとに内容をまとめ直し、最終的なコンテキストとして出力してください。\n\n【ユーザーの質問】\n{query}\n\n【タグ付き要약群】\n{combined}"
+    
+    try:
+        # ask_lalah (Mistral Large) を呼び出して最終的な要約を取得
+        final_summary = await ask_lalah(final_prompt)
+        if "エラー" in str(final_summary):
+            await channel.send(f"⚠️ Mistral Largeによる最終統合中にエラーが発生しました: {final_summary}")
+            return None
+        
+        # 成功した場合、最終要約を返す
+        return final_summary
+    except Exception as e:
+        await channel.send(f"❌ Mistral Largeによる最終統合中に予期せぬエラーが発生しました: {e}")
+        return None
 
     tasks = [summarize_chunk(chunk, i) for i, chunk in enumerate(text_chunks)]
     chunk_summaries_results = await asyncio.gather(*tasks)
