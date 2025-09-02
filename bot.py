@@ -204,29 +204,8 @@ async def summarize_text_chunks_for_message(channel, text: str, query: str, mode
     await channel.send(" 全チャンクの要約完了。Mistral Largeが統合・分析します…")
     combined = "\n---\n".join(chunk_summaries)
     final_prompt = f"以下の、タグ付けされた複数の要約群を、一つの構造化されたレポートに統合してください。\n各タグ（[背景情報]、[事実経過]など）ごとに内容をまとめ直し、最終的なコンテキストとして出力してください。\n\n【ユーザーの質問】\n{query}\n\n【タグ付き要약群】\n{combined}"
-    try:
-        return await asyncio.wait_for(ask_lalah(final_prompt, system_prompt="あなたは構造化統合AIです。"), timeout=90)
-    except asyncio.TimeoutError:
-        
-        await channel.send("⚠️ 最終統合中にタイムアウトまたはエラーが発生しました。")
-        return None
-
-    tasks = [summarize_chunk(chunk, i) for i, chunk in enumerate(text_chunks)]
-    chunk_summaries_results = await asyncio.gather(*tasks)
-    chunk_summaries = [summary for summary in chunk_summaries_results if summary is not None]
-
-    if not chunk_summaries:
-        await message.channel.send("❌ 全てのチャンクの要約に失敗しました。")
-        return None
-    await message.channel.send(" 全チャンクの要約完了。Mistral Largeが統合・分析します…")
-    combined = "\n---\n".join(chunk_summaries)
-    final_prompt = f"以下の、タグ付けされた複数の要約群を、一つの構造化されたレポートに統合してください。\n各タグ（[背景情報]、[事実経過]など）ごとに内容をまとめ直し、最終的なコンテキストとして出力してください。\n\n【ユーザーの質問】\n{query}\n\n【タグ付き要약群】\n{combined}"
-    try:
-        return await asyncio.wait_for(ask_lalah(final_prompt, system_prompt="あなたは構造化統合AIです。"), timeout=90)
-    except asyncio.TimeoutError:
-        await message.channel.send("⚠️ 最終統合中にタイムアウトまたはエラーが発生しました。")
-        return None
-
+    
+    
 async def get_notion_context_for_message(message: discord.Message, page_id: str, query: str, model_choice: str):
     """on_message用のNotionコンテキスト取得関数"""
     await message.channel.send("...Notionページを読み込んでいます…")
@@ -300,19 +279,10 @@ async def get_memory_flag_from_notion(thread_id: str) -> bool:
         print(f"❌ Notionから記憶フラグの読み取り中にエラー: {e}")
     return False
 
-def _sync_call_llama(p_text: str):
-    try:
-        if llama_model_for_vertex is None: raise Exception("Vertex AI model is not initialized.")
-        response = llama_model_for_vertex.generate_content(p_text)
-        return response.text
-    except Exception as e:
-        error_message = f"🛑 Llama 3.3 呼び出しエラー: {e}"
-        print(error_message)
-        return error_message
-
 from ai_clients import (
-    ask_gpt5, ask_gpt4o, ask_gemini_base, ask_minerva, ask_claude, ask_mistral_base, ask_grok, ask_gemini_2_5_pro, ask_rekus, ask_llama,
-    ask_gpt_base, ask_lalah  # この2つを追加
+    ask_gpt5, ask_gpt4o, ask_gemini_base, ask_minerva, ask_claude, 
+    ask_mistral_base, ask_grok, ask_gemini_2_5_pro, ask_rekus, ask_llama,
+    ask_gpt_base, ask_lalah, set_llama_model
 )
 
 async def get_full_response_and_summary(ai_function, prompt, **kwargs):
@@ -348,8 +318,33 @@ async def run_long_gpt5_task(message, prompt, full_prompt, is_admin, target_page
 async def simple_ai_command_runner(interaction: discord.Interaction, prompt: str, ai_function, bot_name: str, use_memory: bool = True):
     await interaction.response.defer()
     user_id = str(interaction.user.id)
+    
+    # メモリ管理オブジェクトを名前から動的に選択
+    memory_map = {
+        "GPT": gpt_base_memory,
+        "Gemini": gemini_base_memory,
+        "Mistral": mistral_base_memory,
+        "Claude": claude_base_memory,
+        "Llama": llama_base_memory,
+        "Grok": grok_base_memory
+    }
+    # bot_nameからハイフンなどを取り除いて一致させる
+    clean_bot_name = bot_name.split("-")[0].split(" ")[0]
+    memory = memory_map.get(clean_bot_name)
+
+    history = None
+    if use_memory and memory is not None:
+        history = memory.get(user_id, [])
+
     try:
-        reply = await (ai_function(user_id, prompt) if use_memory else ai_function(prompt))
+        # historyを引数として渡す
+        reply = await ai_function(user_id, prompt, history=history)
+
+        if use_memory and memory is not None and "エラー" not in str(reply):
+            new_history = history + [{"role": "user", "content": prompt}, {"role": "assistant", "content": reply}]
+            if len(new_history) > 10: new_history = new_history[-10:]
+            memory[user_id] = new_history
+
         await interaction.followup.send(reply)
     except Exception as e:
         await interaction.followup.send(f"🤖 {bot_name} の処理中にエラーが発生しました: {e}")
@@ -773,7 +768,13 @@ async def startup_event():
             print("🤖 Initializing Vertex AI...")
             vertexai.init(project="stunning-agency-469102-b5", location="us-central1")
             llama_model_for_vertex = GenerativeModel("publishers/meta/models/llama-3.3-70b-instruct-maas")
-            print("✅ Vertex AI initialized successfully.")
+            
+            # ▼▼▼【追加】ここから ▼▼▼
+            # 初期化したモデルをai_clients.pyに渡す
+            set_llama_model(llama_model_for_vertex)
+            print("✅ Vertex AI initialized successfully and passed to clients.")
+            # ▲▲▲【追加】ここまで ▲▲▲
+
         except Exception as e:
             print(f"🚨 Vertex AI init failed (continue without it): {e}")
         
