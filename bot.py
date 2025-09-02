@@ -352,7 +352,8 @@ def _sync_call_llama(p_text: str):
         return error_message
 
 from ai_clients import (
-    ask_gpt5, ask_gpt4o, ask_gemini_base, ask_minerva, ask_claude, ask_mistral_base, ask_grok, ask_gemini_2_5_pro, ask_rekus, ask_llama, ask_lalah
+    ask_gpt5, ask_gpt4o, ask_gemini_base, ask_minerva, ask_claude, ask_mistral_base, ask_grok, ask_gemini_2_5_pro, ask_rekus, ask_llama,
+    ask_gpt_base, ask_lalah  # この2つを追加
 )
 
 async def get_full_response_and_summary(ai_function, prompt, **kwargs):
