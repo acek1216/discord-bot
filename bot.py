@@ -351,7 +351,7 @@ def _sync_call_llama(p_text: str):
         print(error_message)
         return error_message
 
-from ai_clients import (
+from ai_clients_Version8 import (
     ask_gpt5, ask_gpt4o, ask_gemini_base, ask_minerva, ask_claude, ask_mistral_base, ask_grok, ask_gemini_2_5_pro, ask_rekus, ask_llama, ask_lalah
 )
 
