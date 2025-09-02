@@ -12,8 +12,9 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt fastapi "uvicorn[standard]"
 
 # アプリケーションのコードをコンテナにコピーします
-COPY bot.py .
+COPY . .
 
 # コンテナ起動時にUvicornを実行します
 # Command to run the application
 CMD ["uvicorn","bot:app","--host","0.0.0.0","--port","8080"]
+
