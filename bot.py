@@ -554,7 +554,7 @@ async def critical_command(interaction: discord.Interaction, topic: str):
             await interaction.followup.send("⏳ Mistral Largeが最終統合を行います…")
             final_report = await ask_lalah(intermediate_report, system_prompt="あなたは統合専用AIです。渡された中間レポートを元に、最終的な結論を500文字以内でレポートしてください。")
             await interaction.followup.send(f"**🤖 Mistral Large (最終統合レポート):**\n{final_report}")
-        await asyncio.wait_for(core_logic(), timeout=300)
+        await asyncio.wait_for(core_logic(), timeout=600)
     except Exception as e:
         safe_log("🚨 /critical コマンドでエラー:", e)
         await interaction.followup.send(f"❌ エラーが発生しました: {e}", ephemeral=True)
