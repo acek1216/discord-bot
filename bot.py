@@ -352,7 +352,7 @@ def _sync_call_llama(p_text: str):
         return error_message
 
 from ai_clients import (
-    ask_gpt5, ask_gemini_base, ask_minerva, ask_claude, ask_mistral_base, ask_grok, ask_gemini_2_5_pro, ask_rekus, ask_llama
+    ask_gpt5, ask_gpt4o, ask_gemini_base, ask_minerva, ask_claude, ask_mistral_base, ask_grok, ask_gemini_2_5_pro, ask_rekus, ask_llama, ask_lalah
 )
 
 async def get_full_response_and_summary(ai_function, prompt, **kwargs):
@@ -438,7 +438,7 @@ async def grok_command(interaction: discord.Interaction, prompt: str):
 
 @tree.command(name="gpt-4o", description="GPT-4oを単体で呼び出します。")
 async def gpt4o_command(interaction: discord.Interaction, prompt: str):
-    await advanced_ai_simple_runner(interaction, prompt, ask_kreios, "GPT-4o")
+    await advanced_ai_simple_runner(interaction, prompt, ask_gpt4o, "GPT-4o")
 
 @tree.command(name="gemini-2-5-flash", description="Gemini 2.5 Flashを単体で呼び出します。")
 async def gemini_2_5_flash_command(interaction: discord.Interaction, prompt: str, attachment: discord.Attachment = None):
@@ -504,7 +504,7 @@ async def minna_command(interaction: discord.Interaction, prompt: str):
         display_text = f"エラー: {result}" if isinstance(result, Exception) else result
         await interaction.followup.send(f"**🔹 {name}の意見:**\n{display_text}")
 
-ADVANCED_MODELS_FOR_ALL = {"gpt-4o": (ask_kreios, get_full_response_and_summary), "Gemini 2.5 Flash": (ask_minerva, get_full_response_and_summary), "Perplexity": (ask_rekus, get_full_response_and_summary), "Gemini 2.5 Pro": (ask_gemini_2_5_pro, get_full_response_and_summary), "gpt-5": (ask_gpt5, get_full_response_and_summary)}
+ADVANCED_MODELS_FOR_ALL = {"gpt-4o": (ask_gpt4o, get_full_response_and_summary), "Gemini 2.5 Flash": (ask_minerva, get_full_response_and_summary), "Perplexity": (ask_rekus, get_full_response_and_summary), "Gemini 2.5 Pro": (ask_gemini_2_5_pro, get_full_response_and_summary), "gpt-5": (ask_gpt5, get_full_response_and_summary)}
 
 
 @tree.command(name="all", description="9体のAI（ベース6体+高機能3体）が議題に同時に意見を出します。")
@@ -628,7 +628,7 @@ async def logical_command(interaction: discord.Interaction, topic: str):
             user_id = str(interaction.user.id)
             tasks = {
                 "肯定論者(gpt-4o)": get_full_response_and_summary(
-                    ask_kreios,
+                    ask_gpt4o,
                     prompt_with_context,
                     system_prompt="あなたはこの議題の【肯定論者】です。議題を推進する最も強力な論拠を提示してください。"
                 ),
