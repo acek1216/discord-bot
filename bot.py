@@ -946,12 +946,7 @@ async def on_message(message):
             return
             
             
-            if not initial_summary:
-                await channel.send("❌ 初回要約の生成に失敗しました。")
-                return
-
-
-        except Exception as e:
+　       except Exception as e:
             safe_log("🚨 on_message (genius)でエラー:", e)
             await message.channel.send(f"予期せぬエラーが発生しました: ```{str(e)[:1800]}```")
             # エラーが発生した場合もロックを解除
