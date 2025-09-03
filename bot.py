@@ -559,9 +559,16 @@ async def extract_attachments_as_text(message) -> str:
 async def run_gpt4o_room_task(message, user_prompt: str):
     channel = message.channel
 
-    # 1) Notion文脈（既存の共通関数をそのまま利用）
-    #   - 12,000字チャンク & 1チャンク時スキップが効く
-    notion_text = await get_notion_page_text_for_thread(message)  # ←既存の取得ヘルパ名に合わせて
+    # 1) Notion文脈の取得
+    thread_id = str(message.channel.id)
+    target_page_id = NOTION_PAGE_MAP.get(thread_id)
+    notion_text = "" # 初期化
+    
+    if not target_page_id:
+        await channel.send("⚠️ このスレッドはNotionページに紐付いていません。")
+    else:
+        notion_text = await get_notion_page_text(target_page_id)
+
     notion_ctx = await summarize_text_chunks_for_message(
         channel=channel, text=notion_text or "", query=user_prompt, model_choice="gpt"
     )
@@ -946,7 +953,7 @@ async def on_message(message):
             return
             
             
-　       except Exception as e:
+        except Exception as e:
             safe_log("🚨 on_message (genius)でエラー:", e)
             await message.channel.send(f"予期せぬエラーが発生しました: ```{str(e)[:1800]}```")
             # エラーが発生した場合もロックを解除
@@ -1004,13 +1011,13 @@ async def on_message(message):
         # --- ここまでがClaude部屋の処理 ---
 
         if message.channel.name.lower().startswith("gpt4o"):
-            await run_gpt4o_room_task(message, user_prompt)
+            await run_gpt4o_room_task(message, prompt)
             return
 
         # 以下、既存のgpt, gemini, perplexity部屋の処理
         is_memory_on = await get_memory_flag_from_notion(thread_id)
 
-        if channel_name.startswith("gpt"):
+        elif channel_name.startswith("gpt"):
             summary_model_to_use = "perplexity"
         elif channel_name.startswith("gemini"):
             summary_model_to_use = "gpt"
