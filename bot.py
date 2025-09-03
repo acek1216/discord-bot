@@ -156,29 +156,39 @@ async def analyze_attachment_for_gpt5(attachment: discord.Attachment):
         return f"[未対応の添付ファイル形式: {attachment.filename}]"
 
 async def run_genius_channel_task(message, prompt, target_page_id):
-    """ "genius" チャンネル専用のAI評議会タスクを実行し、完了後にロックを解除する """
+    """ "genius" チャンネル専用のAI評議会タスクを実行 """
     thread_id = str(message.channel.id)
     try:
-        # 1. Notionコンテキストの取得とMistral Largeによる初回要約
-        await message.channel.send("📜 まずMistral Largeが議題と背景情報を要約します...")
-        
+        # 1. Notionコンテキストの取得（共通チャンク要約ロジックに統一）
+        await message.channel.send("📜 Notionページを要約しています...")
+
         notion_raw_text = await get_notion_page_text(target_page_id)
         if notion_raw_text.startswith("ERROR:") or not notion_raw_text.strip():
             await message.channel.send("⚠️ Notionページからテキストを取得できませんでした。議題のみで進行します。")
             notion_raw_text = "参照なし"
 
-        # 要約プロンプトに文字数制限の指示を追加
-        summary_prompt = f"以下の背景情報とユーザーの議題を、後続のAIが分析しやすいように構造化してください。最終的なサマリーは、要点を800字程度で簡潔にまとめてください。\n\n【背景情報】\n{notion_raw_text[:20000]}\n\n【ユーザーの議題】\n{prompt}"
-        initial_summary = await ask_lalah(summary_prompt, system_prompt="あなたは議論の進行役です。与えられた情報を整理し、論点を明確にするためのサマリーを作成してください。")
+        # 共通チャンク要約関数を呼び出し（全ルーム統一）
+        initial_summary = await summarize_text_chunks_for_message(
+            channel=message.channel,
+            text=notion_raw_text,
+            query=prompt,
+            model_choice="gpt"   # ← ここは好みで "gemini" や "perplexity" に切替可能
+        )
+
+        if not initial_summary:
+            await message.channel.send("❌ 初回要約の生成に失敗しました。")
+            return
+
+        await send_long_message(message.channel, f"** 初回要約:**\n{initial_summary}")
 
         if "エラー" in str(initial_summary):
             await message.channel.send(f"⚠️ 初回要約中にエラーが発生しました: {initial_summary}")
             return
 
-        await send_long_message(message.channel, f"**📝 Mistral Largeによる論点サマリー:**\n{initial_summary}")
+        await send_long_message(message.channel, f"** Mistral Largeによる論点サマリー:**\n{initial_summary}")
         
         # 2. AI評議会による並列分析
-        await message.channel.send("🤖 AI評議会（GPT-5, Perplexity, Gemini 2.5 Pro）が並列で分析を開始...")
+        await message.channel.send(" AI評議会（GPT-5, Perplexity, Gemini 2.5 Pro）が並列で分析を開始...")
 
         full_prompt_for_council = f"【論点サマリー】\n{initial_summary}\n\n上記のサマリーを踏まえ、ユーザーの最初の議題「{prompt}」について、あなたの役割に基づいた分析レポートを作成してください。"
 
@@ -201,10 +211,10 @@ async def run_genius_channel_task(message, prompt, target_page_id):
             council_reports[name] = report_text
     
         # 4. 統合AI (Claude 3.5) による最終レポート作成
-        await message.channel.send("🧠 統合AI（Claude 3.5 Sonnet）が全レポートを統合し、最終結論を生成します...")
+        await message.channel.send(" 統合AI（Claude 3.5 Sonnet）が全レポートを統合し、最終結論を生成します...")
         final_report = await ask_claude("genius_user", synthesis_material, history=[])
         
-        await send_long_message(message.channel, f"**👑 最終統合レポート by Claude 3.5 Sonnet:**\n{final_report}")
+        await send_long_message(message.channel, f"** 最終統合レポート by Claude 3.5 Sonnet:**\n{final_report}")
 
         # 5. Notionへの全ログ書き込み
         is_admin = str(message.author.id) == ADMIN_USER_ID
@@ -229,36 +239,49 @@ async def run_genius_channel_task(message, prompt, target_page_id):
         print(f"✅ geniusチャンネルの処理が完了し、ロックを解除しました (Channel ID: {thread_id})")
 
 async def summarize_text_chunks_for_message(channel, text: str, query: str, model_choice: str):
-    """[on_message/interaction用] テキストをチャンク分割し、指定されたモデルで並列要約、Mistral Largeで統合する"""
-    chunk_size = 128000
+    """[on_message/interaction用] テキストをチャンク分割し、指定モデルで並列要約し、必要ならMistral Largeで統合する"""
+    chunk_size = 12000
     text_chunks = [text[i:i + chunk_size] for i in range(0, len(text), chunk_size)]
+
     model_name_map = {
         "gpt": "gpt-4o",
         "gemini": "Gemini 1.5 Pro",
         "perplexity": "Perplexity Sonar",
-        "gemini_2_5_pro": "Gemini 2.5 Pro"
+        "gemini_2_5_pro": "Gemini 2.5 Pro",
+        "gemini-2.5-pro": "Gemini 2.5 Pro",
     }
     model_name = model_name_map.get(model_choice, "不明なモデル")
-    
     await channel.send(f" テキスト抽出完了。{model_name}によるチャンク毎の並列要約を開始… (全{len(text_chunks)}チャンク)")
 
     async def summarize_chunk(chunk, index):
-        prompt = f"以下のテキストを要約し、必ず以下のタグを付けて分類してください：\n[背景情報]\n[定義・前提]\n[事実経過]\n[未解決課題]\n[補足情報]\nタグは省略可ですが、存在する場合は必ず上記のいずれかに分類してください。\nユーザーの質問は「{query}」です。この質問との関連性を考慮して要約してください。\n\n【テキスト】\n{chunk}"
+        prompt = (
+            "以下のテキストを要約し、必ず以下のタグを付けて分類してください：\n"
+            "[背景情報]\n[定義・前提]\n[事実経過]\n[未解決課題]\n[補足情報]\n"
+            "タグは省略可ですが、存在する場合は必ず上記のいずれかに分類してください。\n"
+            f"ユーザーの質問は「{query}」です。この質問との関連性を考慮して要約してください。\n\n"
+            f"【テキスト】\n{chunk}"
+        )
         try:
-            summary_text = ""
             if model_choice == "gpt":
-                response = await openai_client.chat.completions.create(model="gpt-4o", messages=[{"role": "system", "content": "あなたは構造化要約AIです。"}, {"role": "user", "content": prompt}], max_tokens=2048, temperature=0.2)
-                summary_text = response.choices[0].message.content
+                resp = await openai_client.chat.completions.create(
+                    model="gpt-4o",
+                    messages=[{"role": "system", "content": "あなたは構造化要約AIです。"},
+                              {"role": "user", "content": prompt}],
+                    max_tokens=2048,
+                    temperature=0.2
+                )
+                summary_text = resp.choices[0].message.content
             elif model_choice == "gemini":
                 summary_text = await ask_gemini_pro_for_summary(prompt)
-            elif model_choice == "gemini-2.5-pro":
-                # ai_clients.py に ask_gemini_2_5_pro_for_summary があることを確認
-                summary_text = await ask_gemini_2_5_pro_for_summary(prompt)
+            elif model_choice in ("gemini_2_5_pro", "gemini-2.5-pro"):
+                summary_text = await ask_gemini_2_5_pro(prompt)  # ← 名称を実在関数に統一
             elif model_choice == "perplexity":
                 summary_text = await ask_rekus_for_summary(prompt)
+            else:
+                summary_text = ""
 
-            if "エラーが発生しました" in summary_text:
-                await channel.send(f"⚠️ チャンク {index+1} の要約中にエラー: {summary_text}")
+            if not summary_text or "エラー" in str(summary_text):
+                await channel.send(f"⚠️ チャンク {index+1} の要約中にエラーまたは空結果。")
                 return None
             return summary_text
         except Exception as e:
@@ -267,16 +290,25 @@ async def summarize_text_chunks_for_message(channel, text: str, query: str, mode
 
     tasks = [summarize_chunk(chunk, i) for i, chunk in enumerate(text_chunks)]
     chunk_summaries_results = await asyncio.gather(*tasks)
-    chunk_summaries = [summary for summary in chunk_summaries_results if summary is not None]
+    chunk_summaries = [s for s in chunk_summaries_results if s is not None]
 
     if not chunk_summaries:
         await channel.send("❌ 全てのチャンクの要約に失敗しました。")
         return None
 
+    # ✅ 1チャンクなら二重圧縮を避けて即採用（全ルーム共通）
+    if len(chunk_summaries) == 1:
+        await channel.send(" 1チャンクだけだったので、Mistral統合をスキップして要約を採用します。")
+        return chunk_summaries[0]
+
+    # 2チャンク以上のみ Mistral Large で統合
     await channel.send(" 全チャンクの要約完了。Mistral Largeが統合・分析します…")
     combined = "\n---\n".join(chunk_summaries)
-    final_prompt = f"以下の、タグ付けされた複数の要約群を、一つの構造化されたレポートに統合してください。\n各タグ（[背景情報]、[事実経過]など）ごとに内容をまとめ直し、最終的なコンテキストとして出力してください。\n\n【ユーザーの質問】\n{query}\n\n【タグ付き要약群】\n{combined}"
-    
+    final_prompt = (
+        "以下の、タグ付けされた複数の要約群を、一つの構造化されたレポートに統合してください。\n"
+        "各タグ（[背景情報]、[事実経過]など）ごとに内容をまとめ直し、最終的なコンテキストとして出力してください。\n\n"
+        f"【ユーザーの質問】\n{query}\n\n【タグ付き要約群】\n{combined}"
+    )
     try:
         final_summary = await ask_lalah(final_prompt)
         if "エラー" in str(final_summary):
@@ -286,6 +318,7 @@ async def summarize_text_chunks_for_message(channel, text: str, query: str, mode
     except Exception as e:
         await channel.send(f"❌ Mistral Largeによる最終統合中に予期せぬエラーが発生しました: {e}")
         return None
+
     
 async def get_notion_context_for_message(message: discord.Message, page_id: str, query: str, model_choice: str):
     """on_message用のNotionコンテキスト取得関数"""
@@ -641,7 +674,7 @@ async def critical_command(interaction: discord.Interaction, topic: str):
             context = await get_notion_context(interaction, target_page_id, topic, model_choice="gemini")
 
             if not context: return
-            await interaction.edit_original_response(content="🔬 11体のAIが初期意見を生成中…")
+            await interaction.edit_original_response(content=" 11体のAIが初期意見を生成中…")
             prompt_with_context = f"以下の【参考情報】を元に、【ユーザーの質問】に回答してください。\n\n【ユーザーの質問】\n{topic}\n\n【参考情報】\n{context}"
             user_id = str(interaction.user.id)
             tasks = {name: func(user_id, prompt_with_context) for name, func in BASE_MODELS_FOR_ALL.items()}
@@ -806,7 +839,7 @@ async def on_message(message):
             target_page_id = NOTION_PAGE_MAP.get(thread_id, NOTION_MAIN_PAGE_ID)
 
             if message.attachments:
-                await message.channel.send("📎 添付ファイルを解析しています…")
+                await message.channel.send(" 添付ファイルを解析しています…")
                 prompt += "\n\n" + await analyze_attachment_for_gpt5(message.attachments[0])
 
             if is_admin and target_page_id:
@@ -817,6 +850,12 @@ async def on_message(message):
             asyncio.create_task(run_genius_channel_task(message, prompt, target_page_id))
             return
             
+            
+            if not initial_summary:
+                await channel.send("❌ 初回要約の生成に失敗しました。")
+                return
+
+
         except Exception as e:
             safe_log("🚨 on_message (genius)でエラー:", e)
             await message.channel.send(f"予期せぬエラーが発生しました: ```{str(e)[:1800]}```")
@@ -889,11 +928,11 @@ async def on_message(message):
             history = gpt_thread_memory.get(thread_id, []) if is_memory_on else []
             history_text = "\n".join([f"{m['role']}: {m['content']}" for m in history])
             full_prompt = f"【Notionページの要約】\n{notion_context or '参照なし'}\n\n【これまでの会話】\n{history_text or 'なし'}\n\n【今回の質問】\n{prompt}"
-            await message.channel.send("⏳ 受付完了。gpt-5が思考を開始します。")
+            await message.channel.send(" 受付完了。gpt-5が思考を開始します。")
             asyncio.create_task(run_long_gpt5_task(message, prompt, full_prompt, is_admin, target_page_id, thread_id))
 
         elif channel_name.startswith("gemini"):
-            await message.channel.send("⏳ Gemini 2.5 Proが思考を開始します…")
+            await message.channel.send(" Gemini 2.5 Proが思考を開始します…")
             history = gemini_thread_memory.get(thread_id, []) if is_memory_on else []
             history_text = "\n".join([f"{m['role']}: {m['content']}" for m in history])
             if is_admin and target_page_id:
@@ -910,7 +949,7 @@ async def on_message(message):
                 gemini_thread_memory[thread_id] = history[-10:]
 
         elif channel_name.startswith("perplexity"):
-            await message.channel.send("⏳ Perplexity Sonarが思考を開始します…")
+            await message.channel.send(" Perplexity Sonarが思考を開始します…")
             history = perplexity_thread_memory.get(thread_id, []) if is_memory_on else []
             history_text = "\n".join([f"{m['role']}: {m['content']}" for m in history])
             if is_admin and target_page_id:
