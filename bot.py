@@ -67,7 +67,6 @@ MISTRAL_API_KEY = get_env_variable("MISTRAL_API_KEY")
 NOTION_API_KEY = get_env_variable("NOTION_API_KEY")
 GROK_API_KEY = get_env_variable("GROK_API_KEY")
 ADMIN_USER_ID = get_env_variable("ADMIN_USER_ID", is_secret=False)
-NOTION_MAIN_PAGE_ID = get_env_variable("NOTION_PAGE_ID", is_secret=False)
 OPENROUTER_API_KEY = get_env_variable("CLOUD_API_KEY").strip()
 GUILD_ID = os.getenv("GUILD_ID", "").strip()
 
@@ -506,6 +505,98 @@ BASE_MODELS_FOR_ALL = {
     "Llama": ask_llama,
     "Grok": ask_grok
 }
+
+async def extract_attachments_as_text(message) -> str:
+    """Discordの添付をまとめてテキスト化（画像→gpt-4o, PDF→PyPDF2, テキストはそのまま）"""
+    parts = []
+    for a in getattr(message, "attachments", []) or []:
+        ct = (a.content_type or "").lower()
+        url = a.url
+
+        try:
+            # 画像: gpt-4o vision に直接URLを渡してキャプション化
+            if ct.startswith("image/"):
+                resp = await openai_client.chat.completions.create(
+                    model="gpt-4o",
+                    messages=[{
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": "画像の内容を要点3つで日本語の短文に要約してください。"},
+                            {"type": "image_url", "image_url": {"url": url}}
+                        ]
+                    }],
+                    temperature=0.2,
+                    max_tokens=600,
+                )
+                parts.append(f"[画像要約]\n{resp.choices[0].message.content.strip()}")
+                continue
+
+            # PDF: PyPDF2で抽出
+            if ct == "application/pdf" or url.lower().endswith(".pdf"):
+                import io, aiohttp, PyPDF2
+                async with aiohttp.ClientSession() as sess:
+                    async with sess.get(url) as r:
+                        data = await r.read()
+                reader = PyPDF2.PdfReader(io.BytesIO(data))
+                text = "\n".join([p.extract_text() or "" for p in reader.pages])
+                parts.append(f"[PDF抽出]\n{text.strip()[:8000]}")  # 安全のため上限
+                continue
+
+            # テキスト系
+            if any(url.lower().endswith(ext) for ext in [".txt", ".csv", ".md", ".log"]):
+                import aiohttp
+                async with aiohttp.ClientSession() as sess:
+                    async with sess.get(url) as r:
+                        txt = (await r.text())[:8000]
+                parts.append(f"[添付テキスト]\n{txt}")
+                continue
+
+        except Exception as e:
+            parts.append(f"[添付の処理中エラー] {a.filename}: {e}")
+
+    return "\n\n".join(parts).strip()
+
+async def run_gpt4o_room_task(message, user_prompt: str):
+    channel = message.channel
+
+    # 1) Notion文脈（既存の共通関数をそのまま利用）
+    #   - 12,000字チャンク & 1チャンク時スキップが効く
+    notion_text = await get_notion_page_text_for_thread(message)  # ←既存の取得ヘルパ名に合わせて
+    notion_ctx = await summarize_text_chunks_for_message(
+        channel=channel, text=notion_text or "", query=user_prompt, model_choice="gpt"
+    )
+
+    # 2) 添付を自動でテキスト化（画像→gpt-4o vision）
+    attach_text = await extract_attachments_as_text(message)
+
+    # 3) 最終プロンプトを組み立て
+    sys = "あなたは簡潔で正確なアシスタントです。断定は根拠に限定し、曖昧な点は《参考》として分離してください。"
+    usr = (
+        f"【ユーザーの質問】\n{user_prompt}\n\n"
+        f"【Notion要約】\n{notion_ctx or '（該当なし）'}\n\n"
+        f"【添付からの抽出】\n{attach_text or '（なし）'}\n\n"
+        "出力フォーマット：\n- 回答（最大12行）\n- 根拠（箇条書き）\n- 参考/仮説（あれば）"
+    )
+
+    # 4) gpt-4o で回答
+    try:
+        resp = await openai_client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": sys},
+                {"role": "user", "content": usr}
+            ],
+            temperature=0.2,
+            max_tokens=1200,
+        )
+        answer = resp.choices[0].message.content
+    except Exception as e:
+        await channel.send(f"❌ gpt-4o部屋でエラー: {e}")
+        return
+
+    await send_long_message(channel, answer)
+
+
 # ▲▲▲ ここまで ▲▲▲
 
 @tree.command(name="gpt", description="GPT(gpt-3.5-turbo)と短期記憶で対話します")
@@ -836,7 +927,11 @@ async def on_message(message):
         try:
             prompt = message.content
             is_admin = str(message.author.id) == ADMIN_USER_ID
-            target_page_id = NOTION_PAGE_MAP.get(thread_id, NOTION_MAIN_PAGE_ID)
+            page_id = NOTION_PAGE_MAP.get(thread_id)
+            if not page_id:
+                await message.channel.send("❌ このスレッドは Notion ページに紐づいていません（MAP未設定）。")
+                return
+            target_page_id = page_id
 
             if message.attachments:
                 await message.channel.send(" 添付ファイルを解析しています…")
@@ -872,7 +967,11 @@ async def on_message(message):
         prompt = message.content
         thread_id = str(message.channel.id)
         is_admin = str(message.author.id) == ADMIN_USER_ID
-        target_page_id = NOTION_PAGE_MAP.get(thread_id, NOTION_MAIN_PAGE_ID)
+        target_page_id = NOTION_PAGE_MAP.get(thread_id)
+        if not target_page_id:
+            await message.channel.send("❌ このスレッドは Notion ページに紐づいていません（MAP未設定）。")
+            return
+
 
         if message.attachments:
             # 添付ファイルはClaude部屋では一旦無視するか、別途処理を定義
@@ -907,8 +1006,11 @@ async def on_message(message):
             if is_admin and target_page_id:
                 await log_response(target_page_id, reply, "Claude (専用部屋)")
             return
-        
         # --- ここまでがClaude部屋の処理 ---
+
+        if message.channel.name.lower().startswith("gpt4o"):
+            await run_gpt4o_room_task(message, user_prompt)
+            return
 
         # 以下、既存のgpt, gemini, perplexity部屋の処理
         is_memory_on = await get_memory_flag_from_notion(thread_id)
