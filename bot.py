@@ -1010,14 +1010,14 @@ async def on_message(message):
             return
         # --- ここまでがClaude部屋の処理 ---
 
-        if message.channel.name.lower().startswith("gpt4o"):
+        elif message.channel.name.lower().startswith("gpt4o"):
             await run_gpt4o_room_task(message, prompt)
             return
 
         # 以下、既存のgpt, gemini, perplexity部屋の処理
         is_memory_on = await get_memory_flag_from_notion(thread_id)
 
-        elif channel_name.startswith("gpt"):
+        if channel_name.startswith("gpt"):
             summary_model_to_use = "perplexity"
         elif channel_name.startswith("gemini"):
             summary_model_to_use = "gpt"
@@ -1069,6 +1069,7 @@ async def on_message(message):
             if is_memory_on and "エラー" not in str(reply):
                 history.extend([{"role": "user", "content": prompt}, {"role": "assistant", "content": reply}])
                 perplexity_thread_memory[thread_id] = history[-10:]
+
 
     except Exception as e:
         safe_log("🚨 on_messageでエラー:", e)
