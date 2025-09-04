@@ -558,50 +558,63 @@ async def extract_attachments_as_text(message) -> str:
 
 async def run_gpt4o_room_task(message, user_prompt: str):
     channel = message.channel
+    async with channel.typing():
+        # 1) Notion文脈の取得
+        thread_id = str(message.channel.id)
+        target_page_id = NOTION_PAGE_MAP.get(thread_id)
+        notion_text = "" # 初期化
+        
+        if not target_page_id:
+            await channel.send("⚠️ このスレッドはNotionページに紐付いていません。")
+        else:
+            notion_text = await get_notion_page_text(target_page_id)
 
-    # 1) Notion文脈の取得
-    thread_id = str(message.channel.id)
-    target_page_id = NOTION_PAGE_MAP.get(thread_id)
-    notion_text = "" # 初期化
-    
-    if not target_page_id:
-        await channel.send("⚠️ このスレッドはNotionページに紐付いていません。")
-    else:
-        notion_text = await get_notion_page_text(target_page_id)
+        # ▼▼▼ 追加 ▼▼▼
+        # 管理者の場合、ユーザーの発言をNotionに記録
+        is_admin = str(message.author.id) == ADMIN_USER_ID
+        if is_admin and target_page_id:
+            await log_to_notion(target_page_id, [{"object": "block", "type": "paragraph", "paragraph": {"rich_text": [{"type": "text", "text": {"content": f"👤 {message.author.display_name}:\n{user_prompt}"}}]}}])
+        # ▲▲▲ 追加 ▲▲▲
 
-    notion_ctx = await summarize_text_chunks_for_message(
-        channel=channel, text=notion_text or "", query=user_prompt, model_choice="gpt"
-    )
-
-    # 2) 添付を自動でテキスト化（画像→gpt-4o vision）
-    attach_text = await extract_attachments_as_text(message)
-
-    # 3) 最終プロンプトを組み立て
-    sys = "あなたは簡潔で正確なアシスタントです。断定は根拠に限定し、曖昧な点は《参考》として分離してください。"
-    usr = (
-        f"【ユーザーの質問】\n{user_prompt}\n\n"
-        f"【Notion要約】\n{notion_ctx or '（該当なし）'}\n\n"
-        f"【添付からの抽出】\n{attach_text or '（なし）'}\n\n"
-        "出力フォーマット：\n- 回答（最大12行）\n- 根拠（箇条書き）\n- 参考/仮説（あれば）"
-    )
-
-    # 4) gpt-4o で回答
-    try:
-        resp = await openai_client.chat.completions.create(
-            model="gpt-4o",
-            messages=[
-                {"role": "system", "content": sys},
-                {"role": "user", "content": usr}
-            ],
-            temperature=0.2,
-            max_tokens=1200,
+        notion_ctx = await summarize_text_chunks_for_message(
+            channel=channel, text=notion_text or "", query=user_prompt, model_choice="gpt"
         )
-        answer = resp.choices[0].message.content
-    except Exception as e:
-        await channel.send(f"❌ gpt-4o部屋でエラー: {e}")
-        return
 
-    await send_long_message(channel, answer)
+        # 2) 添付を自動でテキスト化（画像→gpt-4o vision）
+        attach_text = await extract_attachments_as_text(message)
+
+        # 3) 最終プロンプトを組み立て
+        sys = "あなたは簡潔で正確なアシスタントです。断定は根拠に限定し、曖昧な点は《参考》として分離してください。"
+        usr = (
+            f"【ユーザーの質問】\n{user_prompt}\n\n"
+            f"【Notion要約】\n{notion_ctx or '（該当なし）'}\n\n"
+            f"【添付からの抽出】\n{attach_text or '（なし）'}\n\n"
+            "出力フォーマット：\n- 回答（最大12行）\n- 根拠（箇条書き）\n- 参考/仮説（あれば）"
+        )
+
+        # 4) gpt-4o で回答
+        try:
+            resp = await openai_client.chat.completions.create(
+                model="gpt-4o",
+                messages=[
+                    {"role": "system", "content": sys},
+                    {"role": "user", "content": usr}
+                ],
+                temperature=0.2,
+                max_tokens=1200,
+            )
+            answer = resp.choices[0].message.content
+        except Exception as e:
+            await channel.send(f"❌ gpt-4o部屋でエラー: {e}")
+            return
+
+        await send_long_message(channel, answer)
+
+        # ▼▼▼ 追加 ▼▼▼
+        # 管理者の場合、Botの返答をNotionに記録
+        if is_admin and target_page_id:
+            await log_response(target_page_id, answer, "gpt-4o (専用部屋)")
+        # ▲▲▲ 追加 ▲▲▲
 
 
 # ▲▲▲ ここまで ▲▲▲
