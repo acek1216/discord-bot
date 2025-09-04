@@ -7,6 +7,7 @@ import io
 import json
 import os
 import sys
+import notion_utils
 from notion_utils import (
     notion, NOTION_PAGE_MAP, get_notion_page_text, log_to_notion, 
     log_response, get_memory_flag_from_notion,
@@ -1006,12 +1007,13 @@ async def on_message(message):
 @app.on_event("startup")
 async def startup_event():
     """サーバー起動時にBotをバックグラウンドで起動する"""
-    global openai_client, mistral_client, notion, llama_model_for_vertex
+    global openai_client, mistral_client, llama_model_for_vertex # notion を global から削除
     try:
         print("🤖 Initializing API clients...")
         openai_client = AsyncOpenAI(api_key=OPENAI_API_KEY)
         mistral_client = MistralAsyncClient(api_key=MISTRAL_API_KEY)
-        notion = Client(auth=NOTION_API_KEY)
+        # notion_utilsモジュール内のnotion変数を直接初期化する
+        notion_utils.notion = Client(auth=NOTION_API_KEY)
         genai.configure(api_key=GEMINI_API_KEY)
         try:
             print("🤖 Initializing Vertex AI...")
