@@ -7,7 +7,8 @@ import os
 import sys
 from notion_utils import (
     notion, NOTION_PAGE_MAP, get_notion_page_text, log_to_notion, 
-    log_response, get_memory_flag_from_notion
+    log_response, get_memory_flag_from_notion,
+    find_latest_section_id, append_summary_to_kb
 )
 
 # --- 外部ライブラリ ---
