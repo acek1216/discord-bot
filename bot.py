@@ -5,6 +5,10 @@ import io
 import json
 import os
 import sys
+from notion_utils import (
+    notion, NOTION_PAGE_MAP, get_notion_page_text, log_to_notion, 
+    log_response, get_memory_flag_from_notion
+)
 
 # --- 外部ライブラリ ---
 from fastapi import FastAPI
@@ -43,7 +47,6 @@ except Exception:
 # --- グローバル変数 (APIクライアント) ---
 openai_client: AsyncOpenAI = None
 mistral_client: MistralAsyncClient = None
-notion: Client = None
 llama_model_for_vertex: GenerativeModel = None
 
 # --- 環境変数の読み込みと必須チェック ---
@@ -70,19 +73,6 @@ ADMIN_USER_ID = get_env_variable("ADMIN_USER_ID", is_secret=False)
 OPENROUTER_API_KEY = get_env_variable("CLOUD_API_KEY").strip()
 GUILD_ID = os.getenv("GUILD_ID", "").strip()
 
-# NotionスレッドIDとページIDの対応表を環境変数から読み込み
-NOTION_PAGE_MAP_STRING = os.getenv("NOTION_PAGE_MAP_STRING", "")
-NOTION_PAGE_MAP = {}
-if NOTION_PAGE_MAP_STRING:
-    try:
-        pairs = NOTION_PAGE_MAP_STRING.split(',')
-        for pair in pairs:
-            if ':' in pair:
-                thread_id, page_id = pair.split(':', 1)
-                NOTION_PAGE_MAP[thread_id.strip()] = page_id.strip()
-    except Exception as e:
-        print(f"⚠️ NOTION_PAGE_MAP_STRINGの解析に失敗しました: {e}")
-
 # --- Discord Bot クライアントの準備 ---
 safety_settings = {
     HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
@@ -105,7 +95,6 @@ grok_base_memory = {}
 gpt_thread_memory = {}
 gemini_thread_memory = {}
 perplexity_thread_memory = {} 
-processing_users = set()
 processing_channels = set()
 
 # --- ヘルパー関数 ---
@@ -158,27 +147,24 @@ async def run_genius_channel_task(message, prompt, target_page_id):
     """ "genius" チャンネル専用のAI評議会タスクを実行 """
     thread_id = str(message.channel.id)
     try:
-        # 1. Notionコンテキストの取得（共通チャンク要約ロジックに統一）
-        await message.channel.send("📜 Notionページを要約しています...")
+        initial_summary = None
+        async with message.channel.typing():
+            # --- 修正: get_notion_page_textにリスト形式で引数を渡す ---
+            notion_raw_text = await get_notion_page_text([target_page_id])
+            if notion_raw_text.startswith("ERROR:") or not notion_raw_text.strip():
+                await message.channel.send("⚠️ Notionページからテキストを取得できませんでした。議題のみで進行します。")
+                notion_raw_text = "参照なし"
 
-        notion_raw_text = await get_notion_page_text(target_page_id)
-        if notion_raw_text.startswith("ERROR:") or not notion_raw_text.strip():
-            await message.channel.send("⚠️ Notionページからテキストを取得できませんでした。議題のみで進行します。")
-            notion_raw_text = "参照なし"
-
-        # 共通チャンク要約関数を呼び出し（全ルーム統一）
-        initial_summary = await summarize_text_chunks_for_message(
-            channel=message.channel,
-            text=notion_raw_text,
-            query=prompt,
-            model_choice="gpt"   # ← ここは好みで "gemini" や "perplexity" に切替可能
-        )
+            initial_summary = await summarize_text_chunks_for_message(
+                channel=message.channel,
+                text=notion_raw_text,
+                query=prompt,
+                model_choice="gpt"
+            )
 
         if not initial_summary:
             await message.channel.send("❌ 初回要約の生成に失敗しました。")
             return
-
-        await send_long_message(message.channel, f"** 初回要約:**\n{initial_summary}")
 
         if "エラー" in str(initial_summary):
             await message.channel.send(f"⚠️ 初回要約中にエラーが発生しました: {initial_summary}")
@@ -186,36 +172,37 @@ async def run_genius_channel_task(message, prompt, target_page_id):
 
         await send_long_message(message.channel, f"** Mistral Largeによる論点サマリー:**\n{initial_summary}")
         
-        # 2. AI評議会による並列分析
         await message.channel.send(" AI評議会（GPT-5, Perplexity, Gemini 2.5 Pro）が並列で分析を開始...")
 
-        full_prompt_for_council = f"【論点サマリー】\n{initial_summary}\n\n上記のサマリーを踏まえ、ユーザーの最初の議題「{prompt}」について、あなたの役割に基づいた分析レポートを作成してください。"
-
-        # 各AIのシステムプロンプトに文字数制限を追加
-        tasks = {
-            "GPT-5": ask_gpt5(full_prompt_for_council, system_prompt="あなたはこの議題に関する第一線の研究者です。最も先進的で鋭い視点から、要点を800字程度に絞って分析レポートを作成してください。"),
-            "Perplexity": ask_rekus(full_prompt_for_council, system_prompt="あなたは外部調査の専門家です。関連情報や最新の動向を調査し、客観的な事実に基づいたレポートを800字程度で作成してください。"),
-            "Gemini 2.5 Pro": ask_gemini_2_5_pro(full_prompt_for_council, system_prompt="あなたはこの議題に関するリスクアナリストです。潜在的な問題点や倫理的課題を中心に、批判的な視点からの分析レポートを800字程度で作成してください。")
-        }
-        
-        results = await asyncio.gather(*tasks.values(), return_exceptions=True)
-        
-        # 3. 各レポートを投稿
-        synthesis_material = "以下の3つの専門家レポートを統合し、最終的な結論を導き出してください。\n\n"
         council_reports = {}
-        for (name, result) in zip(tasks.keys(), results):
-            report_text = f"エラー: {result}" if isinstance(result, Exception) else result
-            await send_long_message(message.channel, f"**分析レポート by {name}:**\n{report_text}")
-            synthesis_material += f"--- [{name}のレポート] ---\n{report_text}\n\n"
-            council_reports[name] = report_text
+        async with message.channel.typing():
+            full_prompt_for_council = f"【論点サマリー】\n{initial_summary}\n\n上記のサマリーを踏まえ、ユーザーの最初の議題「{prompt}」について、あなたの役割に基づいた分析レポートを作成してください。"
+
+            tasks = {
+                "GPT-5": ask_gpt5(full_prompt_for_council, system_prompt="あなたはこの議題に関する第一線の研究者です。最も先進的で鋭い視点から、要点を800字程度に絞って分析レポートを作成してください。"),
+                "Perplexity": ask_rekus(full_prompt_for_council, system_prompt="あなたは外部調査の専門家です。関連情報や最新の動向を調査し、客観的な事実に基づいたレポートを800字程度で作成してください。"),
+                "Gemini 2.5 Pro": ask_gemini_2_5_pro(full_prompt_for_council, system_prompt="あなたはこの議題に関するリスクアナリストです。潜在的な問題点や倫理的課題を中心に、批判的な視点からの分析レポートを800字程度で作成してください。")
+            }
+            
+            results = await asyncio.gather(*tasks.values(), return_exceptions=True)
+            
+            synthesis_material = "以下の3つの専門家レポートを統合し、最終的な結論を導き出してください。\n\n"
+            for (name, result) in zip(tasks.keys(), results):
+                report_text = f"エラー: {result}" if isinstance(result, Exception) else result
+                council_reports[name] = report_text
+                synthesis_material += f"--- [{name}のレポート] ---\n{report_text}\n\n"
+        
+        for name, report in council_reports.items():
+            await send_long_message(message.channel, f"**分析レポート by {name}:**\n{report}")
     
-        # 4. 統合AI (Claude 3.5) による最終レポート作成
         await message.channel.send(" 統合AI（Claude 3.5 Sonnet）が全レポートを統合し、最終結論を生成します...")
-        final_report = await ask_claude("genius_user", synthesis_material, history=[])
+        
+        final_report = None
+        async with message.channel.typing():
+            final_report = await ask_claude("genius_user", synthesis_material, history=[])
         
         await send_long_message(message.channel, f"** 最終統合レポート by Claude 3.5 Sonnet:**\n{final_report}")
 
-        # 5. Notionへの全ログ書き込み
         is_admin = str(message.author.id) == ADMIN_USER_ID
         if is_admin and target_page_id:
             await log_response(target_page_id, initial_summary, "Mistral Large (初回要約)")
@@ -225,14 +212,13 @@ async def run_genius_channel_task(message, prompt, target_page_id):
                 await log_response(target_page_id, council_reports.get("Perplexity"), "Perplexity (評議会)")
             if not isinstance(council_reports.get("Gemini 2.5 Pro"), Exception):
                 await log_response(target_page_id, council_reports.get("Gemini 2.5 Pro"), "Gemini 2.5 Pro (評議会)")
-            if not isinstance(final_report, Exception):
+            if final_report and not isinstance(final_report, Exception):
                 await log_response(target_page_id, final_report, "Claude 3.5 Sonnet (最終統合)")
 
     except Exception as e:
         safe_log("🚨 geniusチャンネルのタスク実行中にエラー:", e)
         await message.channel.send(f"分析シーケンス中にエラーが発生しました: {e}")
     finally:
-        # 処理が成功しても失敗しても、必ず最後にロックを解除する
         if thread_id in processing_channels:
             processing_channels.remove(thread_id)
         print(f"✅ geniusチャンネルの処理が完了し、ロックを解除しました (Channel ID: {thread_id})")
@@ -273,7 +259,7 @@ async def summarize_text_chunks_for_message(channel, text: str, query: str, mode
             elif model_choice == "gemini":
                 summary_text = await ask_gemini_pro_for_summary(prompt)
             elif model_choice in ("gemini_2_5_pro", "gemini-2.5-pro"):
-                summary_text = await ask_gemini_2_5_pro(prompt)  # ← 名称を実在関数に統一
+                summary_text = await ask_gemini_2_5_pro(prompt)
             elif model_choice == "perplexity":
                 summary_text = await ask_rekus_for_summary(prompt)
             else:
@@ -295,12 +281,10 @@ async def summarize_text_chunks_for_message(channel, text: str, query: str, mode
         await channel.send("❌ 全てのチャンクの要約に失敗しました。")
         return None
 
-    # ✅ 1チャンクなら二重圧縮を避けて即採用（全ルーム共通）
     if len(chunk_summaries) == 1:
         await channel.send(" 1チャンクだけだったので、Mistral統合をスキップして要約を採用します。")
         return chunk_summaries[0]
 
-    # 2チャンク以上のみ Mistral Large で統合
     await channel.send(" 全チャンクの要約完了。Mistral Largeが統合・分析します…")
     combined = "\n---\n".join(chunk_summaries)
     final_prompt = (
@@ -318,11 +302,10 @@ async def summarize_text_chunks_for_message(channel, text: str, query: str, mode
         await channel.send(f"❌ Mistral Largeによる最終統合中に予期せぬエラーが発生しました: {e}")
         return None
 
-    
 async def get_notion_context_for_message(message: discord.Message, page_id: str, query: str, model_choice: str):
     """on_message用のNotionコンテキスト取得関数"""
     await message.channel.send("...Notionページを読み込んでいます…")
-    notion_text = await get_notion_page_text(page_id)
+    notion_text = await get_notion_page_text([page_id])
     if notion_text.startswith("ERROR:") or not notion_text.strip():
         await message.channel.send("❌ Notionページからテキストを取得できませんでした。")
         return None
@@ -331,93 +314,11 @@ async def get_notion_context_for_message(message: discord.Message, page_id: str,
 async def get_notion_context(interaction: discord.Interaction, page_id: str, query: str, model_choice: str = "gpt"):
     """スラッシュコマンド用のNotionコンテキスト取得関数"""
     await interaction.edit_original_response(content="...Notionページを読み込んでいます…")
-    notion_text = await get_notion_page_text(page_id)
+    notion_text = await get_notion_page_text([page_id])
     if notion_text.startswith("ERROR:") or not notion_text.strip():
         await interaction.edit_original_response(content="❌ Notionページからテキストを取得できませんでした。")
         return None
     return await summarize_text_chunks_for_message(interaction.channel, notion_text, query, model_choice)
-
-# bot.py ファイルの _sync_get_notion_page_text 関数を以下に差し替えてください
-
-def _sync_get_notion_page_text(page_id):
-    """
-    Notionページからテキストを抽出する関数。
-    複数のブロックタイプに対応し、デバッグログも出力する改良版。
-    """
-    all_text_blocks = []
-    next_cursor = None
-    print(f" Notionページ(ID: {page_id})の読み込みを開始します...")
-    while True:
-        try:
-            response = notion.blocks.children.list(
-                block_id=page_id,
-                start_cursor=next_cursor,
-                page_size=100
-            )
-            results = response.get("results", [])
-            if not results and not all_text_blocks:
-                print("⚠️ Notionからブロックが1件も返されませんでした。ページの権限やIDを確認してください。")
-
-            for block in results:
-                block_type = block.get("type")
-                text_content = ""
-                
-                # 対応するブロックタイプを大幅に増やす
-                if block_type in ["paragraph", "heading_1", "heading_2", "heading_3", "bulleted_list_item", "numbered_list_item", "quote", "callout"]:
-                    rich_text_list = block.get(block_type, {}).get("rich_text", [])
-                    if rich_text_list:
-                        text_content = "".join([rich_text.get("plain_text", "") for rich_text in rich_text_list])
-
-                if text_content:
-                    all_text_blocks.append(text_content)
-
-            if response.get("has_more"):
-                next_cursor = response.get("next_cursor")
-            else:
-                break
-        except Exception as e:
-            print(f"❌ Notion APIからの読み込み中に致命的なエラーが発生しました: {e}")
-            import traceback
-            traceback.print_exc()
-            return f"ERROR: Notion API Error - {e}"
-
-    print(f" Notionページの読み込み完了。合計 {len(all_text_blocks)} ブロック分のテキストを抽出しました。")
-    return "\n".join(all_text_blocks)
-
-async def get_notion_page_text(page_id):
-    return await asyncio.get_event_loop().run_in_executor(None, _sync_get_notion_page_text, page_id)
-
-async def log_to_notion(page_id, blocks):
-    if not page_id: return
-    try:
-        await asyncio.get_event_loop().run_in_executor(None, lambda: notion.blocks.children.append(block_id=page_id, children=blocks))
-    except Exception as e:
-        print(f"❌ Notion書き込みエラー: {e}")
-
-async def log_response(page_id, answer, bot_name):
-    if not page_id or not answer or isinstance(answer, Exception): return
-    chunks = [answer[i:i + 1900] for i in range(0, len(answer), 1900)] if len(answer) > 1900 else [answer]
-    blocks = [{"object": "block", "type": "paragraph", "paragraph": {"rich_text": [{"type": "text", "text": {"content": f"🤖 {bot_name}:\n{chunks[0]}"}}]}}]
-    for chunk in chunks[1:]:
-        blocks.append({"object": "block", "type": "paragraph", "paragraph": {"rich_text": [{"type": "text", "text": {"content": chunk}}]}})
-    await log_to_notion(page_id, blocks)
-
-async def get_memory_flag_from_notion(thread_id: str) -> bool:
-    page_id = NOTION_PAGE_MAP.get(thread_id)
-    if not page_id: return False
-    try:
-        response = await asyncio.get_event_loop().run_in_executor(None, lambda: notion.blocks.children.list(block_id=page_id, page_size=1))
-        results = response.get("results", [])
-        if not results: return False
-        first_block = results[0]
-        if first_block.get("type") == "paragraph":
-            rich_text_list = first_block.get("paragraph", {}).get("rich_text", [])
-            if rich_text_list:
-                content = rich_text_list[0].get("text", {}).get("content", "")
-                if "[記憶] ON" in content: return True
-    except Exception as e:
-        print(f"❌ Notionから記憶フラグの読み取り中にエラー: {e}")
-    return False
 
 from ai_clients import (
     ask_gpt5, ask_gpt4o, ask_gemini_base, ask_minerva, ask_claude, 
@@ -435,21 +336,29 @@ async def get_full_response_and_summary(ai_function, prompt, **kwargs):
 
 async def run_long_gpt5_task(message, prompt, full_prompt, is_admin, target_page_id, thread_id):
     user_mention = message.author.mention
+    channel = client.get_channel(message.channel.id)
+    if not channel:
+        safe_log(f"🚨 gpt-5タスク用のチャンネルが見つかりませんでした: {message.channel.id}")
+        return
+
     try:
-        if is_admin and target_page_id:
-            log_blocks = [{"object": "block", "type": "paragraph", "paragraph": {"rich_text": [{"type": "text", "text": {"content": f"👤 {message.author.display_name}:\n{prompt}"}}]}}]
-            await log_to_notion(target_page_id, log_blocks)
-        reply = await ask_gpt5(full_prompt)
-        channel = client.get_channel(message.channel.id)
-        if not channel: return
-        await send_long_message(channel, reply, mention=f"{user_mention}\nお待たせしました。gpt-5の回答です。")
-        is_memory_on = await get_memory_flag_from_notion(thread_id)
-        if is_memory_on:
-            history = gpt_thread_memory.get(thread_id, [])
-            history.extend([{"role": "user", "content": prompt}, {"role": "assistant", "content": reply}])
-            gpt_thread_memory[thread_id] = history[-10:]
-        if is_admin and target_page_id:
-            await log_response(target_page_id, reply, "gpt-5 (専用スレッド)")
+        async with channel.typing():
+            if is_admin and target_page_id:
+                log_blocks = [{"object": "block", "type": "paragraph", "paragraph": {"rich_text": [{"type": "text", "text": {"content": f"👤 {message.author.display_name}:\n{prompt}"}}]}}]
+                await log_to_notion(target_page_id, log_blocks)
+            
+            reply = await ask_gpt5(full_prompt)
+            await send_long_message(channel, reply, mention=f"{user_mention}\nお待たせしました。gpt-5の回答です。")
+            
+            is_memory_on = await get_memory_flag_from_notion(thread_id)
+            if is_memory_on:
+                history = gpt_thread_memory.get(thread_id, [])
+                history.extend([{"role": "user", "content": prompt}, {"role": "assistant", "content": reply}])
+                gpt_thread_memory[thread_id] = history[-10:]
+            
+            if is_admin and target_page_id:
+                await log_response(target_page_id, reply, "gpt-5 (専用スレッド)")
+
     except Exception as e:
         safe_log(f"🚨 gpt-5のバックグラウンド処理中にエラー:", e)
         channel = client.get_channel(message.channel.id)
@@ -459,7 +368,6 @@ async def simple_ai_command_runner(interaction: discord.Interaction, prompt: str
     await interaction.response.defer()
     user_id = str(interaction.user.id)
     
-    # メモリ管理オブジェクトを名前から動的に選択
     memory_map = {
         "GPT": gpt_base_memory,
         "Gemini": gemini_base_memory,
@@ -468,7 +376,7 @@ async def simple_ai_command_runner(interaction: discord.Interaction, prompt: str
         "Llama": llama_base_memory,
         "Grok": grok_base_memory
     }
-    # bot_nameからハイフンなどを取り除いて一致させる
+    
     clean_bot_name = bot_name.split("-")[0].split(" ")[0]
     memory = memory_map.get(clean_bot_name)
 
@@ -477,7 +385,6 @@ async def simple_ai_command_runner(interaction: discord.Interaction, prompt: str
         history = memory.get(user_id, [])
 
     try:
-        # historyを引数として渡す
         reply = await ai_function(user_id, prompt, history=history)
 
         if use_memory and memory is not None and "エラー" not in str(reply):
@@ -514,7 +421,6 @@ async def extract_attachments_as_text(message) -> str:
         url = a.url
 
         try:
-            # 画像: gpt-4o vision に直接URLを渡してキャプション化
             if ct.startswith("image/"):
                 resp = await openai_client.chat.completions.create(
                     model="gpt-4o",
@@ -531,7 +437,6 @@ async def extract_attachments_as_text(message) -> str:
                 parts.append(f"[画像要約]\n{resp.choices[0].message.content.strip()}")
                 continue
 
-            # PDF: PyPDF2で抽出
             if ct == "application/pdf" or url.lower().endswith(".pdf"):
                 import io, aiohttp, PyPDF2
                 async with aiohttp.ClientSession() as sess:
@@ -539,10 +444,9 @@ async def extract_attachments_as_text(message) -> str:
                         data = await r.read()
                 reader = PyPDF2.PdfReader(io.BytesIO(data))
                 text = "\n".join([p.extract_text() or "" for p in reader.pages])
-                parts.append(f"[PDF抽出]\n{text.strip()[:8000]}")  # 安全のため上限
+                parts.append(f"[PDF抽出]\n{text.strip()[:8000]}") 
                 continue
 
-            # テキスト系
             if any(url.lower().endswith(ext) for ext in [".txt", ".csv", ".md", ".log"]):
                 import aiohttp
                 async with aiohttp.ClientSession() as sess:
@@ -558,66 +462,71 @@ async def extract_attachments_as_text(message) -> str:
 
 async def run_gpt4o_room_task(message, user_prompt: str):
     channel = message.channel
+    thread_id = str(message.channel.id)
+    page_ids = NOTION_PAGE_MAP.get(thread_id)
+
+    # ページ設定をチェック
+    if not page_ids or len(page_ids) < 2:
+        await channel.send("⚠️ この部屋にはログ用とKB用の2つのNotionページが必要です。設定を確認してください。")
+        return
+
+    log_page_id, kb_page_id = page_ids[0], page_ids[1]
+    is_admin = str(message.author.id) == ADMIN_USER_ID
+
     async with channel.typing():
-        # 1) Notion文脈の取得
-        thread_id = str(message.channel.id)
-        target_page_id = NOTION_PAGE_MAP.get(thread_id)
-        notion_text = "" # 初期化
-        
-        if not target_page_id:
-            await channel.send("⚠️ このスレッドはNotionページに紐付いていません。")
-        else:
-            notion_text = await get_notion_page_text(target_page_id)
-
-        # ▼▼▼ 追加 ▼▼▼
-        # 管理者の場合、ユーザーの発言をNotionに記録
-        is_admin = str(message.author.id) == ADMIN_USER_ID
-        if is_admin and target_page_id:
-            await log_to_notion(target_page_id, [{"object": "block", "type": "paragraph", "paragraph": {"rich_text": [{"type": "text", "text": {"content": f"👤 {message.author.display_name}:\n{user_prompt}"}}]}}])
-        # ▲▲▲ 追加 ▲▲▲
-
-        notion_ctx = await summarize_text_chunks_for_message(
-            channel=channel, text=notion_text or "", query=user_prompt, model_choice="gpt"
-        )
-
-        # 2) 添付を自動でテキスト化（画像→gpt-4o vision）
-        attach_text = await extract_attachments_as_text(message)
-
-        # 3) 最終プロンプトを組み立て
-        sys = "あなたは簡潔で正確なアシスタントです。断定は根拠に限定し、曖昧な点は《参考》として分離してください。"
-        usr = (
-            f"【ユーザーの質問】\n{user_prompt}\n\n"
-            f"【Notion要約】\n{notion_ctx or '（該当なし）'}\n\n"
-            f"【添付からの抽出】\n{attach_text or '（なし）'}\n\n"
-            "出力フォーマット：\n- 回答（最大12行）\n- 根拠（箇条書き）\n- 参考/仮説（あれば）"
-        )
-
-        # 4) gpt-4o で回答
         try:
+            # --- フロー1 & 2: KBを読み込み、一次回答を生成 ---
+            kb_context = await get_notion_page_text([kb_page_id])
+            attach_text = await extract_attachments_as_text(message)
+            
+            prompt_for_answer = (
+                f"以下の【ナレッジベース】と【添付情報】を元に、【ユーザーの質問】に回答してください。\n"
+                f"ナレッジベース内の§IDを参照する場合は、必ずそのIDを文中に含めてください（例: §001によると...）。\n\n"
+                f"【ナレッジベース】\n{kb_context or '（まだありません）'}\n\n"
+                f"【添付情報】\n{attach_text or '（なし）'}\n\n"
+                f"【ユーザーの質問】\n{user_prompt}"
+            )
+            
             resp = await openai_client.chat.completions.create(
                 model="gpt-4o",
-                messages=[
-                    {"role": "system", "content": sys},
-                    {"role": "user", "content": usr}
-                ],
-                temperature=0.2,
-                max_tokens=1200,
+                messages=[{"role": "user", "content": prompt_for_answer}],
+                temperature=0.2, max_tokens=2000
             )
-            answer = resp.choices[0].message.content
+            primary_answer = resp.choices[0].message.content
+
+            # --- フロー3: ログページに書き込み ---
+            if is_admin:
+                await log_to_notion(log_page_id, [{"object": "block", "type": "paragraph", "paragraph": {"rich_text": [{"type": "text", "text": {"content": f"👤 {message.author.display_name}:\n{user_prompt}"}}]}}])
+                await log_response(log_page_id, primary_answer, "gpt-4o (一次回答)")
+
+            # --- フロー4, 5, 6: 回答を要約し、新しい§IDを採番してKBに書き込む ---
+            prompt_for_summary = (
+                f"以下のテキストを、Notionナレッジベースに登録するための「正規要約」にしてください。\n"
+                f"1行目にタイトル、2行目以降に本文という形式で、200字程度の簡潔な要約を作成してください。\n\n"
+                f"【元のテキスト】\n{primary_answer}"
+            )
+            summary_resp = await openai_client.chat.completions.create(
+                model="gpt-4o",
+                messages=[{"role": "user", "content": prompt_for_summary}],
+                temperature=0.1, max_tokens=400
+            )
+            official_summary = summary_resp.choices[0].message.content
+            
+            new_section_id = await find_latest_section_id(kb_page_id)
+            await append_summary_to_kb(kb_page_id, new_section_id, official_summary)
+
+            # --- フロー7: ユーザーに最終結果を通知 ---
+            final_message = (
+                f"{primary_answer}\n\n"
+                f"--- \n"
+                f"*{message.author.mention} この回答の要約はナレッジベースに **{new_section_id}** として記録されました。*"
+            )
+            await send_long_message(channel, final_message)
+
         except Exception as e:
-            await channel.send(f"❌ gpt-4o部屋でエラー: {e}")
-            return
-
-        await send_long_message(channel, answer)
-
-        # ▼▼▼ 追加 ▼▼▼
-        # 管理者の場合、Botの返答をNotionに記録
-        if is_admin and target_page_id:
-            await log_response(target_page_id, answer, "gpt-4o (専用部屋)")
-        # ▲▲▲ 追加 ▲▲▲
-
-
-# ▲▲▲ ここまで ▲▲▲
+            await channel.send(f"❌ gpt-4o部屋でエラーが発生しました: {e}")
+            import traceback
+            traceback.print_exc()
 
 @tree.command(name="gpt", description="GPT(gpt-3.5-turbo)と短期記憶で対話します")
 async def gpt_command(interaction: discord.Interaction, prompt: str):
@@ -679,25 +588,31 @@ async def notion_command(interaction: discord.Interaction, query: str):
     await interaction.response.defer()
     try:
         async def core_logic():
-            target_page_id = NOTION_PAGE_MAP.get(str(interaction.channel.id))
-            if not target_page_id:
+            # --- 修正: page_idsの取得とチェックを正しく行う ---
+            page_ids = NOTION_PAGE_MAP.get(str(interaction.channel.id))
+            if not page_ids:
                 await interaction.edit_original_response(content="❌ このチャンネルはNotionページにリンクされていません。")
                 return
+            target_page_id = page_ids[0] 
             
             notion_context = await get_notion_context(interaction, target_page_id, query, model_choice="gpt")
             if not notion_context:
-                await interaction.edit_original_response(content="❌ Notionからコンテキストを取得できませんでした。")
+                # get_notion_context内でエラーメッセージは送信済みなのでここでは何もしない
                 return
+            
             prompt_with_context = (f"【ユーザーの質問】\n{query}\n\n【参考情報】\n{notion_context}")
             await interaction.edit_original_response(content="⏳ gpt-5が最終回答を生成中です...")
             reply = await ask_gpt5(prompt_with_context)
             await send_long_message(interaction, f"** 最終回答 (by gpt-5):**\n{reply}", is_followup=False)
+            
             if str(interaction.user.id) == ADMIN_USER_ID:
                 await log_response(target_page_id, reply, "gpt-5 (Notion参照)")
+
         await asyncio.wait_for(core_logic(), timeout=240)
     except Exception as e:
         safe_log("🚨 /notion コマンドでエラー:", e)
-        await interaction.edit_original_response(content=f"❌ エラーが発生しました: {e}")
+        if not interaction.is_is_done():
+            await interaction.edit_original_response(content=f"❌ エラーが発生しました: {e}")
 
 @tree.command(name="minna", description="6体のベースAIが議題に同時に意見を出します。")
 @app_commands.describe(prompt="AIに尋ねる議題")
@@ -712,7 +627,6 @@ async def minna_command(interaction: discord.Interaction, prompt: str):
         await interaction.followup.send(f"**🔹 {name}の意見:**\n{display_text}")
 
 ADVANCED_MODELS_FOR_ALL = {"gpt-4o": (ask_gpt4o, get_full_response_and_summary), "Gemini 2.5 Flash": (ask_minerva, get_full_response_and_summary), "Perplexity": (ask_rekus, get_full_response_and_summary), "Gemini 2.5 Pro": (ask_gemini_2_5_pro, get_full_response_and_summary), "gpt-5": (ask_gpt5, get_full_response_and_summary)}
-
 
 @tree.command(name="all", description="9体のAI（ベース6体+高機能3体）が議題に同時に意見を出します。")
 @app_commands.describe(prompt="AIに尋ねる議題", attachment="補足資料として画像を添付")
@@ -777,14 +691,17 @@ async def critical_command(interaction: discord.Interaction, topic: str):
     await interaction.response.defer()
     try:
         async def core_logic():
-            target_page_id = NOTION_PAGE_MAP.get(str(interaction.channel.id))
-            if not target_page_id:
+            # --- 修正: page_idsの取得とチェックを正しく行う ---
+            page_ids = NOTION_PAGE_MAP.get(str(interaction.channel.id))
+            if not page_ids:
                 await interaction.edit_original_response(content="❌ このチャンネルはNotionページにリンクされていません。")
                 return
+            target_page_id = page_ids[0]
             
             context = await get_notion_context(interaction, target_page_id, topic, model_choice="gemini")
+            if not context: 
+                return
 
-            if not context: return
             await interaction.edit_original_response(content=" 11体のAIが初期意見を生成中…")
             prompt_with_context = f"以下の【参考情報】を元に、【ユーザーの質問】に回答してください。\n\n【ユーザーの質問】\n{topic}\n\n【参考情報】\n{context}"
             user_id = str(interaction.user.id)
@@ -792,7 +709,9 @@ async def critical_command(interaction: discord.Interaction, topic: str):
             for name, (func, wrapper) in ADVANCED_MODELS_FOR_ALL.items():
                 if name == "Perplexity": tasks[name] = wrapper(func, topic, notion_context=context)
                 else: tasks[name] = wrapper(func, prompt_with_context)
+            
             results = await asyncio.gather(*tasks.values(), return_exceptions=True)
+            
             synthesis_material = "以下のAI群の意見を統合してください。\n\n"
             full_text_results = ""
             for (name, result) in zip(tasks.keys(), results):
@@ -800,12 +719,14 @@ async def critical_command(interaction: discord.Interaction, topic: str):
                 display_text = f"エラー: {result}" if isinstance(result, Exception) else (summary or full_response or result)
                 full_text_results += f"**🔹 {name}の意見:**\n{display_text}\n\n"
                 synthesis_material += f"--- [{name}の意見] ---\n{full_response or display_text}\n\n"
+            
             await send_long_message(interaction, full_text_results, is_followup=False)
             await interaction.followup.send(" gpt-5が中間レポートを作成します…")
             intermediate_report = await ask_gpt5(synthesis_material, system_prompt="以下の意見の要点だけを抽出し、短い中間レポートを作成してください。")
             await interaction.followup.send(" Mistral Largeが最終統合を行います…")
             final_report = await ask_lalah(intermediate_report, system_prompt="あなたは統合専用AIです。渡された中間レポートを元に、最終的な結論を500文字以内でレポートしてください。")
             await interaction.followup.send(f"** Mistral Large (最終統合レポート):**\n{final_report}")
+
         await asyncio.wait_for(core_logic(), timeout=600)
     except Exception as e:
         safe_log("🚨 /critical コマンドでエラー:", e)
@@ -817,14 +738,15 @@ async def logical_command(interaction: discord.Interaction, topic: str):
     await interaction.response.defer()
     try:
         async def core_logic():
-            target_page_id = NOTION_PAGE_MAP.get(str(interaction.channel.id))
-            if not target_page_id:
+            # --- 修正: page_idsの取得とチェックを正しく行う ---
+            page_ids = NOTION_PAGE_MAP.get(str(interaction.channel.id))
+            if not page_ids:
                 await interaction.edit_original_response(content="❌ このチャンネルはNotionページにリンクされていません。")
                 return
+            target_page_id = page_ids[0]
 
             context = await get_notion_context(interaction, target_page_id, topic, model_choice="gemini")
             if not context:
-                # get_notion_context内でエラーメッセージは送信済み
                 return
 
             await interaction.edit_original_response(content="⚖️ 内部討論と外部調査を並列で開始します…")
@@ -889,7 +811,8 @@ async def logical_command(interaction: discord.Interaction, topic: str):
     except Exception as e:
         safe_log("🚨 /logical コマンドでエラー:", e)
         try:
-            await interaction.followup.send(f"❌ エラーが発生しました: {e}", ephemeral=True)
+            if not interaction.is_done():
+                await interaction.followup.send(f"❌ エラーが発生しました: {e}", ephemeral=True)
         except discord.errors.InteractionResponded:
             pass
 
@@ -924,7 +847,6 @@ async def on_ready():
     except Exception as e:
         print(f"🚨 FATAL ERROR on command sync: {e}")
 
-
 @client.event
 async def on_message(message):
     if message.author.bot or message.content.startswith("/"):
@@ -936,7 +858,6 @@ async def on_message(message):
 
     channel_name = message.channel.name.lower()
     
-    # "genius" チャンネルの処理
     if channel_name.startswith("genius"):
         thread_id = str(message.channel.id)
 
@@ -947,11 +868,13 @@ async def on_message(message):
         try:
             prompt = message.content
             is_admin = str(message.author.id) == ADMIN_USER_ID
-            page_id = NOTION_PAGE_MAP.get(thread_id)
-            if not page_id:
+            
+            # --- 修正: page_idsの取得とチェックを正しく行う ---
+            page_ids = NOTION_PAGE_MAP.get(thread_id)
+            if not page_ids:
                 await message.channel.send("❌ このスレッドは Notion ページに紐づいていません（MAP未設定）。")
                 return
-            target_page_id = page_id
+            target_page_id = page_ids[0]
 
             if message.attachments:
                 await message.channel.send(" 添付ファイルを解析しています…")
@@ -960,21 +883,17 @@ async def on_message(message):
             if is_admin and target_page_id:
                 await log_to_notion(target_page_id, [{"object": "block", "type": "paragraph", "paragraph": {"rich_text": [{"type": "text", "text": {"content": f"👤 {message.author.display_name}:\n{prompt}"}}]}}])
 
-            # 処理を開始する直前にチャンネルをロック
             processing_channels.add(thread_id)
             asyncio.create_task(run_genius_channel_task(message, prompt, target_page_id))
             return
             
-            
         except Exception as e:
             safe_log("🚨 on_message (genius)でエラー:", e)
             await message.channel.send(f"予期せぬエラーが発生しました: ```{str(e)[:1800]}```")
-            # エラーが発生した場合もロックを解除
             if thread_id in processing_channels:
                 processing_channels.remove(thread_id)
             return
 
-    # "claude部屋" を含む各専用部屋の処理
     if not (channel_name.startswith("gpt") or channel_name.startswith("gemini") or channel_name.startswith("perplexity") or channel_name.startswith("claude")):
         return
         
@@ -982,27 +901,25 @@ async def on_message(message):
         prompt = message.content
         thread_id = str(message.channel.id)
         is_admin = str(message.author.id) == ADMIN_USER_ID
-        target_page_id = NOTION_PAGE_MAP.get(thread_id)
-        if not target_page_id:
+
+        # --- 修正: page_idsの取得とチェックを正しく行う ---
+        page_ids = NOTION_PAGE_MAP.get(thread_id)
+        if not page_ids:
             await message.channel.send("❌ このスレッドは Notion ページに紐づいていません（MAP未設定）。")
             return
-
+        target_page_id = page_ids[0]
 
         if message.attachments:
-            # 添付ファイルはClaude部屋では一旦無視するか、別途処理を定義
             if not channel_name.startswith("claude"):
                  await message.channel.send("📎 添付ファイルを解析しています…")
                  prompt += "\n\n" + await analyze_attachment_for_gpt5(message.attachments[0])
 
-        # --- "Claude部屋" の専用ロジック ---
         if channel_name.startswith("claude"):
-            # 進捗を出さずにNotionを読み込む
-            notion_raw_text = await get_notion_page_text(target_page_id)
+            notion_raw_text = await get_notion_page_text([target_page_id])
             if notion_raw_text.startswith("ERROR:") or not notion_raw_text.strip():
                 await message.channel.send("❌ Notionページからテキストを取得できませんでした。")
                 return
             
-            # 管理者の場合、ユーザーの発言をNotionに記録
             if is_admin and target_page_id:
                 await log_to_notion(target_page_id, [{"object": "block", "type": "paragraph", "paragraph": {"rich_text": [{"type": "text", "text": {"content": f"👤 {message.author.display_name}:\n{prompt}"}}]}}])
 
@@ -1012,29 +929,25 @@ async def on_message(message):
                 f"【ユーザーの質問】\n{prompt}"
             )
             
-            # Botに「考え中」のステータスを表示させる
             async with message.channel.typing():
                 reply = await ask_claude("claude_user", full_prompt, history=[])
                 await send_long_message(message.channel, reply)
 
-            # 管理者の場合、Botの返答をNotionに記録
             if is_admin and target_page_id:
                 await log_response(target_page_id, reply, "Claude (専用部屋)")
             return
-        # --- ここまでがClaude部屋の処理 ---
 
         elif message.channel.name.lower().startswith("gpt4o"):
             await run_gpt4o_room_task(message, prompt)
             return
 
-        # 以下、既存のgpt, gemini, perplexity部屋の処理
         is_memory_on = await get_memory_flag_from_notion(thread_id)
 
         if channel_name.startswith("gpt"):
             summary_model_to_use = "perplexity"
         elif channel_name.startswith("gemini"):
             summary_model_to_use = "gpt"
-        else: # perplexity
+        else: 
             summary_model_to_use = "gemini_2_5_pro"
 
         notion_context = await get_notion_context_for_message(message, target_page_id, prompt, model_choice=summary_model_to_use)
@@ -1049,40 +962,39 @@ async def on_message(message):
             asyncio.create_task(run_long_gpt5_task(message, prompt, full_prompt, is_admin, target_page_id, thread_id))
 
         elif channel_name.startswith("gemini"):
-            await message.channel.send(" Gemini 2.5 Proが思考を開始します…")
-            history = gemini_thread_memory.get(thread_id, []) if is_memory_on else []
-            history_text = "\n".join([f"{m['role']}: {m['content']}" for m in history])
-            if is_admin and target_page_id:
-                await log_to_notion(target_page_id, [{"object": "block", "type": "paragraph", "paragraph": {"rich_text": [{"type": "text", "text": {"content": f"👤 {message.author.display_name}:\n{prompt}"}}]}}])
-            full_prompt = f"【Notionページの要約】\n{notion_context or '参照なし'}\n\n【これまでの会話】\n{history_text or 'なし'}\n\n【今回の質問】\nuser: {prompt}"
-            
-            reply = await ask_gemini_2_5_pro(full_prompt)
-            
-            await send_long_message(message.channel, reply)
-            if is_admin and target_page_id:
-                await log_response(target_page_id, reply, "Gemini 2.5 Pro")
-            if is_memory_on and "エラー" not in reply:
-                history.extend([{"role": "user", "content": prompt}, {"role": "assistant", "content": reply}])
-                gemini_thread_memory[thread_id] = history[-10:]
+            async with message.channel.typing():
+                history = gemini_thread_memory.get(thread_id, []) if is_memory_on else []
+                history_text = "\n".join([f"{m['role']}: {m['content']}" for m in history])
+                if is_admin and target_page_id:
+                    await log_to_notion(target_page_id, [{"object": "block", "type": "paragraph", "paragraph": {"rich_text": [{"type": "text", "text": {"content": f"👤 {message.author.display_name}:\n{prompt}"}}]}}])
+                full_prompt = f"【Notionページの要約】\n{notion_context or '参照なし'}\n\n【これまでの会話】\n{history_text or 'なし'}\n\n【今回の質問】\nuser: {prompt}"
+                
+                reply = await ask_gemini_2_5_pro(full_prompt)
+                
+                await send_long_message(message.channel, reply)
+                if is_admin and target_page_id:
+                    await log_response(target_page_id, reply, "Gemini 2.5 Pro")
+                if is_memory_on and "エラー" not in reply:
+                    history.extend([{"role": "user", "content": prompt}, {"role": "assistant", "content": reply}])
+                    gemini_thread_memory[thread_id] = history[-10:]
 
         elif channel_name.startswith("perplexity"):
-            await message.channel.send(" Perplexity Sonarが思考を開始します…")
-            history = perplexity_thread_memory.get(thread_id, []) if is_memory_on else []
-            history_text = "\n".join([f"{m['role']}: {m['content']}" for m in history])
-            if is_admin and target_page_id:
-                await log_to_notion(target_page_id, [{"object": "block", "type": "paragraph", "paragraph": {"rich_text": [{"type": "text", "text": {"content": f"👤 {message.author.display_name}:\n{prompt}"}}]}}])
-            
-            rekus_prompt = f"【これまでの会話】\n{history_text or 'なし'}\n\n【今回の質問】\n{prompt}"
-            
-            reply = await ask_rekus(rekus_prompt, notion_context=notion_context)
-            
-            await send_long_message(message.channel, reply)
-            if is_admin and target_page_id:
-                await log_response(target_page_id, reply, "Perplexity Sonar")
-            if is_memory_on and "エラー" not in str(reply):
-                history.extend([{"role": "user", "content": prompt}, {"role": "assistant", "content": reply}])
-                perplexity_thread_memory[thread_id] = history[-10:]
-
+            async with message.channel.typing():
+                history = perplexity_thread_memory.get(thread_id, []) if is_memory_on else []
+                history_text = "\n".join([f"{m['role']}: {m['content']}" for m in history])
+                if is_admin and target_page_id:
+                    await log_to_notion(target_page_id, [{"object": "block", "type": "paragraph", "paragraph": {"rich_text": [{"type": "text", "text": {"content": f"👤 {message.author.display_name}:\n{prompt}"}}]}}])
+                
+                rekus_prompt = f"【これまでの会話】\n{history_text or 'なし'}\n\n【今回の質問】\n{prompt}"
+                
+                reply = await ask_rekus(rekus_prompt, notion_context=notion_context)
+                
+                await send_long_message(message.channel, reply)
+                if is_admin and target_page_id:
+                    await log_response(target_page_id, reply, "Perplexity Sonar")
+                if is_memory_on and "エラー" not in str(reply):
+                    history.extend([{"role": "user", "content": prompt}, {"role": "assistant", "content": reply}])
+                    perplexity_thread_memory[thread_id] = history[-10:]
 
     except Exception as e:
         safe_log("🚨 on_messageでエラー:", e)
@@ -1103,11 +1015,8 @@ async def startup_event():
             vertexai.init(project="stunning-agency-469102-b5", location="us-central1")
             llama_model_for_vertex = GenerativeModel("publishers/meta/models/llama-3.3-70b-instruct-maas")
             
-            # ▼▼▼【追加】ここから ▼▼▼
-            # 初期化したモデルをai_clients.pyに渡す
             set_llama_model(llama_model_for_vertex)
             print("✅ Vertex AI initialized successfully and passed to clients.")
-            # ▲▲▲【追加】ここまで ▲▲▲
 
         except Exception as e:
             print(f"🚨 Vertex AI init failed (continue without it): {e}")
