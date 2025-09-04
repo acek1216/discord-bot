@@ -1,3 +1,5 @@
+from dotenv import load_dotenv
+load_dotenv()
 # --- 標準ライブラリ ---
 import asyncio
 import base64
