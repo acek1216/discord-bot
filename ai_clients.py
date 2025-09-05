@@ -85,6 +85,16 @@ async def ask_gemini_for_summary(prompt: str, model_name: str) -> str:
     except Exception as e:
         return f"Gemini ({model_name})での要約中にエラーが発生しました: {e}"
 
+async def ask_gemini_2_5_pro(prompt, system_prompt=None):
+    """Gemini 2.5 Proモデルを呼び出す汎用関数"""
+    try:
+        base_prompt = system_prompt or "あなたは優秀なAIアシスタントです。ユーザーの指示に的確に従ってください。"
+        model = genai.GenerativeModel("gemini-2.5-pro", system_instruction=base_prompt, safety_settings=safety_settings)
+        response = await model.generate_content_async(prompt)
+        return response.text
+    except Exception as e:
+        return f"Gemini 2.5 Proエラー: {e}"
+
 async def ask_gemini_pro_for_summary(prompt: str) -> str:
     return await ask_gemini_for_summary(prompt, model_name="gemini-1.5-pro-latest")
 
