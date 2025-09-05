@@ -477,18 +477,6 @@ async def run_gpt4o_room_task(message, user_prompt: str):
     log_page_id, kb_page_id = page_ids[0], page_ids[1]
     is_admin = str(message.author.id) == ADMIN_USER_ID
 
-    async def run_gpt4o_room_task(message, user_prompt: str):
-    channel = message.channel
-    thread_id = str(message.channel.id)
-    page_ids = NOTION_PAGE_MAP.get(thread_id)
-
-    if not page_ids or len(page_ids) < 2:
-        await channel.send("⚠️ この部屋にはログ用とKB用の2つのNotionページが必要です。設定を確認してください。")
-        return
-
-    log_page_id, kb_page_id = page_ids[0], page_ids[1]
-    is_admin = str(message.author.id) == ADMIN_USER_ID
-
     async with channel.typing():
         try:
             # --- フロー1: KBと会話ログの両方を読み込む ---
@@ -510,7 +498,7 @@ async def run_gpt4o_room_task(message, user_prompt: str):
             # --- フロー2: 新しいプロンプトを生成 ---
             # プロンプト内の【直近の会話履歴】に、最新の発言を含む変数を渡す
             prompt_for_answer = (
-                f"あなたはナレッジベースと会話履歴を元に応答するAIです。\n"
+                f"あなたはナレッジベースと会話履歴を元に応答する執事AIです。\n"
                 f"以下の【ナレッジベース】、【直近の会話履歴】、【添付情報】を元に、【ユーザーの質問】に回答してください。\n"
                 f"ナレッジベース内の§IDを参照する場合は、必ずそのIDを文中に含めてください（例: §001によると...）。\n\n"
                 f"--- 参考情報 ---\n"
@@ -564,6 +552,7 @@ async def run_gpt4o_room_task(message, user_prompt: str):
             await channel.send(f"❌ gpt-4o部屋でエラーが発生しました: {e}")
             import traceback
             traceback.print_exc()
+            
 @tree.command(name="gpt", description="GPT(gpt-3.5-turbo)と短期記憶で対話します")
 async def gpt_command(interaction: discord.Interaction, prompt: str):
     await simple_ai_command_runner(interaction, prompt, ask_gpt_base, "GPT-3.5-Turbo")
