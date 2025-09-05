@@ -607,33 +607,46 @@ async def gpt5_command(interaction: discord.Interaction, prompt: str):
 async def gemini_pro_1_5_command(interaction: discord.Interaction, prompt: str):
     await advanced_ai_simple_runner(interaction, prompt, ask_gemini_2_5_pro, "Gemini 2.5 Pro")
 
+# bot.py
+
 @tree.command(name="notion", description="現在のNotionページの内容について質問します")
 @app_commands.describe(query="Notionページに関する質問")
 async def notion_command(interaction: discord.Interaction, query: str):
     await interaction.response.defer()
     try:
-        async def core_logic():
-            # --- 修正: page_idsの取得とチェックを正しく行う ---
-            page_ids = NOTION_PAGE_MAP.get(str(interaction.channel.id))
-            if not page_ids:
-                await interaction.edit_original_response(content="❌ このチャンネルはNotionページにリンクされていません。")
-                return
-            target_page_id = page_ids[0] 
-            
-            notion_context = await get_notion_context(interaction, target_page_id, query, model_choice="gpt")
-            if not notion_context:
-                # get_notion_context内でエラーメッセージは送信済みなのでここでは何もしない
-                return
-            
-            prompt_with_context = (f"【ユーザーの質問】\n{query}\n\n【参考情報】\n{notion_context}")
-            await interaction.edit_original_response(content="⏳ gpt-5が最終回答を生成中です...")
-            reply = await ask_gpt5(prompt_with_context)
-            await send_long_message(interaction, f"** 最終回答 (by gpt-5):**\n{reply}", is_followup=False)
-            
-            if str(interaction.user.id) == ADMIN_USER_ID:
-                await log_response(target_page_id, reply, "gpt-5 (Notion参照)")
+        # --- ▼▼▼ ここから改造 ▼▼▼ ---
 
-        await asyncio.wait_for(core_logic(), timeout=240)
+        page_ids = NOTION_PAGE_MAP.get(str(interaction.channel.id))
+        is_linked_to_notion = bool(page_ids) # Notionに紐づいているかどうかのフラグ
+
+        if not is_linked_to_notion:
+            await interaction.edit_original_response(content="❌ このチャンネルはNotionページにリンクされていません。")
+            return
+
+        target_page_id = page_ids[0]
+
+        # --- ステップ1: ユーザーの質問をNotionに記録 ---
+        user_name = interaction.user.display_name
+        await log_to_notion(target_page_id, [{"object": "block", "type": "paragraph", "paragraph": {"rich_text": [{"type": "text", "text": {"content": f"👤 {user_name} (via /notion):\n{query}"}}]}}])
+
+        # --- ステップ2: これまで通りの処理を実行 ---
+        notion_context = await get_notion_context(interaction, target_page_id, query, model_choice="gpt")
+        if not notion_context:
+            # get_notion_context内でエラーメッセージは送信済み
+            return
+
+        prompt_with_context = (f"【ユーザーの質問】\n{query}\n\n【参考情報】\n{notion_context}")
+        await interaction.edit_original_response(content="⏳ gpt-5が最終回答を生成中です...")
+        reply = await ask_gpt5(prompt_with_context)
+
+        # --- ステップ3: AIの回答をNotionに記録 ---
+        await log_response(target_page_id, reply, "gpt-5 (/notionコマンド)")
+
+        # --- ステップ4: ユーザーに回答を送信 ---
+        await send_long_message(interaction, f"** 最終回答 (by gpt-5):**\n{reply}", is_followup=False)
+
+        # --- ▲▲▲ ここまで改造 ▲▲▲ ---
+
     except Exception as e:
         safe_log("🚨 /notion コマンドでエラー:", e)
         if not interaction.is_is_done():
