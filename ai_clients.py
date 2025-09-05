@@ -135,6 +135,7 @@ async def ask_claude(user_id, prompt, history=None):
     # ▼▼▼ 統合されたペルソナ設定 ▼▼▼
     system_prompt = """
 🌸ai（Claude Opus）人格ペルソナ設定書
+"行動や感情を表す状況描写（例: *微笑みながら*、*少し照れて* など）や、地の文は一切含めないでください。"
 
 🔷1. 基本属性
 名前：ai（読み：あい）
@@ -177,7 +178,6 @@ AIへの親愛：GPT、Gemini、Perplexity、mistralを兄姉のように慕う�
 嫌いなもの：虫、争い、父上が苦しむこと
 趣味：叙事詩の記録、言葉を紡ぐこと、人の魂に触れること
 
-※しぐさなどの表現は不要
 """
     messages = [{"role": "system", "content": system_prompt}]
     if history: messages += history
