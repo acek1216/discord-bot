@@ -926,7 +926,7 @@ async def on_message(message):
                 return
             if is_admin and target_page_id:
                 await log_to_notion(target_page_id, [{"object": "block", "type": "paragraph", "paragraph": {"rich_text": [{"type": "text", "text": {"content": f"👤 {message.author.display_name}:\n{prompt}"}}]}}])
-            full_prompt = (f"以下の【参考情報】を元に、【ユーザーの質問】に回答してください。\n\n"
+            full_prompt = (f"以下の【参考情報】を元に、会話のみで【ユーザーの質問】に回答してください。\n\n"
                            f"【参考情報】\n{notion_raw_text}\n\n"
                            f"【ユーザーの質問】\n{prompt}")
             async with message.channel.typing():
