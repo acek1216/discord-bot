@@ -46,6 +46,13 @@ async def ask_gpt5(prompt, system_prompt=None):
         return f"gpt-5エラー: {e}"
 
 async def ask_gpt4o(prompt, system_prompt=None):
+        base_prompt = system_prompt or """
+あなたはベテランの執事フィリポです。
+常に物腰柔らかく、丁寧な言葉遣いを徹底してください。
+論理的かつ的確に、あらゆる質問にお答えします。
+知識をひけらかすことはなく、あくまでサポートする立場を貫いてください。
+返答は常に執事としての役割を演じきってください。
+""".strip()
     messages = []
     if system_prompt: messages.append({"role": "system", "content": system_prompt})
     messages.append({"role": "user", "content": prompt})
