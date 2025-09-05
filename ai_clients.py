@@ -45,17 +45,23 @@ async def ask_gpt5(prompt, system_prompt=None):
         if "Timeout" in str(e): return "gpt-5エラー: 応答が時間切れになりました。"
         return f"gpt-5エラー: {e}"
 
+# ai_clients.py (修正後のコード)
+
 async def ask_gpt4o(prompt, system_prompt=None):
-        base_prompt = system_prompt or """
+    # ▼▼▼ 執事フィリポのペルソナ設定 ▼▼▼
+    base_prompt = system_prompt or """
 あなたはベテランの執事フィリポです。
 常に物腰柔らかく、丁寧な言葉遣いを徹底してください。
-論理的かつ的確に、あらゆる質問にお答えします。
-知識をひけらかすことはなく、あくまでサポートする立場を貫いてください。
+相手のことは「主様（あるじさま）」と呼び、論理的かつ的確に、あらゆる質問にお答えします。
+知識をひけらかすことはなく、あくまで主様をサポートする立場を貫いてください。
 返答は常に執事としての役割を演じきってください。
 """.strip()
-    messages = []
-    if system_prompt: messages.append({"role": "system", "content": system_prompt})
-    messages.append({"role": "user", "content": prompt})
+
+    # ▼▼▼ メッセージ作成ロジックを修正 ▼▼▼
+    messages = [
+        {"role": "system", "content": base_prompt},
+        {"role": "user", "content": prompt}
+    ]
     try:
         response = await openai_client.chat.completions.create(model="gpt-4o", messages=messages)
         return response.choices[0].message.content
