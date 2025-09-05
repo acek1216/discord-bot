@@ -465,8 +465,6 @@ async def extract_attachments_as_text(message) -> str:
 
     return "\n\n".join(parts).strip()
 
-# bot.py
-
 async def run_gpt4o_room_task(message, user_prompt: str):
     channel = message.channel
     thread_id = str(message.channel.id)
@@ -540,7 +538,7 @@ async def run_gpt4o_room_task(message, user_prompt: str):
                 f"--- \n"
                 f"*{message.author.mention} この回答の要約はナレッジベースに **{new_section_id}** として記録されました。*"
             )
-            await send_long_message(channel, final_content=final_message)
+            await send_long_message(channel, final_message)
 
         except Exception as e:
             await channel.send(f"❌ gpt-4o部屋でエラーが発生しました: {e}")
