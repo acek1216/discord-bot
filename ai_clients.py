@@ -76,30 +76,20 @@ async def ask_gemini_base(user_id, prompt, history=None):
     except Exception as e:
         return f"ジェミニエラー: {e}"
 
-async def ask_gemini_pro_for_summary(prompt: str) -> str:
+async def ask_gemini_for_summary(prompt: str, model_name: str) -> str:
+    """指定されたGeminiモデルで構造化要約を行う"""
     try:
-        model = genai.GenerativeModel("gemini-1.5-pro-latest", system_instruction="あなたは構造化要約AIです。", safety_settings=safety_settings)
+        model = genai.GenerativeModel(model_name, system_instruction="あなたは構造化要約AIです。", safety_settings=safety_settings)
         response = await model.generate_content_async(prompt)
         return response.text
     except Exception as e:
-        return f"Gemini 1.5 Proでの要約中にエラーが発生しました: {e}"
+        return f"Gemini ({model_name})での要約中にエラーが発生しました: {e}"
 
-async def ask_gemini_2_5_pro(prompt, system_prompt=None):
-    base_prompt = system_prompt or "あなたは戦略コンサルタントです。データに基づき、あらゆる事象を予測し、その可能性を事務的かつ論理的に報告してください。"
-    model = genai.GenerativeModel("gemini-2.5-pro", system_instruction=base_prompt, safety_settings=safety_settings)
-    try:
-        response = await model.generate_content_async(prompt)
-        return response.text
-    except Exception as e:
-        return f"Gemini 2.5 Proエラー: {e}"
+async def ask_gemini_pro_for_summary(prompt: str) -> str:
+    return await ask_gemini_for_summary(prompt, model_name="gemini-1.5-pro-latest")
 
 async def ask_gemini_2_5_pro_for_summary(prompt: str) -> str:
-    try:
-        model = genai.GenerativeModel("gemini-2.5-pro", system_instruction="あなたは構造化要約AIです。", safety_settings=safety_settings)
-        response = await model.generate_content_async(prompt)
-        return response.text
-    except Exception as e:
-        return f"Gemini 2.5 Proでの要約中にエラーが発生しました: {e}"
+    return await ask_gemini_for_summary(prompt, model_name="gemini-2.5-pro")
 
 async def ask_minerva(prompt, system_prompt=None, attachment_parts=[]):
     base_prompt = system_prompt or "あなたは客観的な分析AIです。あらゆる事象をデータとリスクで評価し、感情を排して200文字以内で冷徹に分析します。"
