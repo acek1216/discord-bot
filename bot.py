@@ -8,7 +8,6 @@ import json
 import os
 import sys
 import notion_utils
-import utils # utilsをインポート
 from notion_utils import (
     NOTION_PAGE_MAP, get_notion_page_text, log_to_notion, 
     log_response, get_memory_flag_from_notion,
@@ -29,6 +28,7 @@ import requests
 import vertexai
 from vertexai.generative_models import GenerativeModel
 import PyPDF2
+import utils # utilsをインポート
 
 # --- utilsのimportをここに追加 ---
 from utils import safe_log, send_long_message
