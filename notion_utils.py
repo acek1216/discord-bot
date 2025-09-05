@@ -26,59 +26,70 @@ if NOTION_PAGE_MAP_STRING:
 
 # ▼▼▼ ここから新しい関数を追加 ▼▼▼
 
-def _sync_find_latest_section_id(page_id: str) -> int:
-    """(内部関数) Notionページから '§ddd' 形式の最新IDを見つける"""
-    latest_id = 0
-    next_cursor = None
-    while True:
-        try:
-            response = notion.blocks.children.list(block_id=page_id, start_cursor=next_cursor)
-            for block in response.get("results", []):
-                if block["type"] == "heading_2":
-                    text_obj = block.get("heading_2", {}).get("rich_text", [{}])[0]
-                    if text_obj:
-                        text = text_obj.get("plain_text", "")
-                        match = re.match(r"§(\d+)", text)
-                        if match:
-                            latest_id = max(latest_id, int(match.group(1)))
-            if not response.get("has_more"):
-                break
-            next_cursor = response.get("next_cursor")
-        except Exception:
-            # エラーが発生した場合は現在の最大値を返す
-            return latest_id
-    return latest_id
-
 async def find_latest_section_id(page_id: str) -> str:
-    """Notionページから最新の§IDを探し、次のIDをゼロ埋め3桁の文字列で返す"""
-    latest_id_num = await asyncio.get_event_loop().run_in_executor(
-        None, _sync_find_latest_section_id, page_id
-    )
-    next_id_num = latest_id_num + 1
-    return f"§{next_id_num:03d}"
+    """
+    Notionページの一番下からブロックを遡って最新のセクションIDを探し、次のIDを返す。
+    """
+    try:
+        # Notion APIを使用してページの全ブロックを取得
+        response = await notion.blocks.children.list(block_id=page_id, page_size=100)
+        all_blocks = response.get("results", [])
+        
+        # 下のブロックから順にチェックする
+        for block in reversed(all_blocks):
+            # paragraphブロックで、中にテキストがある場合のみ処理
+            if block["type"] == "paragraph" and block["paragraph"]["rich_text"]:
+                # テキストコンテンツを取得
+                text = block["paragraph"]["rich_text"][0]["plain_text"]
+                
+                # 正規表現で「§ + 数字」のパターンにマッチするか確認
+                match = re.match(r'§(\d+)', text)
+                if match:
+                    # マッチした場合、数字部分を取得して+1する
+                    last_num = int(match.group(1))
+                    new_num = last_num + 1
+                    # 3桁のゼロ埋め形式で新しいIDを返す (例: §011)
+                    return f"§{new_num:03d}"
+
+        # ループを抜けても見つからなかった場合（ページが空など）は、最初のIDを返す
+        return "§001"
+
 
 async def append_summary_to_kb(page_id: str, section_id: str, summary: str):
-    """KBページに§ID付きの正規要約を書き込む"""
-    # Notion APIは改行でブロックを分割する必要がある
-    summary_lines = summary.strip().split('\n')
-    summary_title = summary_lines[0]
-    summary_body = "\n".join(summary_lines[1:]).strip()
+    """
+    指定されたNotionページに、セクションID付きの要約を追記する。
+    find_latest_section_idが読み取れる形式で書き込む。
+    """
+    try:
+        # GPT-4oが生成した要約は「1行目=タイトル、2行目以降=本文」の形式
+        summary_lines = summary.strip().split('\n')
+        title = summary_lines[0]
+        # 本文がない場合も考慮
+        body = "\n".join(summary_lines[1:]).strip()
 
-    blocks_to_append = [
-        {
-            "object": "block",
-            "type": "heading_2",
-            "heading_2": { "rich_text": [{"type": "text", "text": {"content": f"{section_id}: {summary_title}"}}] }
-        }
-    ]
-    if summary_body:
-        blocks_to_append.append({
-            "object": "block",
-            "type": "paragraph",
-            "paragraph": { "rich_text": [{"type": "text", "text": {"content": summary_body}}] }
-        })
-    
-    await log_to_notion(page_id, blocks_to_append)
+        # 書き込むテキストを「§011: タイトル\n\n本文」の形式に整形
+        # このフォーマットは上のfind_latest_section_id関数が認識できるものと一致させる
+        final_text = f"{section_id}: {title}"
+        if body: # 本文があれば改行を2つ入れて追記
+            final_text += f"\n\n{body}"
+
+        # Notion APIで新しいparagraphブロックとして追記
+        await notion.blocks.children.append(
+            block_id=page_id,
+            children=[
+                {
+                    "object": "block",
+                    "type": "paragraph",
+                    "paragraph": {
+                        "rich_text": [{"type": "text", "text": {"content": final_text}}]
+                    }
+                }
+            ]
+        )
+        print(f" ナレッジベースに {section_id} を追記しました。")
+
+    except Exception as e:
+        print(f"🚨 ナレッジベースへの追記中にエラー: {e}")
 
 # ▲▲▲ ここまで新しい関数を追加 ▲▲▲
 
@@ -153,4 +164,5 @@ async def get_memory_flag_from_notion(thread_id: str) -> bool:
                 if "[記憶] ON" in content: return True
     except Exception as e:
         print(f"❌ Notionから記憶フラグの読み取り中にエラー: {e}")
+
     return False
