@@ -465,12 +465,13 @@ async def extract_attachments_as_text(message) -> str:
 
     return "\n\n".join(parts).strip()
 
+# bot.py
+
 async def run_gpt4o_room_task(message, user_prompt: str):
     channel = message.channel
     thread_id = str(message.channel.id)
     page_ids = NOTION_PAGE_MAP.get(thread_id)
 
-    # ページ設定をチェック
     if not page_ids or len(page_ids) < 2:
         await channel.send("⚠️ この部屋にはログ用とKB用の2つのNotionページが必要です。設定を確認してください。")
         return
@@ -480,17 +481,30 @@ async def run_gpt4o_room_task(message, user_prompt: str):
 
     async with channel.typing():
         try:
-            # --- フロー1 & 2: KBを読み込み、一次回答を生成 ---
-            kb_context = await get_notion_page_text([kb_page_id])
+            # ★★★ ここから修正 ★★★
+            # --- フロー1: KBと会話ログの両方を読み込む ---
+            kb_context_task = get_notion_page_text([kb_page_id])
+            log_context_task = get_notion_page_text([log_page_id])
+            kb_context, log_context = await asyncio.gather(kb_context_task, log_context_task)
+
+            # 会話ログが長くなりすぎないように、直近4000文字程度に要約する
+            log_context_summary = log_context[-4000:]
+            
             attach_text = await extract_attachments_as_text(message)
             
+            # --- フロー2: 新しいプロンプトを生成 ---
             prompt_for_answer = (
-                f"以下の【ナレッジベース】と【添付情報】を元に、【ユーザーの質問】に回答してください。\n"
+                f"あなたはナレッジベースと会話履歴を元に応答するAIです。\n"
+                f"以下の【ナレッジベース】、【直近の会話履歴】、【添付情報】を元に、【ユーザーの質問】に回答してください。\n"
                 f"ナレッジベース内の§IDを参照する場合は、必ずそのIDを文中に含めてください（例: §001によると...）。\n\n"
+                f"--- 参考情報 ---\n"
                 f"【ナレッジベース】\n{kb_context or '（まだありません）'}\n\n"
+                f"【直近の会話履歴】\n{log_context_summary or '（これが最初の会話です）'}\n\n"
                 f"【添付情報】\n{attach_text or '（なし）'}\n\n"
+                f"--- ここまで ---\n\n"
                 f"【ユーザーの質問】\n{user_prompt}"
             )
+            # ★★★ ここまで修正 ★★★
             
             resp = await openai_client.chat.completions.create(
                 model="gpt-4o",
@@ -526,7 +540,7 @@ async def run_gpt4o_room_task(message, user_prompt: str):
                 f"--- \n"
                 f"*{message.author.mention} この回答の要約はナレッジベースに **{new_section_id}** として記録されました。*"
             )
-            await send_long_message(channel, final_message)
+            await send_long_message(channel, final_content=final_message)
 
         except Exception as e:
             await channel.send(f"❌ gpt-4o部屋でエラーが発生しました: {e}")
