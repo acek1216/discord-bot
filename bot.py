@@ -28,6 +28,7 @@ import requests
 import vertexai
 from vertexai.generative_models import GenerativeModel
 import PyPDF2
+import utils # utilsをインポート
 
 # --- utilsのimportをここに追加 ---
 from utils import safe_log, send_long_message
@@ -996,6 +997,7 @@ async def on_message(message):
             
 @app.on_event("startup")
 async def startup_event():
+
     """サーバー起動時にBotをバックグラウンドで起動する"""
     global openai_client, mistral_client, llama_model_for_vertex # notion を global から削除
     try:
@@ -1005,6 +1007,7 @@ async def startup_event():
         # notion_utilsモジュール内のnotion変数を直接初期化する
         notion_utils.notion = Client(auth=NOTION_API_KEY)
         genai.configure(api_key=GEMINI_API_KEY)
+        utils.set_openai_client(openai_client) 
         try:
             print("🤖 Initializing Vertex AI...")
             vertexai.init(project="stunning-agency-469102-b5", location="us-central1")
@@ -1025,6 +1028,7 @@ async def startup_event():
         print("✅ Discord Bot startup task has been created.")
     except Exception as e:
         print(f"🚨🚨🚨 FATAL ERROR during startup event: {e} 🚨🚨🚨")
+
 
 @app.get("/")
 def health_check():
