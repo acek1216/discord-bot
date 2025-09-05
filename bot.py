@@ -477,33 +477,51 @@ async def run_gpt4o_room_task(message, user_prompt: str):
     log_page_id, kb_page_id = page_ids[0], page_ids[1]
     is_admin = str(message.author.id) == ADMIN_USER_ID
 
+    async def run_gpt4o_room_task(message, user_prompt: str):
+    channel = message.channel
+    thread_id = str(message.channel.id)
+    page_ids = NOTION_PAGE_MAP.get(thread_id)
+
+    if not page_ids or len(page_ids) < 2:
+        await channel.send("⚠️ この部屋にはログ用とKB用の2つのNotionページが必要です。設定を確認してください。")
+        return
+
+    log_page_id, kb_page_id = page_ids[0], page_ids[1]
+    is_admin = str(message.author.id) == ADMIN_USER_ID
+
     async with channel.typing():
         try:
-            # ★★★ ここから修正 ★★★
             # --- フロー1: KBと会話ログの両方を読み込む ---
             kb_context_task = get_notion_page_text([kb_page_id])
             log_context_task = get_notion_page_text([log_page_id])
             kb_context, log_context = await asyncio.gather(kb_context_task, log_context_task)
 
-            # 会話ログが長くなりすぎないように、直近4000文字程度に要約する
+            # ▼▼▼【ここからが重要】▼▼▼
+            # 会話ログ（過去）とユーザーの最新の発言（今）を合体させる
+            # これにより、AIはあなたの最新の発言を「直近の会話」として認識する
             log_context_summary = log_context[-4000:]
+            current_conversation = (
+                f"{log_context_summary}\n\n"
+                f"👤 {message.author.display_name} (最新の発言):\n{user_prompt}"
+            ).strip()
             
             attach_text = await extract_attachments_as_text(message)
             
             # --- フロー2: 新しいプロンプトを生成 ---
+            # プロンプト内の【直近の会話履歴】に、最新の発言を含む変数を渡す
             prompt_for_answer = (
                 f"あなたはナレッジベースと会話履歴を元に応答するAIです。\n"
                 f"以下の【ナレッジベース】、【直近の会話履歴】、【添付情報】を元に、【ユーザーの質問】に回答してください。\n"
                 f"ナレッジベース内の§IDを参照する場合は、必ずそのIDを文中に含めてください（例: §001によると...）。\n\n"
                 f"--- 参考情報 ---\n"
                 f"【ナレッジベース】\n{kb_context or '（まだありません）'}\n\n"
-                f"【直近の会話履歴】\n{log_context_summary or '（これが最初の会話です）'}\n\n"
+                f"【直近の会話履歴】\n{current_conversation or '（これが最初の会話です）'}\n\n" # ←★修正点
                 f"【添付情報】\n{attach_text or '（なし）'}\n\n"
                 f"--- ここまで ---\n\n"
                 f"【ユーザーの質問】\n{user_prompt}"
             )
-            # ★★★ ここまで修正 ★★★
-            
+            # ▲▲▲【ここまでが重要】▲▲▲
+
             resp = await openai_client.chat.completions.create(
                 model="gpt-4o",
                 messages=[{"role": "user", "content": prompt_for_answer}],
@@ -512,11 +530,13 @@ async def run_gpt4o_room_task(message, user_prompt: str):
             primary_answer = resp.choices[0].message.content
 
             # --- フロー3: ログページに書き込み ---
+            # この処理は変更なし
             if is_admin:
                 await log_to_notion(log_page_id, [{"object": "block", "type": "paragraph", "paragraph": {"rich_text": [{"type": "text", "text": {"content": f"👤 {message.author.display_name}:\n{user_prompt}"}}]}}])
                 await log_response(log_page_id, primary_answer, "gpt-4o (一次回答)")
 
-            # --- フロー4, 5, 6: 回答を要約し、新しい§IDを採番してKBに書き込む ---
+            # --- フロー4, 5, 6: 回答を要約し、KBに書き込む ---
+            # この処理も変更なし
             prompt_for_summary = (
                 f"以下のテキストを、Notionナレッジベースに登録するための「正規要約」にしてください。\n"
                 f"1行目にタイトル、2行目以降に本文という形式で、200字程度の簡潔な要約を作成してください。\n\n"
@@ -544,7 +564,6 @@ async def run_gpt4o_room_task(message, user_prompt: str):
             await channel.send(f"❌ gpt-4o部屋でエラーが発生しました: {e}")
             import traceback
             traceback.print_exc()
-
 @tree.command(name="gpt", description="GPT(gpt-3.5-turbo)と短期記憶で対話します")
 async def gpt_command(interaction: discord.Interaction, prompt: str):
     await simple_ai_command_runner(interaction, prompt, ask_gpt_base, "GPT-3.5-Turbo")
