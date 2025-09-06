@@ -12,9 +12,9 @@ from ai_clients import (
     ask_llama, ask_grok, ask_gpt4o, ask_minerva, ask_rekus, ask_gpt5,
     ask_gemini_2_5_pro, ask_lalah
 )
-from notion_utils import (
-    NOTION_PAGE_MAP, get_notion_page_text, log_to_notion, log_response
-)
+# 修正後の utils.py のコードから get_notion_context をインポート
+from utils import get_notion_context
+
 from utils import (
     safe_log, send_long_message, simple_ai_command_runner, 
     advanced_ai_simple_runner, BASE_MODELS_FOR_ALL, 
@@ -306,4 +306,5 @@ class SlashCommands(commands.Cog):
             await interaction.followup.send(f"❌ 同期中にエラーが発生しました:\n```{e}```", ephemeral=True)
 
 async def setup(bot):
+
     await bot.add_cog(SlashCommands(bot))
