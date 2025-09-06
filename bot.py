@@ -108,6 +108,63 @@ async def main():
         server.serve(),
         bot.start(DISCORD_TOKEN)
     )
+@app.on_event("startup")
+async def startup_event():
+    """サーバー起動時に各種クライアントを初期化し、Botをバックグラウンドで起動する"""
+    print("🚀 サーバーの起動処理を開始します...")
+
+    try:
+        # --- 1. APIクライアントの初期化 ---
+        print("🤖 APIクライアントを初期化中...")
+        ai_clients.initialize_clients()
+        notion_utils.notion = Client(auth=os.getenv("NOTION_API_KEY"))
+        utils.set_openai_client(ai_clients.openai_client)
+
+        try:
+            print("🤖 Vertex AIを初期化中...")
+            vertexai.init(project="stunning-agency-469102-b5", location="us-central1")
+            llama_model = ai_clients.GenerativeModel("publishers/meta/models/llama-3.3-70b-instruct-maas")
+            ai_clients.set_llama_model(llama_model)
+            print("✅ Vertex AIが正常に初期化されました。")
+        except Exception as e:
+            print(f"⚠️ Vertex AIの初期化に失敗しました: {e}")
+
+        # --- 2. Cogs（機能モジュール）を読み込む関数 ---
+        async def load_cogs():
+            print("📚 機能モジュール (Cogs) を読み込み中...")
+            cogs_to_load = ["cogs.commands", "cogs.message_handler"]
+            for cog in cogs_to_load:
+                try:
+                    await bot.load_extension(cog)
+                    print(f"  ✅ {cog} を正常に読み込みました。")
+                except Exception as e:
+                    # ▼▼▼【エラーハンドリング強化】▼▼▼
+                    # Cogsの読み込みエラーを詳細に出力
+                    print(f"  🚨🚨🚨 {cog} の読み込み中に致命的なエラーが発生しました 🚨🚨🚨")
+                    import traceback
+                    traceback.print_exc()
+                    # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+
+        # --- 3. Discord Botを起動するメインの非同期タスク ---
+        async def start_bot():
+            try:
+                await load_cogs()
+                await bot.start(DISCORD_TOKEN)
+            except Exception as e:
+                # ▼▼▼【エラーハンドリング強化】▼▼▼
+                # Bot起動プロセス全体のエラーを詳細に出力
+                print(f"🚨🚨🚨 start_bot タスクの実行中に致命的なエラーが発生しました 🚨🚨🚨")
+                import traceback
+                traceback.print_exc()
+                # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+
+        asyncio.create_task(start_bot())
+        print("✅ Discord Botの起動タスクが作成されました。")
+
+    except Exception as e:
+        print(f"🚨🚨🚨 致命的な起動エラーが発生しました: {e} 🚨🚨🚨")
+        import traceback
+        traceback.print_exc()
 
 if __name__ == "__main__":
     try:
