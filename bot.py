@@ -121,14 +121,6 @@ async def startup_event():
         import traceback
         traceback.print_exc()
 
-@app.get("/")
-def health_check():
-    """ヘルスチェック用のエンドポイント"""
-    return {"status": "ok", "bot_is_connected": bot.is_ready()}
-
-# --- Discord Bot イベントハンドラ ---
-# on_messageなどのイベントは cogs/message_handler.py に移動
-
 @bot.event
 async def on_ready():
     """Botの準備が完了したときの処理"""
@@ -151,9 +143,14 @@ async def on_ready():
     print("-" * 30)
     print("サーバーが正常に起動し、Botがオンラインになりました。")
 
+# このコードを bot.py に追加してください
+
+@app.get("/")
+def health_check():
+    """Cloud Runがコンテナが正常か確認するための窓口"""
+    return {"status": "ok", "bot_is_connected": bot.is_ready()}
 
 # --- メインの実行ブロック ---
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", "8080"))
-    # UvicornでFastAPIアプリを実行
-    uvicorn.run("bot:app", host="0.0.0.0", port=port, reload=True)
+    uvicorn.run("bot:app", host="0.0.0.0", port=port)
