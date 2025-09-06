@@ -13,28 +13,22 @@ from ai_clients import (
     ask_gemini_2_5_pro, ask_lalah
 )
 
-# ▼▼▼ 修正箇所: notion_utilsから必要なインポートを追加 ▼▼▼
+# ▼▼▼【重要】不足しているインポートを追加 ▼▼▼
 from notion_utils import NOTION_PAGE_MAP, log_to_notion, log_response
 
+# --- utils.pyからのインポート ---
+# get_notion_contextはutils.pyにあるため、こちらはそのままにする
 from utils import (
-    safe_log, send_long_message, simple_ai_command_runner,
-    advanced_ai_simple_runner, BASE_MODELS_FOR_ALL,
-    ADVANCED_MODELS_FOR_ALL, get_full_response_and_summary,
-    analyze_attachment_for_gpt5, get_notion_context # get_notion_contextもutilsからインポート
+    safe_log, send_long_message, simple_ai_command_runner, 
+    advanced_ai_simple_runner, BASE_MODELS_FOR_ALL, 
+    ADVANCED_MODELS_FOR_ALL, get_full_response_and_summary, 
+    analyze_attachment_for_gpt5, get_notion_context
 )
 
 # 環境変数を読み込み
 ADMIN_USER_ID = os.getenv("ADMIN_USER_ID", "").strip()
 GUILD_ID = os.getenv("GUILD_ID", "").strip()
 
-class SlashCommands(commands.Cog):
-    def __init__(self, client):
-        self.client = client
-        # スラッシュコマンド用の短期記憶をCog内で管理
-        self.memory_map = {
-            "GPT": {}, "Gemini": {}, "Mistral": {},
-            "Claude": {}, "Llama": {}, "Grok": {}
-        }
 
     @app_commands.command(name="ping", description="ボットの応答テストを行います。")
     async def ping_command(self, interaction: discord.Interaction):
@@ -318,3 +312,4 @@ class SlashCommands(commands.Cog):
 
 async def setup(bot):
     await bot.add_cog(SlashCommands(bot))
+
