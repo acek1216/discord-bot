@@ -12,22 +12,20 @@ from ai_clients import (
     ask_llama, ask_grok, ask_gpt4o, ask_minerva, ask_rekus, ask_gpt5,
     ask_gemini_2_5_pro, ask_lalah
 )
-# 修正後の utils.py のコードから get_notion_context をインポート
-from utils import get_notion_context
+
+# ▼▼▼ 修正箇所: notion_utilsから必要なインポートを追加 ▼▼▼
+from notion_utils import NOTION_PAGE_MAP, log_to_notion, log_response
 
 from utils import (
-    safe_log, send_long_message, simple_ai_command_runner, 
-    advanced_ai_simple_runner, BASE_MODELS_FOR_ALL, 
-    ADVANCED_MODELS_FOR_ALL, get_full_response_and_summary, 
-    analyze_attachment_for_gpt5
+    safe_log, send_long_message, simple_ai_command_runner,
+    advanced_ai_simple_runner, BASE_MODELS_FOR_ALL,
+    ADVANCED_MODELS_FOR_ALL, get_full_response_and_summary,
+    analyze_attachment_for_gpt5, get_notion_context # get_notion_contextもutilsからインポート
 )
 
 # 環境変数を読み込み
 ADMIN_USER_ID = os.getenv("ADMIN_USER_ID", "").strip()
 GUILD_ID = os.getenv("GUILD_ID", "").strip()
-
-# get_notion_contextはutils.pyに移動したと仮定
-from utils import get_notion_context
 
 class SlashCommands(commands.Cog):
     def __init__(self, client):
@@ -37,6 +35,10 @@ class SlashCommands(commands.Cog):
             "GPT": {}, "Gemini": {}, "Mistral": {},
             "Claude": {}, "Llama": {}, "Grok": {}
         }
+
+    @app_commands.command(name="ping", description="ボットの応答テストを行います。")
+    async def ping_command(self, interaction: discord.Interaction):
+        await interaction.response.send_message("Pong!")
 
     @app_commands.command(name="gpt", description="GPT(gpt-3.5-turbo)と短期記憶で対話します")
     async def gpt_command(self, interaction: discord.Interaction, prompt: str):
@@ -97,6 +99,7 @@ class SlashCommands(commands.Cog):
     async def notion_command(self, interaction: discord.Interaction, query: str):
         await interaction.response.defer()
         try:
+            # NOTION_PAGE_MAP を使用するためにインポートが必要
             page_ids = NOTION_PAGE_MAP.get(str(interaction.channel.id))
             if not page_ids:
                 await interaction.edit_original_response(content="❌ このチャンネルはNotionページにリンクされていません。")
@@ -104,6 +107,7 @@ class SlashCommands(commands.Cog):
             target_page_id = page_ids[0]
 
             user_name = interaction.user.display_name
+            # log_to_notion を使用するためにインポートが必要
             await log_to_notion(target_page_id, [{"object": "block", "type": "paragraph", "paragraph": {"rich_text": [{"type": "text", "text": {"content": f"👤 {user_name} (via /notion):\n{query}"}}]}}])
 
             context = await get_notion_context(interaction, target_page_id, query, model_choice="gpt")
@@ -114,6 +118,7 @@ class SlashCommands(commands.Cog):
             await interaction.edit_original_response(content="⏳ gpt-5が最終回答を生成中です...")
             reply = await ask_gpt5(prompt_with_context)
 
+            # log_response を使用するためにインポートが必要
             await log_response(target_page_id, reply, "gpt-5 (/notionコマンド)")
 
             await send_long_message(interaction, f"** 最終回答 (by gpt-5):**\n{reply}", is_followup=False)
@@ -139,28 +144,28 @@ class SlashCommands(commands.Cog):
     async def all_command(self, interaction: discord.Interaction, prompt: str, attachment: discord.Attachment = None):
         await interaction.response.defer()
         final_query = prompt
-        if attachment: 
+        if attachment:
             await interaction.edit_original_response(content="📎 添付ファイルを解析しています…")
             final_query += "\n\n" + await analyze_attachment_for_gpt5(attachment)
-        
+
         user_id = str(interaction.user.id)
         await interaction.edit_original_response(content="🔬 9体のAIが初期意見を生成中…")
-        
+
         tasks = {name: func(user_id, final_query) for name, func in BASE_MODELS_FOR_ALL.items()}
         adv_models_to_run = {
             "gpt-4o": ADVANCED_MODELS_FOR_ALL["gpt-4o"][0],
-            "Gemini 2.5 Flash": ADVANCED_MODELS_FOR_ALL["Gemini 2.5 Flash"][0],
+            "Gemini 2.5 Pro": ADVANCED_MODELS_FOR_ALL["Gemini 2.5 Pro"][0], # 修正: "Gemini 2.5 Flash"から変更
             "Perplexity": ADVANCED_MODELS_FOR_ALL["Perplexity"][0]
         }
         for name, func in adv_models_to_run.items():
             tasks[name] = func(final_query)
 
         results = await asyncio.gather(*tasks.values(), return_exceptions=True)
-        
+
         first_name = list(tasks.keys())[0]
         first_result = results[0]
         first_display_text = f"**🔹 {first_name}の意見:**\n{first_result if not isinstance(first_result, Exception) else f'エラー: {first_result}'}"
-        await interaction.edit_original_response(content=first_display_text[:2000]) 
+        await interaction.edit_original_response(content=first_display_text[:2000])
 
         for name, result in list(zip(tasks.keys(), results))[1:]:
             display_text = f"**🔹 {name}の意見:**\n{result if not isinstance(result, Exception) else f'エラー: {result}'}"
@@ -188,7 +193,7 @@ class SlashCommands(commands.Cog):
             except Exception as e:
                 opinion = f"{name}エラー: {e}"
             chain_results.append(f"◆ {name}の意見:\n{opinion}")
-            previous_opinion = opinion  
+            previous_opinion = opinion
         await send_long_message(interaction, "\n\n".join(chain_results), is_followup=True)
 
     @app_commands.command(name="critical", description="Notion情報を元に全AIで議論し、多角的な結論を導きます。")
@@ -196,14 +201,15 @@ class SlashCommands(commands.Cog):
     async def critical_command(self, interaction: discord.Interaction, topic: str):
         await interaction.response.defer()
         try:
+            # NOTION_PAGE_MAP を使用するためにインポートが必要
             page_ids = NOTION_PAGE_MAP.get(str(interaction.channel.id))
             if not page_ids:
                 await interaction.edit_original_response(content="❌ このチャンネルはNotionページにリンクされていません。")
                 return
             target_page_id = page_ids[0]
-            
+
             context = await get_notion_context(interaction, target_page_id, topic, model_choice="gemini")
-            if not context: 
+            if not context:
                 return
 
             await interaction.edit_original_response(content=" 11体のAIが初期意見を生成中…")
@@ -213,9 +219,9 @@ class SlashCommands(commands.Cog):
             for name, (func, wrapper) in ADVANCED_MODELS_FOR_ALL.items():
                 if name == "Perplexity": tasks[name] = wrapper(func, topic, notion_context=context)
                 else: tasks[name] = wrapper(func, prompt_with_context)
-            
+
             results = await asyncio.gather(*tasks.values(), return_exceptions=True)
-            
+
             synthesis_material = "以下のAI群の意見を統合してください。\n\n"
             full_text_results = ""
             for (name, result) in zip(tasks.keys(), results):
@@ -224,11 +230,11 @@ class SlashCommands(commands.Cog):
                     full_response = display_text
                 else:
                     full_response, summary = result if isinstance(result, tuple) else (result, None)
-                    display_text = summary or full_response
-                
+                    display_text = summary or full_response or str(result) # 修正: resultがタプルでない場合のフォールバック
+
                 full_text_results += f"**🔹 {name}の意見:**\n{display_text}\n\n"
                 synthesis_material += f"--- [{name}の意見] ---\n{full_response}\n\n"
-            
+
             await send_long_message(interaction, full_text_results, is_followup=False)
             await interaction.followup.send(" gpt-5が中間レポートを作成します…")
             intermediate_report = await ask_gpt5(synthesis_material, system_prompt="以下の意見の要点だけを抽出し、短い中間レポートを作成してください。")
@@ -244,6 +250,7 @@ class SlashCommands(commands.Cog):
     async def logical_command(self, interaction: discord.Interaction, topic: str):
         await interaction.response.defer()
         try:
+            # NOTION_PAGE_MAP を使用するためにインポートが必要
             page_ids = NOTION_PAGE_MAP.get(str(interaction.channel.id))
             if not page_ids:
                 await interaction.edit_original_response(content="❌ このチャンネルはNotionページにリンクされていません。")
@@ -263,7 +270,11 @@ class SlashCommands(commands.Cog):
             tasks = {
                 "肯定論者(gpt-4o)": get_full_response_and_summary(ask_gpt4o, prompt_with_context, system_prompt="あなたはこの議題の【肯定論者】です。議題を推進する最も強力な論拠を提示してください。"),
                 "否定論者(Grok)": ask_grok(user_id, f"{prompt_with_context}\n\n上記を踏まえ、あなたはこの議題の【否定論者】として、議題に反対する最も強力な反論を、常識にとらわれず提示してください。"),
-                "中立分析官(Gemini 2.5 Flash)": get_full_response_and_summary(ask_minerva, prompt_with_context, system_prompt="あなたはこの議題に関する【中立的な分析官】です。関連する社会的・倫理的な論点を、感情を排して提示してください。"),
+                # 修正: Gemini 2.5 FlashはADVANCED_MODELS_FOR_ALLに含まれていない可能性があるため、utils.pyの定義を確認する必要がある。
+                # utils.pyのADVANCED_MODELS_FOR_ALL: {"gpt-4o": ..., "Gemini 2.5 Pro": ..., "Perplexity": ...}
+                # Gemini 2.5 Flash (ask_minerva) を使う場合は ADVANCED_MODELS_FOR_ALL に追加するか、直接呼び出す必要がある。
+                # ここでは utils.py の定義に合わせて Gemini 2.5 Pro を使用する例に変更（あるいは ask_minerva を直接使う）
+                "中立分析官(Gemini 2.5 Pro)": get_full_response_and_summary(ask_gemini_2_5_pro, prompt_with_context, system_prompt="あなたはこの議題に関する【中立的な分析官】です。関連する社会的・倫理的な論点を、感情を排して提示してください。"),
                 "外部調査(Perplexity)": get_full_response_and_summary(ask_rekus, topic, notion_context=context)
             }
 
@@ -276,8 +287,8 @@ class SlashCommands(commands.Cog):
                 elif name == "否定論者(Grok)":
                     display_text, full_response = result, result
                 else:
-                    full_response, summary = result
-                    display_text = summary or full_response
+                    full_response, summary = result if isinstance(result, tuple) else (result, None)
+                    display_text = summary or full_response or str(result) # 修正: resultがタプルでない場合のフォールバック
 
                 results_text += f"**{name}:**\n{display_text}\n\n"
                 synthesis_material += f"--- [{name}の意見] ---\n{full_response}\n\n"
@@ -306,5 +317,4 @@ class SlashCommands(commands.Cog):
             await interaction.followup.send(f"❌ 同期中にエラーが発生しました:\n```{e}```", ephemeral=True)
 
 async def setup(bot):
-
     await bot.add_cog(SlashCommands(bot))
