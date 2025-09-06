@@ -13,15 +13,14 @@ from ai_clients import (
     ask_gemini_2_5_pro, ask_lalah
 )
 
-# ▼▼▼【重要】不足しているインポートを追加 ▼▼▼
+# --- Notion関連のインポート ---
 from notion_utils import NOTION_PAGE_MAP, log_to_notion, log_response
 
 # --- utils.pyからのインポート ---
-# get_notion_contextはutils.pyにあるため、こちらはそのままにする
 from utils import (
-    safe_log, send_long_message, simple_ai_command_runner, 
-    advanced_ai_simple_runner, BASE_MODELS_FOR_ALL, 
-    ADVANCED_MODELS_FOR_ALL, get_full_response_and_summary, 
+    safe_log, send_long_message, simple_ai_command_runner,
+    advanced_ai_simple_runner, BASE_MODELS_FOR_ALL,
+    ADVANCED_MODELS_FOR_ALL, get_full_response_and_summary,
     analyze_attachment_for_gpt5, get_notion_context
 )
 
@@ -29,6 +28,18 @@ from utils import (
 ADMIN_USER_ID = os.getenv("ADMIN_USER_ID", "").strip()
 GUILD_ID = os.getenv("GUILD_ID", "").strip()
 
+# ▼▼▼【修正点1】クラス定義の開始 ▼▼▼
+# すべてのスラッシュコマンドは、このクラスのメソッドとして定義する必要があります。
+class SlashCommands(commands.Cog):
+    def __init__(self, client):
+        self.client = client
+        # simple_ai_command_runnerで使用するメモリマップをクラス属性として初期化
+        self.memory_map = {
+            "GPT": {}, "Gemini": {}, "Mistral": {},
+            "Claude": {}, "Llama": {}, "Grok": {}
+        }
+
+    # ▼▼▼【修正点2】ここから下のコマンドはすべて1段階インデントします ▼▼▼
     @app_commands.command(name="ping", description="ボットの応答テストを行います。")
     async def ping_command(self, interaction: discord.Interaction):
         await interaction.response.send_message("Pong!")
@@ -92,7 +103,6 @@ GUILD_ID = os.getenv("GUILD_ID", "").strip()
     async def notion_command(self, interaction: discord.Interaction, query: str):
         await interaction.response.defer()
         try:
-            # NOTION_PAGE_MAP を使用するためにインポートが必要
             page_ids = NOTION_PAGE_MAP.get(str(interaction.channel.id))
             if not page_ids:
                 await interaction.edit_original_response(content="❌ このチャンネルはNotionページにリンクされていません。")
@@ -100,7 +110,6 @@ GUILD_ID = os.getenv("GUILD_ID", "").strip()
             target_page_id = page_ids[0]
 
             user_name = interaction.user.display_name
-            # log_to_notion を使用するためにインポートが必要
             await log_to_notion(target_page_id, [{"object": "block", "type": "paragraph", "paragraph": {"rich_text": [{"type": "text", "text": {"content": f"👤 {user_name} (via /notion):\n{query}"}}]}}])
 
             context = await get_notion_context(interaction, target_page_id, query, model_choice="gpt")
@@ -111,7 +120,6 @@ GUILD_ID = os.getenv("GUILD_ID", "").strip()
             await interaction.edit_original_response(content="⏳ gpt-5が最終回答を生成中です...")
             reply = await ask_gpt5(prompt_with_context)
 
-            # log_response を使用するためにインポートが必要
             await log_response(target_page_id, reply, "gpt-5 (/notionコマンド)")
 
             await send_long_message(interaction, f"** 最終回答 (by gpt-5):**\n{reply}", is_followup=False)
@@ -147,7 +155,7 @@ GUILD_ID = os.getenv("GUILD_ID", "").strip()
         tasks = {name: func(user_id, final_query) for name, func in BASE_MODELS_FOR_ALL.items()}
         adv_models_to_run = {
             "gpt-4o": ADVANCED_MODELS_FOR_ALL["gpt-4o"][0],
-            "Gemini 2.5 Pro": ADVANCED_MODELS_FOR_ALL["Gemini 2.5 Pro"][0], # 修正: "Gemini 2.5 Flash"から変更
+            "Gemini 2.5 Pro": ADVANCED_MODELS_FOR_ALL["Gemini 2.5 Pro"][0],
             "Perplexity": ADVANCED_MODELS_FOR_ALL["Perplexity"][0]
         }
         for name, func in adv_models_to_run.items():
@@ -194,7 +202,6 @@ GUILD_ID = os.getenv("GUILD_ID", "").strip()
     async def critical_command(self, interaction: discord.Interaction, topic: str):
         await interaction.response.defer()
         try:
-            # NOTION_PAGE_MAP を使用するためにインポートが必要
             page_ids = NOTION_PAGE_MAP.get(str(interaction.channel.id))
             if not page_ids:
                 await interaction.edit_original_response(content="❌ このチャンネルはNotionページにリンクされていません。")
@@ -223,7 +230,7 @@ GUILD_ID = os.getenv("GUILD_ID", "").strip()
                     full_response = display_text
                 else:
                     full_response, summary = result if isinstance(result, tuple) else (result, None)
-                    display_text = summary or full_response or str(result) # 修正: resultがタプルでない場合のフォールバック
+                    display_text = summary or full_response or str(result)
 
                 full_text_results += f"**🔹 {name}の意見:**\n{display_text}\n\n"
                 synthesis_material += f"--- [{name}の意見] ---\n{full_response}\n\n"
@@ -243,7 +250,6 @@ GUILD_ID = os.getenv("GUILD_ID", "").strip()
     async def logical_command(self, interaction: discord.Interaction, topic: str):
         await interaction.response.defer()
         try:
-            # NOTION_PAGE_MAP を使用するためにインポートが必要
             page_ids = NOTION_PAGE_MAP.get(str(interaction.channel.id))
             if not page_ids:
                 await interaction.edit_original_response(content="❌ このチャンネルはNotionページにリンクされていません。")
@@ -263,10 +269,6 @@ GUILD_ID = os.getenv("GUILD_ID", "").strip()
             tasks = {
                 "肯定論者(gpt-4o)": get_full_response_and_summary(ask_gpt4o, prompt_with_context, system_prompt="あなたはこの議題の【肯定論者】です。議題を推進する最も強力な論拠を提示してください。"),
                 "否定論者(Grok)": ask_grok(user_id, f"{prompt_with_context}\n\n上記を踏まえ、あなたはこの議題の【否定論者】として、議題に反対する最も強力な反論を、常識にとらわれず提示してください。"),
-                # 修正: Gemini 2.5 FlashはADVANCED_MODELS_FOR_ALLに含まれていない可能性があるため、utils.pyの定義を確認する必要がある。
-                # utils.pyのADVANCED_MODELS_FOR_ALL: {"gpt-4o": ..., "Gemini 2.5 Pro": ..., "Perplexity": ...}
-                # Gemini 2.5 Flash (ask_minerva) を使う場合は ADVANCED_MODELS_FOR_ALL に追加するか、直接呼び出す必要がある。
-                # ここでは utils.py の定義に合わせて Gemini 2.5 Pro を使用する例に変更（あるいは ask_minerva を直接使う）
                 "中立分析官(Gemini 2.5 Pro)": get_full_response_and_summary(ask_gemini_2_5_pro, prompt_with_context, system_prompt="あなたはこの議題に関する【中立的な分析官】です。関連する社会的・倫理的な論点を、感情を排して提示してください。"),
                 "外部調査(Perplexity)": get_full_response_and_summary(ask_rekus, topic, notion_context=context)
             }
@@ -281,7 +283,7 @@ GUILD_ID = os.getenv("GUILD_ID", "").strip()
                     display_text, full_response = result, result
                 else:
                     full_response, summary = result if isinstance(result, tuple) else (result, None)
-                    display_text = summary or full_response or str(result) # 修正: resultがタプルでない場合のフォールバック
+                    display_text = summary or full_response or str(result)
 
                 results_text += f"**{name}:**\n{display_text}\n\n"
                 synthesis_material += f"--- [{name}の意見] ---\n{full_response}\n\n"
@@ -309,5 +311,6 @@ GUILD_ID = os.getenv("GUILD_ID", "").strip()
         except Exception as e:
             await interaction.followup.send(f"❌ 同期中にエラーが発生しました:\n```{e}```", ephemeral=True)
 
+# ▼▼▼【修正点3】Cogを登録するための必須関数 ▼▼▼
 async def setup(bot):
     await bot.add_cog(SlashCommands(bot))
