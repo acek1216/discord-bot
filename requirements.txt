@@ -1,11 +1,21 @@
+# Discord
 discord.py
+
+# Webフレームワーク
+fastapi
+uvicorn
+
+# APIクライアント
 openai
+mistralai
 google-generativeai
-python-dotenv
-requests
+google-cloud-aiplatform
 notion-client
-Pillow
-mistralai==0.4.2
+requests
 aiohttp
-google-cloud-aiplatform>=1.49.0
-PyPDF2
+
+# ファイル処理
+pypdf2
+
+# 環境変数
+python-dotenv
