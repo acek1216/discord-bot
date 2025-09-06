@@ -77,14 +77,15 @@ async def startup_event():
         print("📚 機能モジュール (Cogs) を読み込み中...")
         cogs_to_load = ["cogs.commands", "cogs.message_handler"]
         for cog in cogs_to_load:
-            await bot.load_extension(cog)
-            print(f"  ✅ {cog} を正常に読み込みました。")
-        except Exception as e:
-            # ここを修正して、より詳細なエラーを出力する
-            print(f"  ❌ {cog} のロードに失敗しました: {e}")
-            import traceback
-            traceback.print_exc() # <-- この行を追加
-            continue
+            # ▼▼▼ このtry-exceptブロックのインデントを修正 ▼▼▼
+            try:
+                await bot.load_extension(cog)
+                print(f"  ✅ {cog} を正常に読み込みました。")
+            except Exception as e:
+                print(f"  ❌ {cog} のロードに失敗しました: {e}")
+                import traceback
+                traceback.print_exc()
+                continue
 
         # 3. Discord Botをバックグラウンドタスクとして起動
         asyncio.create_task(bot.start(DISCORD_TOKEN))
@@ -94,8 +95,3 @@ async def startup_event():
         print(f"🚨🚨🚨 致命的な起動エラーが発生しました 🚨🚨🚨")
         import traceback
         traceback.print_exc()
-
-# ▼▼▼【ここが重要】▼▼▼
-# if __name__ == "__main__": のブロックはCloud Runでは実行されないため削除。
-# 代わりに、ローカルでテストする際はターミナルで以下のコマンドを実行します。
-# uvicorn bot:app --reload
