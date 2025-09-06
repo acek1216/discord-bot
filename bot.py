@@ -79,6 +79,12 @@ async def startup_event():
         for cog in cogs_to_load:
             await bot.load_extension(cog)
             print(f"  ✅ {cog} を正常に読み込みました。")
+        except Exception as e:
+            # ここを修正して、より詳細なエラーを出力する
+            print(f"  ❌ {cog} のロードに失敗しました: {e}")
+            import traceback
+            traceback.print_exc() # <-- この行を追加
+            continue
 
         # 3. Discord Botをバックグラウンドタスクとして起動
         asyncio.create_task(bot.start(DISCORD_TOKEN))
