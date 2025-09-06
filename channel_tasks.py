@@ -162,7 +162,4 @@ async def run_gpt4o_room_task(message: discord.Message, user_prompt: str, log_pa
         except Exception as e:
             await channel.send(f"❌ gpt-4o部屋でエラーが発生しました: {e}")
             import traceback
-
             traceback.print_exc()
-
-
