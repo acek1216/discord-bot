@@ -125,7 +125,7 @@ async def run_gpt4o_room_task(message: discord.Message, user_prompt: str, log_pa
             
             attach_text = ""
             if message.attachments:
-            attach_text = await analyze_attachment_for_gpt5(message.attachments[0])
+                attach_text = await analyze_attachment_for_gpt5(message.attachments[0])
             
             prompt_for_answer = (
                 f"あなたはナレッジベースと会話履歴を元に応答する執事AIです。\n"
@@ -164,4 +164,5 @@ async def run_gpt4o_room_task(message: discord.Message, user_prompt: str, log_pa
             import traceback
 
             traceback.print_exc()
+
 
