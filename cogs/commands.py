@@ -29,7 +29,6 @@ from utils import (
 ADMIN_USER_ID = os.getenv("ADMIN_USER_ID", "").strip()
 GUILD_ID = os.getenv("GUILD_ID", "").strip()
 
-
     @app_commands.command(name="ping", description="ボットの応答テストを行います。")
     async def ping_command(self, interaction: discord.Interaction):
         await interaction.response.send_message("Pong!")
@@ -312,4 +311,3 @@ GUILD_ID = os.getenv("GUILD_ID", "").strip()
 
 async def setup(bot):
     await bot.add_cog(SlashCommands(bot))
-
