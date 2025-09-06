@@ -105,7 +105,12 @@ async def analyze_attachment_for_gpt5(attachment: discord.Attachment):
     elif filename.endswith(".pdf"):
         try:
             reader = PyPDF2.PdfReader(io.BytesIO(data))
-            return f"[添付PDF {attachment.filename} 抜粋]\n{'\n'.join([p.extract_text() or '' for p in reader.pages])[:3500]}"
+            # ▼▼▼ 修正箇所 ▼▼▼
+            # ステップ1: バックスラッシュを含む文字列を先に生成する
+            all_text = "\n".join([p.extract_text() or "" for p in reader.pages])
+            
+            # ステップ2: f-stringの中では、バックスラッシュを含まない変数だけを使う
+            return f"[添付PDF {attachment.filename} 抜粋]\n{all_text[:3500]}"
         except Exception as e: return f"[PDF解析エラー: {e}]"
     else: return f"[未対応の添付ファイル形式: {attachment.filename}]"
 
