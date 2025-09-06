@@ -282,4 +282,15 @@ async def ask_llama(user_id, prompt, history=None):
     except Exception as e:
         return f"Llama 3.3 非同期処理エラー: {e}"
 
+async def ask_rekus_for_summary(prompt: str) -> str:
+    """Perplexity Sonarを使って要約を行うヘルパー関数"""
+    system_prompt = "あなたは構造化要約AIです。与えられたテキストを、ユーザーの質問との関連性を考慮して、指定されたタグ（[背景情報]など）を付けて分類・要約してください。"
+    try:
+        # 既存のask_rekus関数を、要約用のシステムプロンプトで呼び出します
+        summary_text = await ask_rekus(prompt, system_prompt=system_prompt)
+        if "Perplexityエラー" in str(summary_text):
+            return f"Perplexityでの要約中にエラーが発生しました: {summary_text}"
+        return summary_text
+    except Exception as e:
+        return f"Perplexityでの要約中に予期せぬエラーが発生しました: {e}"
 # --- ここまで ---
