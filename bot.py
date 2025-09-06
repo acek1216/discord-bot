@@ -71,7 +71,7 @@ bot = commands.Bot(command_prefix="/", intents=intents)
 
 # --- FastAPIイベントハンドラ ---
 
-@app.on_event("startup")
+app.on_event("startup")
 async def startup_event():
     """サーバー起動時に各種クライアントを初期化し、Botをバックグラウンドで起動する"""
     print("🚀 サーバーの起動処理を開始します...")
@@ -79,43 +79,41 @@ async def startup_event():
     try:
         # --- 1. APIクライアントの初期化 ---
         print("🤖 APIクライアントを初期化中...")
-        # ai_clientsモジュール内のクライアントを初期化
         ai_clients.initialize_clients()
-        # notion_utilsモジュール内のクライアントを初期化
         notion_utils.notion = Client(auth=os.getenv("NOTION_API_KEY"))
-        # utilsモジュールに必要なクライアントを渡す（依存性の注入）
         utils.set_openai_client(ai_clients.openai_client)
 
-        # Vertex AIの初期化
         try:
             print("🤖 Vertex AIを初期化中...")
             vertexai.init(project="stunning-agency-469102-b5", location="us-central1")
             llama_model = ai_clients.GenerativeModel("publishers/meta/models/llama-3.3-70b-instruct-maas")
-            # 初期化したモデルをai_clientsモジュールに渡す
             ai_clients.set_llama_model(llama_model)
             print("✅ Vertex AIが正常に初期化されました。")
         except Exception as e:
-            print(f"⚠️ Vertex AIの初期化に失敗しました (Llama 3.3は利用できません): {e}")
+            print(f"⚠️ Vertex AIの初期化に失敗しました: {e}")
 
-        # --- 2. Cogs（機能モジュール）の読み込み ---
-        print("📚 機能モジュール (Cogs) を読み込み中...")
-        cogs_to_load = [
-            "cogs.commands",         # スラッシュコマンドを定義
-            "cogs.message_handler",  # メッセージイベントを処理
-        ]
-        for cog in cogs_to_load:
-            try:
-                await bot.load_extension(cog)
-                print(f"  ✅ {cog} を正常に読み込みました。")
-            except Exception as e:
-                print(f"  🚨 {cog} の読み込み中にエラーが発生しました: {e}")
-                # エラーの詳細を出力
-                import traceback
-                traceback.print_exc()
+        # --- 2. Cogs（機能モジュール）を読み込む関数 ---
+        async def load_cogs():
+            print("📚 機能モジュール (Cogs) を読み込み中...")
+            cogs_to_load = ["cogs.commands", "cogs.message_handler"]
+            for cog in cogs_to_load:
+                try:
+                    await bot.load_extension(cog)
+                    print(f"  ✅ {cog} を正常に読み込みました。")
+                except Exception as e:
+                    print(f"  🚨 {cog} の読み込み中にエラー: {e}")
+                    import traceback
+                    traceback.print_exc()
         
-        # --- 3. Discord Botの起動 ---
-        # Botを非同期タスクとして起動
-        asyncio.create_task(bot.start(DISCORD_TOKEN))
+        # --- 3. Discord Botを起動するメインの非同期タスク ---
+        async def start_bot():
+            # ▼▼▼【ここが修正点】▼▼▼
+            # Botを起動する前に、必ずCogsを読み込む
+            await load_cogs()
+            await bot.start(DISCORD_TOKEN)
+            # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+
+        asyncio.create_task(start_bot())
         print("✅ Discord Botの起動タスクが作成されました。")
 
     except Exception as e:
