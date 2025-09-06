@@ -11,7 +11,7 @@ from ai_clients import (
 )
 from utils import (
     safe_log, send_long_message, summarize_text_chunks_for_message,
-    extract_attachments_as_text
+    analyze_attachment_for_gpt5
 )
 import state # state.py からメモリをインポート
 import os
@@ -160,4 +160,5 @@ async def run_gpt4o_room_task(message: discord.Message, user_prompt: str, log_pa
         except Exception as e:
             await channel.send(f"❌ gpt-4o部屋でエラーが発生しました: {e}")
             import traceback
+
             traceback.print_exc()
