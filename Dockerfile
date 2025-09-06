@@ -16,5 +16,5 @@ COPY . .
 
 # Cloud Runがコンテナを起動する際に実行するコマンド
 # bot.pyの中のFastAPIアプリ(app)をUvicornで起動する
-# $PORT はCloud Runが自動的に設定してくれる
-CMD ["uvicorn", "bot:app", "--host", "0.0.0.0", "--port", "8080"]
+# Uvicornがbot.pyを正しく見つけられるよう、pythonのモジュールパスを指定
+CMD ["python", "-m", "uvicorn", "bot:app", "--host", "0.0.0.0", "--port", "8080"]
