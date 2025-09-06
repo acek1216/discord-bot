@@ -1,20 +1,20 @@
-# Pythonの公式イメージをベースにする
+# Python 3.11 の軽量イメージをベースにする
 FROM python:3.11-slim
 
-# 環境変数を設定
-ENV APP_HOME /app
-ENV LANG C.UTF-8
-WORKDIR $APP_HOME
+# 作業ディレクトリを設定
+WORKDIR /app
 
-# 最初にライブラリをインストール
+# 必要なライブラリをインストールするためのファイルをコピー
 COPY requirements.txt .
-# Gunicorn/Flaskを削除し、モダンなサーバー(FastAPI, Uvicorn)を追加
-RUN pip install --no-cache-dir -r requirements.txt fastapi "uvicorn[standard]"
 
-# アプリケーションのコードをコンテナにコピーします
+# requirements.txt に書かれたライブラリをインストール
+# --no-cache-dir オプションでイメージサイズを削減
+RUN pip install --no-cache-dir -r requirements.txt
+
+# プロジェクトの全てのファイルをコンテナにコピー
 COPY . .
 
-# コンテナ起動時にUvicornを実行します
-# Command to run the application
-CMD ["uvicorn","bot:app","--host","0.0.0.0","--port","8080"]
-
+# Cloud Runがコンテナを起動する際に実行するコマンド
+# bot.pyの中のFastAPIアプリ(app)をUvicornで起動する
+# $PORT はCloud Runが自動的に設定してくれる
+CMD ["uvicorn", "bot:app", "--host", "0.0.0.0", "--port", "8080"]
