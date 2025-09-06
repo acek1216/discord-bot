@@ -121,6 +121,19 @@ async def startup_event():
         import traceback
         traceback.print_exc()
 
+@app.get("/")
+def health_check():
+    """Cloud Runがコンテナが正常か確認するための窓口"""
+    return {"status": "ok", "bot_is_connected": bot.is_ready()}
+
+# この関数を bot.py に追加してください
+
+async def liveness_check(bot_instance):
+    """ボットが生きているか5秒ごとにログを出力する関数"""
+    while True:
+        await asyncio.sleep(5)
+        print(f"❤️ LIVENESS CHECK: Bot is alive. Logged in: {bot_instance.is_ready()}")
+
 @bot.event
 async def on_ready():
     """Botの準備が完了したときの処理"""
@@ -143,12 +156,8 @@ async def on_ready():
     print("-" * 30)
     print("サーバーが正常に起動し、Botがオンラインになりました。")
 
-# このコードを bot.py に追加してください
+    asyncio.create_task(liveness_check(bot)) # 生存確認タスクを開始
 
-@app.get("/")
-def health_check():
-    """Cloud Runがコンテナが正常か確認するための窓口"""
-    return {"status": "ok", "bot_is_connected": bot.is_ready()}
 
 # --- メインの実行ブロック ---
 if __name__ == "__main__":
