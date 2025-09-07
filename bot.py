@@ -1,7 +1,8 @@
-# bot.py (最終版 - 修正済み)
+# bot.py (修正版)
 
 # --- ライブラリとモジュールのインポート ---
 import asyncio
+import contextlib # 修正: これを追加
 import os
 import sys
 import discord
@@ -24,51 +25,14 @@ import state
 load_dotenv()
 os.environ.setdefault("LANG", "C.UTF-8")
 
-# --- FastAPIとDiscord Botの準備 ---
-app = FastAPI()
-DISCORD_TOKEN = os.getenv("DISCORD_BOT_TOKEN")
-GUILD_ID_STR = os.getenv("GUILD_ID", "").strip() # この変数はもう同期には使われませんが、他の機能で必要になる可能性を考慮し残します
-intents = discord.Intents.default()
-intents.message_content = True
-bot = commands.Bot(command_prefix="/", intents=intents)
+# ▼▼▼【ここからが修正箇所】▼▼▼
 
-# --- ヘルスチェック用エンドポイント ---
-@app.get("/")
-def health_check():
-    return {"status": "ok", "bot_is_connected": bot.is_ready()}
-
-# --- Botイベントハンドラ (修正済み) ---
-@bot.event
-async def on_ready():
-    print("-" * 30)
-    print(f"✅ Discordにログインしました: {bot.user} (ID: {bot.user.id})")
-    print(f"🚀 参加中の全サーバーへコマンドを同期します...")
-    
-    synced_guilds = 0
-    failed_guilds = []
-    
-    # ボットが参加している全てのギルドをループして同期
-    for guild in bot.guilds:
-        try:
-            await bot.tree.sync(guild=guild)
-            print(f"  ✅ '{guild.name}' (ID: {guild.id}) に同期しました。")
-            synced_guilds += 1
-        except Exception as e:
-            print(f"  ❌ '{guild.name}' (ID: {guild.id}) の同期に失敗しました: {e}")
-            failed_guilds.append(guild.name)
-
-    print("-" * 30)
-    print(f"✅ 同期処理完了: {synced_guilds}サーバーに成功。")
-    if failed_guilds:
-        print(f"⚠️ 同期失敗: {len(failed_guilds)}サーバー ({', '.join(failed_guilds)})")
-    print("-" * 30)
-
-# --- メインの起動ロジック ---
-@app.on_event("startup")
-async def startup_event():
-    print("🚀 サーバーの起動処理を開始します...")
-
+# 1. Botの起動と停止を管理する非同期関数を定義
+@contextlib.asynccontextmanager
+async def lifespan(app: FastAPI):
+    print("🚀 サーバーのライフスパン管理を開始します...")
     try:
+        # --- ここに、元々 startup_event にあった処理を全て移動 ---
         # 1. APIクライアント初期化
         print("🤖 APIクライアントを初期化中...")
         ai_clients.initialize_clients()
@@ -99,11 +63,51 @@ async def startup_event():
         # 3. Discord Botをバックグラウンドタスクとして起動
         asyncio.create_task(bot.start(DISCORD_TOKEN))
         print("✅ Discord Botの起動タスクが作成されました。")
+        # --- ここまでが移動した処理 ---
 
+        yield # FastAPIアプリケーションが動作するのを待つ
+
+    finally:
+        # --- サーバー終了時の処理 ---
+        print("👋 サーバーのシャットダウン処理を開始します...")
+        await bot.close()
+        print("✅ Discord Botが正常にクローズされました。")
+
+
+# 2. FastAPIアプリの定義を修正
+app = FastAPI(lifespan=lifespan)
+DISCORD_TOKEN = os.getenv("DISCORD_BOT_TOKEN")
+GUILD_ID_STR = os.getenv("GUILD_ID", "").strip()
+intents = discord.Intents.default()
+intents.message_content = True
+bot = commands.Bot(command_prefix="/", intents=intents)
+
+# ▲▲▲【ここまでが修正箇所】▲▲▲
+
+# --- ヘルスチェック用エンドポイント ---
+@app.get("/")
+def health_check():
+    return {"status": "ok", "bot_is_connected": bot.is_ready()}
+
+# --- Botイベントハンドラ ---
+@bot.event
+async def on_ready():
+    print("-" * 30)
+    print(f"✅ Discordにログインしました: {bot.user} (ID: {bot.user.id})")
+    try:
+        if GUILD_ID_STR and GUILD_ID_STR.isdigit():
+            guild_obj = discord.Object(id=int(GUILD_ID_STR))
+            await bot.tree.sync(guild=guild_obj)
+            print(f"✅ スラッシュコマンドをギルド: {GUILD_ID_STR} に同期しました。")
+        else:
+            await bot.tree.sync()
+            print("✅ スラッシュコマンドをグローバルに同期しました。反映に時間がかかる場合があります。")
     except Exception as e:
-        print(f"🚨🚨🚨 致命的な起動エラーが発生しました 🚨🚨🚨")
-        import traceback
-        traceback.print_exc()
+        print(f"⚠️ スラッシュコマンドの同期に失敗しました: {e}")
+    print("-" * 30)
+
+# --- メインの起動ロジック ---
+# 修正: @app.on_event("startup") は lifespan に移動したため削除
 
 # uvicornの起動
 if __name__ == "__main__":
