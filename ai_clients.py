@@ -222,7 +222,7 @@ async def ask_claude(user_id, prompt, history=None):
     if history: messages += history
     messages += [{"role": "user", "content": prompt}]
     headers = {"Authorization": f"Bearer {OPENROUTER_API_KEY}", "Content-Type": "application/json"}
-    payload = {"model": "anthropic/claude-4-sonnet", "messages": messages}
+    payload = {"model": "anthropic/claude-sonnet-4", "messages": messages}
     try:
         loop = asyncio.get_event_loop()
         response = await loop.run_in_executor(None, lambda: requests.post(
