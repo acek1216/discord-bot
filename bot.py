@@ -13,7 +13,7 @@ import google.generativeai as genai
 import vertexai
 from dotenv import load_dotenv
 
-# ▼▼▼【修正1】GenerativeModelを直接インポート ▼▼▼
+# GenerativeModelを直接インポート
 from vertexai.generative_models import GenerativeModel
 
 import ai_clients
