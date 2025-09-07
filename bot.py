@@ -67,15 +67,18 @@ async def startup_event():
         notion_utils.notion = Client(auth=os.getenv("NOTION_API_KEY"))
         utils.set_openai_client(ai_clients.openai_client)
 
-        try:
-            print("🤖 Vertex AIを初期化中...")
-            vertexai.init(project="stunning-agency-469102-b5", location="us-central1")
-            # ▼▼▼【修正2】呼び出し方を変更 ▼▼▼
-            llama_model = GenerativeModel("publishers/meta/models/llama-3.3-70b-instruct-maas")
-            ai_clients.set_llama_model(llama_model)
-            print("✅ Vertex AIが正常に初期化されました。")
-        except Exception as e:
-            print(f"⚠️ Vertex AIの初期化に失敗しました: {e}")
+# bot.py (変更なし)
+
+# ...
+    try:
+        print("🤖 Vertex AIを初期化中...")
+        vertexai.init(project="stunning-agency-469102-b5", location="us-central1")
+        # ▼▼▼【修正2】呼び出し方を変更 ▼▼▼
+        llama_model = GenerativeModel("publishers/meta/models/llama-3.3-70b-instruct-maas")
+        ai_clients.set_llama_model(llama_model)
+        print("✅ Vertex AIが正常に初期化されました。")
+    except Exception as e:
+        print(f"⚠️ Vertex AIの初期化に失敗しました: {e}")
 
         # 2. Cogs読み込み
         print("📚 機能モジュール (Cogs) を読み込み中...")
