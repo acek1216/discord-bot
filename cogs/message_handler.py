@@ -31,10 +31,6 @@ class MessageHandlerCog(commands.Cog):
         except Exception as e:
             print(f"🚨 [診断] リアクション応答エラー: {e}")
 
-class MessageHandlerCog(commands.Cog):
-    def __init__(self, bot):
-        self.bot = bot
-
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
         if message.author.bot or message.content.startswith("/"):
@@ -193,4 +189,5 @@ class MessageHandlerCog(commands.Cog):
 async def setup(bot):
 
     await bot.add_cog(MessageHandlerCog(bot))
+
 
