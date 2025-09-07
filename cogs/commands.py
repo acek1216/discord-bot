@@ -26,8 +26,8 @@ GUILD_ID = os.getenv("GUILD_ID", "").strip()
 
 
 # ▼▼▼【重要】クラス定義を開始 ▼▼▼
+# すべてのスラッシュコマンドは、このクラスのメソッドとして定義する必要があります。
 class SlashCommands(commands.Cog):
-    # ▼▼▼【重要】ここから下のコマンドはすべて1段階インデントします ▼▼▼
     def __init__(self, client):
         self.client = client
         # スラッシュコマンド用の短期記憶をCog内で管理
