@@ -64,8 +64,6 @@ async def startup_event():
         print("🤖 APIクライアントを初期化中...")
         ai_clients.initialize_clients()
         notion_utils.notion = Client(auth=os.getenv("NOTION_API_KEY"))
-        # ▼▼▼ 修正箇所：不要な関数呼び出しを削除 ▼▼▼
-        utils.set_openai_client(ai_clients.openai_client)
 
         try:
             print("🤖 Vertex AIを初期化中...")
