@@ -1,4 +1,4 @@
-# bot.py (修正版 - 最終)
+# bot.py (最終版 - 修正済み)
 
 # --- ライブラリとモジュールのインポート ---
 import asyncio
@@ -43,13 +43,11 @@ async def on_ready():
     print("-" * 30)
     print(f"✅ Discordにログインしました: {bot.user} (ID: {bot.user.id})")
     try:
-        # GUILD_IDが設定されている場合は、指定されたギルドに同期する
         if GUILD_ID_STR and GUILD_ID_STR.isdigit():
             guild_obj = discord.Object(id=int(GUILD_ID_STR))
             await bot.tree.sync(guild=guild_obj)
             print(f"✅ スラッシュコマンドをギルド: {GUILD_ID_STR} に同期しました。")
         else:
-            # GUILD_IDが設定されていない場合は、グローバルに同期する
             await bot.tree.sync()
             print("✅ スラッシュコマンドをグローバルに同期しました。反映に時間がかかる場合があります。")
     except Exception as e:
@@ -66,7 +64,8 @@ async def startup_event():
         print("🤖 APIクライアントを初期化中...")
         ai_clients.initialize_clients()
         notion_utils.notion = Client(auth=os.getenv("NOTION_API_KEY"))
-        utils.set_openai_client(ai_clients.openai_client)
+        # ▼▼▼ 修正箇所：不要な関数呼び出しを削除 ▼▼▼
+        # utils.set_openai_client(ai_clients.openai_client)
 
         try:
             print("🤖 Vertex AIを初期化中...")
@@ -91,7 +90,6 @@ async def startup_event():
                 continue
 
         # 3. Discord Botをバックグラウンドタスクとして起動
-        # この行は、FastAPIの起動イベントで一度だけ呼び出す
         asyncio.create_task(bot.start(DISCORD_TOKEN))
         print("✅ Discord Botの起動タスクが作成されました。")
 
@@ -100,7 +98,7 @@ async def startup_event():
         import traceback
         traceback.print_exc()
 
-# uvicornの起動
+# uvicornの起動（if __name__ == "__main__": ブロックはDocker起動では通常不要だが、ローカルテスト用に残す）
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
     uvicorn.run(app, host="0.0.0.0", port=port)
