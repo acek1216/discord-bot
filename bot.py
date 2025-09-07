@@ -78,17 +78,10 @@ async def startup_event():
             print(f"⚠️ Vertex AIの初期化に失敗しました: {e}")
 
         # 2. Cogs読み込み
-        print("📚 機能モジュール (Cogs) を読み込み中...")
-        cogs_to_load = ["cogs.commands", "cogs.message_handler"]
-        for cog in cogs_to_load:
-            try:
-                await bot.load_extension(cog)
-                print(f"  ✅ {cog} を正常に読み込みました。")
-            except Exception as e:
-                print(f"  ❌ {cog} のロードに失敗しました: {e}")
-                import traceback
-                traceback.print_exc()
-                continue
+            print("📚 機能モジュール (Cogs) を読み込み中...")
+            # ▼▼▼ 修正箇所 ▼▼▼
+            # cogs_to_load = ["cogs.commands", "cogs.message_handler"]
+            cogs_to_load = ["cogs.commands"] # スラッシュコマンドだけをテストする
 
         # 3. Discord Botをバックグラウンドタスクとして起動
         asyncio.create_task(bot.start(DISCORD_TOKEN))
