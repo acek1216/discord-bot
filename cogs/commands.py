@@ -22,6 +22,7 @@ from utils import (
 
 # 環境変数を読み込み
 ADMIN_USER_ID = os.getenv("ADMIN_USER_ID", "").strip()
+# GUILD_IDはsyncコマンドでは使わなくなったため、このファイルからは削除しても問題ありません
 GUILD_ID = os.getenv("GUILD_ID", "").strip()
 
 
@@ -294,7 +295,8 @@ class SlashCommands(commands.Cog):
             if not interaction.is_done():
                 await interaction.followup.send(f"❌ エラーが発生しました: {e}", ephemeral=True)
 
-    @app_commands.command(name="sync", description="管理者専用：スラッシュコマンドをサーバーに同期します。")
+    # ▼▼▼ 修正済みsyncコマンド ▼▼▼
+    @app_commands.command(name="sync", description="管理者専用：現在いるサーバーにコマンドを同期します。")
     async def sync_command(self, interaction: discord.Interaction):
         # 管理者IDが設定されているか確認
         if not ADMIN_USER_ID:
@@ -307,16 +309,19 @@ class SlashCommands(commands.Cog):
         
         await interaction.response.defer(ephemeral=True)
         try:
-            guild_obj = discord.Object(id=int(GUILD_ID)) if GUILD_ID.isdigit() else None
-            
-            # ギルドIDが設定されていない場合は、グローバル同期を試みる
-            if not guild_obj:
-                await interaction.followup.send("⚠️ ギルドIDが設定されていないため、全サーバーにコマンドを同期します。反映に時間がかかる場合があります。", ephemeral=True)
-                synced_commands = await self.client.tree.sync()
-            else:
-                synced_commands = await self.client.tree.sync(guild=guild_obj)
+            # 実行されたサーバー（ギルド）オブジェクトを取得
+            guild_obj = interaction.guild
+            if guild_obj is None:
+                await interaction.followup.send("❌ このコマンドはサーバー内でのみ実行できます。", ephemeral=True)
+                return
 
-            await interaction.followup.send(f"✅ コマンドの同期が完了しました。同期数: {len(synced_commands)}件", ephemeral=True)
+            # 現在のサーバーにコマンドを同期
+            synced_commands = await self.client.tree.sync(guild=guild_obj)
+            await interaction.followup.send(
+                f"✅ サーバー '{guild_obj.name}' (ID: {guild_obj.id}) へのコマンド同期が完了しました。\n"
+                f"同期数: {len(synced_commands)}件", 
+                ephemeral=True
+            )
         except Exception as e:
             await interaction.followup.send(f"❌ 同期中にエラーが発生しました:\n```{e}```", ephemeral=True)
 
