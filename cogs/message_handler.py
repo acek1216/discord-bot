@@ -16,24 +16,20 @@ ADMIN_USER_ID = os.getenv("ADMIN_USER_ID", "").strip()
 class MessageHandlerCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
+        print("--- MessageHandlerCog Initialized ---") # 起動確認用
 
+    # ▼▼▼【重要】リアクションテスト用のリスナーを追加 ▼▼▼
     @commands.Cog.listener()
-    async def on_message(self, message: discord.Message):
+    async def on_reaction_add(self, reaction: discord.Reaction, user: discord.User):
+        if user.bot:
+            return
         
-        # --- ▼▼▼ 強制デバッグコード ▼▼▼ ---
-        if message.author.bot:
-            return
-
-        # どのチャンネルであっても "ping-test" という単語に反応するかテスト
-        if message.content == "ping-test":
-            print(f"[DEBUG] 'ping-test' received in channel {message.channel.id}")
-            try:
-                await message.channel.send("Pong! Message handler test successful.")
-            except discord.errors.Forbidden:
-                print(f"🚨 [DEBUG] Error: Missing permissions to send messages in channel {message.channel.id}")
-            except Exception as e:
-                print(f"🚨 [DEBUG] Error during message send: {e}")
-            return
+        print(f"[診断] リアクション検知: {reaction.emoji} by {user.name}")
+        try:
+            # チャンネルにメッセージを送信して応答テスト
+            await reaction.message.channel.send(f"リアクション検知成功！ {user.mention}さん、Botは生きています。")
+        except Exception as e:
+            print(f"🚨 [診断] リアクション応答エラー: {e}")
 
 class MessageHandlerCog(commands.Cog):
     def __init__(self, bot):
@@ -197,3 +193,4 @@ class MessageHandlerCog(commands.Cog):
 async def setup(bot):
 
     await bot.add_cog(MessageHandlerCog(bot))
+
