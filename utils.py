@@ -1,4 +1,4 @@
-# utils.py
+# utils.py (修正版)
 
 import discord
 import asyncio
@@ -9,8 +9,9 @@ import PyPDF2
 from openai import AsyncOpenAI
 
 # ai_clients.py から必要な関数をインポート
+# 修正: ai_clientsの関数とクライアントオブジェクトを直接インポート
 from ai_clients import (
-    ask_gpt_base, ask_gemini_base, ask_mistral_base, ask_claude,
+    openai_client, ask_gpt_base, ask_gemini_base, ask_mistral_base, ask_claude,
     ask_llama, ask_grok, ask_gpt5, ask_gpt4o, ask_minerva, ask_rekus,
     ask_gemini_pro_for_summary, ask_rekus_for_summary, ask_lalah,
     ask_gemini_2_5_pro
@@ -19,12 +20,14 @@ from ai_clients import (
 from notion_utils import get_notion_page_text
 
 # --- グローバル変数 ---
-openai_client: AsyncOpenAI = None
+# 修正: openai_clientはai_clientsから直接インポートされるため、不要に
+# openai_client: AsyncOpenAI = None
 
 # --- クライアント設定関数 ---
-def set_openai_client(client: AsyncOpenAI):
-    global openai_client
-    openai_client = client
+# 修正: 不要なため削除
+# def set_openai_client(client: AsyncOpenAI):
+#     global openai_client
+#     openai_client = client
 
 # --- ログ・メッセージ送信 ---
 def safe_log(prefix: str, obj):
@@ -35,6 +38,7 @@ def safe_log(prefix: str, obj):
         print(f"{prefix}(log skipped: {e})")
 
 async def send_long_message(target, text: str, is_followup: bool = False, mention: str = ""):
+    global openai_client
     if not text: text = "（応答が空でした）"
     full_text = f"{mention}\n{text}" if mention and mention not in text else text
 
@@ -93,6 +97,7 @@ async def get_full_response_and_summary(ai_function, prompt, **kwargs):
 
 # --- 添付ファイル解析 ---
 async def analyze_attachment_for_gpt5(attachment: discord.Attachment):
+    global openai_client
     filename = attachment.filename.lower()
     data = await attachment.read()
     if filename.endswith((".png", ".jpg", ".jpeg", ".gif", ".webp")):
@@ -103,13 +108,11 @@ async def analyze_attachment_for_gpt5(attachment: discord.Attachment):
     elif filename.endswith((".py", ".txt", ".md", ".json", ".html", ".css", ".js")):
         return f"[添付コード {attachment.filename}]\n```\n{data.decode('utf-8', errors='ignore')[:3500]}\n```"
     elif filename.endswith(".pdf"):
+        # ▼▼▼ PDF解析を非同期に実行するように修正 ▼▼▼
+        loop = asyncio.get_event_loop()
         try:
-            reader = PyPDF2.PdfReader(io.BytesIO(data))
-            # ▼▼▼ 修正箇所 ▼▼▼
-            # ステップ1: バックスラッシュを含む文字列を先に生成する
-            all_text = "\n".join([p.extract_text() or "" for p in reader.pages])
-            
-            # ステップ2: f-stringの中では、バックスラッシュを含まない変数だけを使う
+            reader = await loop.run_in_executor(None, lambda: PyPDF2.PdfReader(io.BytesIO(data)))
+            all_text = await loop.run_in_executor(None, lambda: "\n".join([p.extract_text() or "" for p in reader.pages]))
             return f"[添付PDF {attachment.filename} 抜粋]\n{all_text[:3500]}"
         except Exception as e: return f"[PDF解析エラー: {e}]"
     else: return f"[未対応の添付ファイル形式: {attachment.filename}]"
