@@ -19,6 +19,28 @@ class MessageHandlerCog(commands.Cog):
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
+        
+        # --- ▼▼▼ 強制デバッグコード ▼▼▼ ---
+        if message.author.bot:
+            return
+
+        # どのチャンネルであっても "ping-test" という単語に反応するかテスト
+        if message.content == "ping-test":
+            print(f"[DEBUG] 'ping-test' received in channel {message.channel.id}")
+            try:
+                await message.channel.send("Pong! Message handler test successful.")
+            except discord.errors.Forbidden:
+                print(f"🚨 [DEBUG] Error: Missing permissions to send messages in channel {message.channel.id}")
+            except Exception as e:
+                print(f"🚨 [DEBUG] Error during message send: {e}")
+            return
+
+class MessageHandlerCog(commands.Cog):
+    def __init__(self, bot):
+        self.bot = bot
+
+    @commands.Cog.listener()
+    async def on_message(self, message: discord.Message):
         if message.author.bot or message.content.startswith("/"):
             return
 
@@ -173,4 +195,5 @@ class MessageHandlerCog(commands.Cog):
 
 # この関数はCogsを読み込むために必須
 async def setup(bot):
+
     await bot.add_cog(MessageHandlerCog(bot))
