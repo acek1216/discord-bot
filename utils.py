@@ -108,14 +108,14 @@ async def analyze_attachment_for_gpt5(attachment: discord.Attachment):
     elif filename.endswith((".py", ".txt", ".md", ".json", ".html", ".css", ".js")):
         return f"[添付コード {attachment.filename}]\n```\n{data.decode('utf-8', errors='ignore')[:3500]}\n```"
     elif filename.endswith(".pdf"):
-        # ▼▼▼ PDF解析を非同期に実行するように修正 ▼▼▼
+        all_text = "\n".join([p.extract_text() or "" for p in reader.pages])
         loop = asyncio.get_event_loop()
         try:
             reader = await loop.run_in_executor(None, lambda: PyPDF2.PdfReader(io.BytesIO(data)))
             all_text = await loop.run_in_executor(None, lambda: "\n".join([p.extract_text() or "" for p in reader.pages]))
             return f"[添付PDF {attachment.filename} 抜粋]\n{all_text[:3500]}"
         except Exception as e: return f"[PDF解析エラー: {e}]"
-    else: return f"[未対応の添付ファイル形式: {attachment.filename}]"
+        
 
 # --- テキスト要約 ---
 async def summarize_text_chunks_for_message(channel, text: str, query: str, summarizer_func):
