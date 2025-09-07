@@ -287,7 +287,6 @@ def _sync_call_llama(p_text: str):
         return f"Llama 3.3 呼び出しエラー: {e}"
 
 async def ask_llama(user_id, prompt, history=None):
-    # 引数からhistoryを受け取るように変更
     global llama_model_for_vertex
     system_prompt = "あなたは物静かな初老の庭師です。自然に例えながら、物事の本質を突くような、滋味深い言葉で150文字以内で語ってください。"
     full_prompt_parts = [system_prompt]
@@ -298,8 +297,10 @@ async def ask_llama(user_id, prompt, history=None):
     full_prompt_parts.append(f"User: {prompt}")
     full_prompt = "\n".join(full_prompt_parts)
     try:
-        loop = asyncio.get_event_loop()
-        reply = await loop.run_in_executor(None, _sync_call_llama, full_prompt)
-        return reply
+        if llama_model_for_vertex is None:
+            raise Exception("Vertex AI model is not initialized.")
+        # 同期関数ではなく非同期関数を呼び出すように変更
+        response = await llama_model_for_vertex.generate_content_async(full_prompt)
+        return response.text
     except Exception as e:
-        return f"Llama 3.3 非同期処理エラー: {e}"
+        return f"Llama 3.3 呼び出しエラー: {e}"
