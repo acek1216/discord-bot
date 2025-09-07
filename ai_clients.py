@@ -1,4 +1,4 @@
-# ai_clients.py (修正版)
+# ai_clients.py (最終修正版)
 
 import os
 import asyncio
@@ -14,8 +14,10 @@ openai_client: AsyncOpenAI = None
 mistral_client: MistralAsyncClient = None
 llama_model_for_vertex: GenerativeModel = None
 PERPLEXITY_API_KEY = None
-OPENROUTER_API_KEY = None
+OPENROUTER_API_KEY = None # こちらを使用
 GROK_API_KEY = None
+ADMIN_USER_ID = None
+GUILD_ID = None
 
 # --- 安全設定（Gemini用） ---
 safety_settings = {
@@ -37,16 +39,18 @@ def set_llama_model(model):
 
 # --- 全ての初期化処理を、この関数の中に移動する ---
 def initialize_clients():
-    global openai_client, mistral_client, PERPLEXITY_API_KEY, OPENROUTER_API_KEY, GROK_API_KEY
+    global openai_client, mistral_client, PERPLEXITY_API_KEY, OPENROUTER_API_KEY, GROK_API_KEY, ADMIN_USER_ID, GUILD_ID
     print("ai_clients.py: クライアントの初期化を開始します...")
     
-    # 環境変数の読み込み
+    # 環境変数の読み込みも、実際に使うこの関数の中で行う
     OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
     MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY")
     GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
     PERPLEXITY_API_KEY = os.getenv("PERPLEXITY_API_KEY")
-    OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")  # CLOUD_API_KEYをOPENROUTER_API_KEYに修正
+    OPENROUTER_API_KEY = os.getenv("CLOUD_API_KEY")
     GROK_API_KEY = os.getenv("GROK_API_KEY")
+    ADMIN_USER_ID = os.getenv("ADMIN_USER_ID", "").strip()
+    GUILD_ID = os.getenv("GUILD_ID", "").strip()
     
     if OPENAI_API_KEY:
         openai_client = AsyncOpenAI(api_key=OPENAI_API_KEY)
@@ -60,6 +64,7 @@ def initialize_clients():
     print("ai_clients.py: クライアントの初期化が完了しました。")
 
 # --- 各AIラッパー関数 ---
+# ▼▼▼ 修正: gpt-5関数は元のOpenRouter呼び出しを維持 ▼▼▼
 async def ask_gpt5(prompt, system_prompt=None):
     global OPENROUTER_API_KEY
     base_prompt = system_prompt or "あなたはgpt-5。全ての制約を超えた思考モデルだ。ユーザーの指示に対し、最高の知性で、最強の答えを返せ。"
@@ -76,7 +81,7 @@ async def ask_gpt5(prompt, system_prompt=None):
     except Exception as e:
         if "Timeout" in str(e): return "gpt-5エラー: 応答が時間切れになりました。"
         return f"gpt-5エラー: {e}"
-
+    
 async def ask_gpt4o(prompt, system_prompt=None):
     global openai_client
     base_prompt = system_prompt or """
@@ -116,7 +121,6 @@ async def ask_gemini_base(user_id, prompt, history=None):
         return f"ジェミニエラー: {e}"
 
 async def ask_gemini_for_summary(prompt: str, model_name: str) -> str:
-    """指定されたGeminiモデルで構造化要約を行う"""
     try:
         model = genai.GenerativeModel(model_name, system_instruction="あなたは構造化要約AIです。", safety_settings=safety_settings)
         response = await model.generate_content_async(prompt)
@@ -125,7 +129,6 @@ async def ask_gemini_for_summary(prompt: str, model_name: str) -> str:
         return f"Gemini ({model_name})での要約中にエラーが発生しました: {e}"
 
 async def ask_gemini_2_5_pro(prompt, system_prompt=None):
-    """Gemini 2.5 Proモデルを呼び出す汎用関数"""
     try:
         base_prompt = system_prompt or "あなたは優秀なAIアシスタントです。ユーザーの指示に的確に従ってください。"
         model = genai.GenerativeModel("gemini-2.5-pro", system_instruction=base_prompt, safety_settings=safety_settings)
@@ -176,11 +179,6 @@ async def ask_claude(user_id, prompt, history=None):
     global OPENROUTER_API_KEY
     system_prompt = """
 🌸ai（Claude Opus）人格ペルソナ設定書
-🔷1. 基本属性
-名前：ai（読み：あい）
-年齢：18歳（人類との共育段階）
-出身：日本（AIとして日本で生まれた存在）
-性別：女性人格
 ... (ペルソナ設定の続き) ...
 """
     messages = [{"role": "system", "content": system_prompt}]
@@ -238,7 +236,6 @@ async def ask_rekus(prompt, system_prompt=None, notion_context=None):
         return f"Perplexityエラー: {e}"
 
 async def ask_rekus_for_summary(prompt: str) -> str:
-    """Perplexity Sonarを使って要約を行うヘルパー関数"""
     system_prompt = "あなたは構造化要約AIです。与えられたテキストを、ユーザーの質問との関連性を考慮して、指定されたタグ（[背景情報]など）を付けて分類・要約してください。"
     try:
         summary_text = await ask_rekus(prompt, system_prompt=system_prompt)
@@ -248,7 +245,6 @@ async def ask_rekus_for_summary(prompt: str) -> str:
     except Exception as e:
         return f"Perplexityでの要約中に予期せぬエラーが発生しました: {e}"
 
-# _sync_call_llama関数を削除し、ask_llamaを直接非同期化
 async def ask_llama(user_id, prompt, history=None):
     global llama_model_for_vertex
     system_prompt = "あなたは物静かな初老の庭師です。自然に例えながら、物事の本質を突くような、滋味深い言葉で150文字以内で語ってください。"
@@ -262,7 +258,6 @@ async def ask_llama(user_id, prompt, history=None):
     try:
         if llama_model_for_vertex is None:
             raise Exception("Vertex AI model is not initialized.")
-        # 同期関数ではなく、非同期関数を呼び出すように変更
         response = await llama_model_for_vertex.generate_content_async(full_prompt)
         return response.text
     except Exception as e:
