@@ -27,7 +27,7 @@ os.environ.setdefault("LANG", "C.UTF-8")
 # --- FastAPIとDiscord Botの準備 ---
 app = FastAPI()
 DISCORD_TOKEN = os.getenv("DISCORD_BOT_TOKEN")
-GUILD_ID_STR = os.getenv("GUILD_ID", "").strip()
+GUILD_ID_STR = os.getenv("GUILD_ID", "").strip() # この変数はもう同期には使われませんが、他の機能で必要になる可能性を考慮し残します
 intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix="/", intents=intents)
@@ -37,21 +37,30 @@ bot = commands.Bot(command_prefix="/", intents=intents)
 def health_check():
     return {"status": "ok", "bot_is_connected": bot.is_ready()}
 
-# --- Botイベントハンドラ ---
+# --- Botイベントハンドラ (修正済み) ---
 @bot.event
 async def on_ready():
     print("-" * 30)
     print(f"✅ Discordにログインしました: {bot.user} (ID: {bot.user.id})")
-    try:
-        if GUILD_ID_STR and GUILD_ID_STR.isdigit():
-            guild_obj = discord.Object(id=int(GUILD_ID_STR))
-            await bot.tree.sync(guild=guild_obj)
-            print(f"✅ スラッシュコマンドをギルド: {GUILD_ID_STR} に同期しました。")
-        else:
-            await bot.tree.sync()
-            print("✅ スラッシュコマンドをグローバルに同期しました。反映に時間がかかる場合があります。")
-    except Exception as e:
-        print(f"⚠️ スラッシュコマンドの同期に失敗しました: {e}")
+    print(f"🚀 参加中の全サーバーへコマンドを同期します...")
+    
+    synced_guilds = 0
+    failed_guilds = []
+    
+    # ボットが参加している全てのギルドをループして同期
+    for guild in bot.guilds:
+        try:
+            await bot.tree.sync(guild=guild)
+            print(f"  ✅ '{guild.name}' (ID: {guild.id}) に同期しました。")
+            synced_guilds += 1
+        except Exception as e:
+            print(f"  ❌ '{guild.name}' (ID: {guild.id}) の同期に失敗しました: {e}")
+            failed_guilds.append(guild.name)
+
+    print("-" * 30)
+    print(f"✅ 同期処理完了: {synced_guilds}サーバーに成功。")
+    if failed_guilds:
+        print(f"⚠️ 同期失敗: {len(failed_guilds)}サーバー ({', '.join(failed_guilds)})")
     print("-" * 30)
 
 # --- メインの起動ロジック ---
@@ -96,7 +105,7 @@ async def startup_event():
         import traceback
         traceback.print_exc()
 
-# uvicornの起動（if __name__ == "__main__": ブロックはDocker起動では通常不要だが、ローカルテスト用に残す）
+# uvicornの起動
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
     uvicorn.run(app, host="0.0.0.0", port=port)
