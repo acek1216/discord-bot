@@ -1,5 +1,6 @@
 # channel_tasks.py
 
+import ai_clients
 import asyncio
 import discord
 from notion_utils import (
@@ -163,3 +164,4 @@ async def run_gpt4o_room_task(message: discord.Message, user_prompt: str, log_pa
             await channel.send(f"❌ gpt-4o部屋でエラーが発生しました: {e}")
             import traceback
             traceback.print_exc()
+
