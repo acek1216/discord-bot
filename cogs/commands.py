@@ -296,13 +296,26 @@ class SlashCommands(commands.Cog):
 
     @app_commands.command(name="sync", description="管理者専用：スラッシュコマンドをサーバーに同期します。")
     async def sync_command(self, interaction: discord.Interaction):
+        # 管理者IDが設定されているか確認
+        if not ADMIN_USER_ID:
+            await interaction.response.send_message("❌ 管理者IDが設定されていません。", ephemeral=True)
+            return
+
         if str(interaction.user.id) != ADMIN_USER_ID:
             await interaction.response.send_message("この操作を実行する権限がありません。", ephemeral=True)
             return
+        
         await interaction.response.defer(ephemeral=True)
         try:
-            guild_obj = discord.Object(id=int(GUILD_ID)) if GUILD_ID else None
-            synced_commands = await self.client.tree.sync(guild=guild_obj)
+            guild_obj = discord.Object(id=int(GUILD_ID)) if GUILD_ID.isdigit() else None
+            
+            # ギルドIDが設定されていない場合は、グローバル同期を試みる
+            if not guild_obj:
+                await interaction.followup.send("⚠️ ギルドIDが設定されていないため、全サーバーにコマンドを同期します。反映に時間がかかる場合があります。", ephemeral=True)
+                synced_commands = await self.client.tree.sync()
+            else:
+                synced_commands = await self.client.tree.sync(guild=guild_obj)
+
             await interaction.followup.send(f"✅ コマンドの同期が完了しました。同期数: {len(synced_commands)}件", ephemeral=True)
         except Exception as e:
             await interaction.followup.send(f"❌ 同期中にエラーが発生しました:\n```{e}```", ephemeral=True)
