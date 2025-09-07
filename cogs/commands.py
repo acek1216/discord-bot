@@ -12,11 +12,7 @@ from ai_clients import (
     ask_llama, ask_grok, ask_gpt4o, ask_minerva, ask_rekus, ask_gpt5,
     ask_gemini_2_5_pro, ask_lalah
 )
-
-# --- Notion関連のインポート ---
 from notion_utils import NOTION_PAGE_MAP, log_to_notion, log_response
-
-# --- utils.pyからのインポート ---
 from utils import (
     safe_log, send_long_message, simple_ai_command_runner,
     advanced_ai_simple_runner, BASE_MODELS_FOR_ALL,
@@ -28,18 +24,19 @@ from utils import (
 ADMIN_USER_ID = os.getenv("ADMIN_USER_ID", "").strip()
 GUILD_ID = os.getenv("GUILD_ID", "").strip()
 
-# ▼▼▼【修正点1】クラス定義の開始 ▼▼▼
+
+# ▼▼▼【重要】クラス定義を開始 ▼▼▼
 # すべてのスラッシュコマンドは、このクラスのメソッドとして定義する必要があります。
 class SlashCommands(commands.Cog):
     def __init__(self, client):
         self.client = client
-        # simple_ai_command_runnerで使用するメモリマップをクラス属性として初期化
+        # スラッシュコマンド用の短期記憶をCog内で管理
         self.memory_map = {
             "GPT": {}, "Gemini": {}, "Mistral": {},
             "Claude": {}, "Llama": {}, "Grok": {}
         }
 
-    # ▼▼▼【修正点2】ここから下のコマンドはすべて1段階インデントします ▼▼▼
+    # ▼▼▼【重要】ここから下のコマンドはすべて1段階インデントします ▼▼▼
     @app_commands.command(name="ping", description="ボットの応答テストを行います。")
     async def ping_command(self, interaction: discord.Interaction):
         await interaction.response.send_message("Pong!")
@@ -311,6 +308,6 @@ class SlashCommands(commands.Cog):
         except Exception as e:
             await interaction.followup.send(f"❌ 同期中にエラーが発生しました:\n```{e}```", ephemeral=True)
 
-# ▼▼▼【修正点3】Cogを登録するための必須関数 ▼▼▼
+# ▼▼▼【重要】Cogを登録するための必須関数 ▼▼▼
 async def setup(bot):
     await bot.add_cog(SlashCommands(bot))
