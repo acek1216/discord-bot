@@ -1,4 +1,4 @@
-# bot.py (テスト修正版)
+# bot.py (修正版)
 
 # --- ライブラリとモジュールのインポート ---
 import asyncio
@@ -12,6 +12,10 @@ from notion_client import Client
 import google.generativeai as genai
 import vertexai
 from dotenv import load_dotenv
+
+# ▼▼▼【修正1】GenerativeModelを直接インポート ▼▼▼
+from vertexai.generative_models import GenerativeModel
+
 import ai_clients
 import notion_utils
 import utils
@@ -20,7 +24,6 @@ import state
 # --- 初期設定 ---
 load_dotenv()
 os.environ.setdefault("LANG", "C.UTF-8")
-# (UTF-8ガードのsys.stdout...の行もここにあると仮定)
 
 # --- FastAPIとDiscord Botの準備 ---
 app = FastAPI()
@@ -58,7 +61,7 @@ async def startup_event():
     print("🚀 サーバーの起動処理を開始します...")
     
     try:
-        # 1. APIクライアント初期化 (テスト中は影響しないようにするが念のため残す)
+        # 1. APIクライアント初期化
         print("🤖 APIクライアントを初期化中...")
         ai_clients.initialize_clients()
         notion_utils.notion = Client(auth=os.getenv("NOTION_API_KEY"))
@@ -67,21 +70,16 @@ async def startup_event():
         try:
             print("🤖 Vertex AIを初期化中...")
             vertexai.init(project="stunning-agency-469102-b5", location="us-central1")
-            # 修正: GenerativeModelの参照をai_clientsから行う
-            llama_model = genai.GenerativeModel("publishers/meta/models/llama-3.3-70b-instruct-maas")
+            # ▼▼▼【修正2】呼び出し方を変更 ▼▼▼
+            llama_model = GenerativeModel("publishers/meta/models/llama-3.3-70b-instruct-maas")
             ai_clients.set_llama_model(llama_model)
             print("✅ Vertex AIが正常に初期化されました。")
         except Exception as e:
             print(f"⚠️ Vertex AIの初期化に失敗しました: {e}")
 
-        # 2. Cogs読み込み (最小テスト構成)
+        # 2. Cogs読み込み
         print("📚 機能モジュール (Cogs) を読み込み中...")
-        
-        # ▼▼▼【重要】テストのための修正箇所 ▼▼▼
-        # cogs_to_load = ["cogs.commands", "cogs.message_handler"] # ← 元の行をコメントアウト
-        cogs_to_load = ["cogs.test_cog"] # ← テスト用Cogのみを指定する
-        # ▲▲▲ 修正ここまで ▲▲▲
-
+        cogs_to_load = ["cogs.commands", "cogs.message_handler"]
         for cog in cogs_to_load:
             try:
                 await bot.load_extension(cog)
@@ -100,3 +98,8 @@ async def startup_event():
         print(f"🚨🚨🚨 致命的な起動エラーが発生しました 🚨🚨🚨")
         import traceback
         traceback.print_exc()
+
+# uvicornの起動（if __name__ == "__main__": ブロックはDocker起動では通常不要だが、ローカルテスト用に残す）
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 8080))
+    uvicorn.run(app, host="0.0.0.0", port=port)
