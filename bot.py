@@ -13,7 +13,7 @@ import google.generativeai as genai
 import vertexai
 from dotenv import load_dotenv
 
-# GenerativeModelを直接インポート
+# ▼▼▼【修正1】GenerativeModelを直接インポート ▼▼▼
 from vertexai.generative_models import GenerativeModel
 
 import ai_clients
@@ -47,57 +47,65 @@ async def on_ready():
         if GUILD_ID_STR:
             guild_obj = discord.Object(id=int(GUILD_ID_STR))
             await bot.tree.sync(guild=guild_obj)
-            print("✅ スラッシュコマンドをサーバーに同期しました。")
+            print(f"✅ スラッシュコマンドをギルド: {GUILD_ID_STR} に同期しました。")
         else:
             await bot.tree.sync()
-            print("✅ スラッシュコマンドをグローバルに同期しました。")
-        print("-" * 30)
+            print("✅ スラッシュコマンドをグローバルに同期しました。反映に時間がかかる場合があります。")
     except Exception as e:
-        print(f"❌ スラッシュコマンドの同期に失敗しました: {e}")
+        print(f"⚠️ スラッシュコマンドの同期に失敗しました: {e}")
+
+    # 2. Cogs読み込み
+    print("📚 機能モジュール (Cogs) を読み込み中...")
+    cogs_to_load = ["cogs.commands", "cogs.message_handler"]
+    for cog in cogs_to_load:
+        try:
+            await bot.load_extension(cog)
+            print(f"  ✅ {cog} を正常に読み込みました。")
+        except Exception as e:
+            print(f"  ❌ {cog} のロードに失敗しました: {e}")
+            import traceback
+            traceback.print_exc()
+            continue
+
+    # 3. Discord Botをバックグラウンドタスクとして起動
+    asyncio.create_task(bot.start(DISCORD_TOKEN))
+    print("✅ Discord Botの起動タスクが作成されました...")
+
 
 @app.on_event("startup")
 async def startup_event():
-    print("🚀 サーバーの起動処理を開始します...")
-    
+    print("🚀 FastAPI起動中...")
+    ai_clients.initialize_clients()
+    notion_utils.notion = Client(auth=os.getenv("NOTION_API_KEY"))
+    utils.set_openai_client(ai_clients.openai_client)
+
     try:
-        # 1. APIクライアント初期化
-        print("🤖 APIクライアントを初期化中...")
-        ai_clients.initialize_clients()
-        notion_utils.notion = Client(auth=os.getenv("NOTION_API_KEY"))
-        utils.set_openai_client(ai_clients.openai_client)
-
-        try:
-            print("🤖 Vertex AIを初期化中...")
-            vertexai.init(project="stunning-agency-469102-b5", location="us-central1")
-            llama_model = GenerativeModel("publishers/meta/models/llama-3.3-70b-instruct-maas")
-            ai_clients.set_llama_model(llama_model)
-            print("✅ Vertex AIが正常に初期化されました。")
-        except Exception as e:
-            print(f"⚠️ Vertex AIの初期化に失敗しました: {e}")
-
-        # 2. Cogs読み込み
-        print("📚 機能モジュール (Cogs) を読み込み中...")
-        cogs_to_load = ["cogs.commands", "cogs.message_handler"]
-
-        for cog in cogs_to_load:
-            try:
-                await bot.load_extension(cog)
-                print(f"  ✅ {cog} を正常に読み込みました。")
-            except Exception as e:
-                print(f"  ❌ {cog} のロードに失敗しました: {e}")
-                import traceback
-                traceback.print_exc()
-                continue
-
-        # 3. Discord Botをバックグラウンドタスクとして起動
-        asyncio.create_task(bot.start(DISCORD_TOKEN))
-        print("✅ Discord Botの起動タスクが作成されました。")
-
+        print("🤖 Vertex AIを初期化中...")
+        vertexai.init(project="stunning-agency-469102-b5", location="us-central1")
+        # ▼▼▼【修正2】呼び出し方を変更 ▼▼▼
+        llama_model = GenerativeModel("publishers/meta/models/llama-3.3-70b-instruct-maas")
+        ai_clients.set_llama_model(llama_model)
+        print("✅ Vertex AIが正常に初期化されました。")
     except Exception as e:
-        print(f"🚨🚨🚨 致命的な起動エラーが発生しました 🚨🚨🚨")
-        import traceback
-        traceback.print_exc()
+        print(f"⚠️ Vertex AIの初期化に失敗しました: {e}")
 
-# --- メイン実行部分（Uvicorn用） ---
+    # 2. Cogs読み込み
+    print("📚 機能モジュール (Cogs) を読み込み中...")
+    cogs_to_load = ["cogs.commands", "cogs.message_handler"]
+    for cog in cogs_to_load:
+        try:
+            await bot.load_extension(cog)
+            print(f"  ✅ {cog} を正常に読み込みました。")
+        except Exception as e:
+            print(f"  ❌ {cog} のロードに失敗しました: {e}")
+            import traceback
+            traceback.print_exc()
+            continue
+
+    # 3. Discord Botをバックグラウンドタスクとして起動
+    asyncio.create_task(bot.start(DISCORD_TOKEN))
+    print("✅ Discord Botの起動タスクが作成されました...")
+
+
 if __name__ == "__main__":
-    uvicorn.run("bot:app", host="0.0.0.0", port=int(os.getenv("PORT", 8000)))
+    uvicorn.run(app, host="0.0.0.0", port=8000)
