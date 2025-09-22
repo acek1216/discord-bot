@@ -1,0 +1,133 @@
+# Plugin System Configuration
+# プラグインシステムの設定
+
+# プラグイン全般設定
+plugin_system:
+  enabled: true
+  plugin_directories:
+    - "plugins"
+    - "plugins/custom"
+  auto_reload: true
+  reload_interval: 300  # 5分
+  max_plugins: 50
+  plugin_timeout: 180   # 3分
+
+# 登録プラグイン
+plugins:
+  genius_council:
+    enabled: true
+    class_name: "GeniusCouncilPlugin"
+    module: "genius_council_plugin"
+    description: "AI評議会システム"
+    version: "1.0.0"
+    priority: 100
+    config:
+      max_ai_count: 5
+      parallel_execution: true
+      synthesis_required: true
+      council_timeout: 120
+      summary_engine: "gpt5mini"
+      synthesis_engine: "mistral_large"  # 最終統合エンジン
+      council_engines:
+        - "gpt5"
+        - "perplexity"
+        - "gemini"
+      enable_critique: true
+    hooks:
+      - "pre_task_execution"
+      - "task_execution"
+      - "post_task_execution"
+
+  data_analysis:
+    enabled: false
+    class_name: "DataAnalysisPlugin"
+    module: "data_analysis_plugin"
+    description: "データ分析・可視化プラグイン"
+    version: "0.9.0"
+    priority: 80
+    config:
+      chart_types: ["line", "bar", "scatter", "pie"]
+      export_formats: ["png", "svg", "pdf"]
+      max_data_points: 10000
+    hooks:
+      - "post_task_execution"
+
+  custom_ai:
+    enabled: false
+    class_name: "CustomAIPlugin"
+    module: "custom_ai_plugin"
+    description: "カスタムAI統合プラグイン"
+    version: "0.5.0"
+    priority: 90
+    config:
+      api_endpoint: "https://api.custom-ai.com/v1"
+      model_name: "custom-model-v2"
+      api_key_env: "CUSTOM_AI_KEY"
+    hooks:
+      - "ai_client_creation"
+      - "task_execution"
+
+# プラグインフック設定
+hooks:
+  pre_task_execution:
+    description: "タスク実行前に呼び出される"
+    max_execution_time: 10
+    allow_modification: true
+
+  task_execution:
+    description: "タスク実行処理を置き換える"
+    max_execution_time: 180
+    exclusive: true  # 1つのプラグインのみ実行
+
+  post_task_execution:
+    description: "タスク実行後に呼び出される"
+    max_execution_time: 30
+    allow_modification: true
+
+  ai_client_creation:
+    description: "AIクライアント生成時に呼び出される"
+    max_execution_time: 5
+    allow_modification: false
+
+# プラグイン依存関係
+dependencies:
+  genius_council:
+    requires: []
+    conflicts: []
+    optional_dependencies: ["data_analysis"]
+
+  data_analysis:
+    requires: ["numpy", "matplotlib", "pandas"]
+    conflicts: []
+
+  custom_ai:
+    requires: ["requests", "aiohttp"]
+    conflicts: ["genius_council"]  # 例：競合する場合
+
+# セキュリティ設定
+security:
+  sandbox_enabled: false
+  allowed_imports:
+    - "asyncio"
+    - "json"
+    - "yaml"
+    - "datetime"
+    - "typing"
+    - "dataclasses"
+    - "abc"
+  forbidden_imports:
+    - "os"
+    - "sys"
+    - "subprocess"
+    - "eval"
+    - "exec"
+  resource_limits:
+    max_memory_mb: 512
+    max_execution_time: 300
+
+# ログ・デバッグ設定
+logging:
+  plugin_events: true
+  hook_executions: true
+  performance_metrics: true
+  error_details: true
