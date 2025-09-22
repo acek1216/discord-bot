@@ -1,0 +1,8 @@
+name: genius-bot-trigger
+description: 'Auto deploy genius-bot on main branch push'
+github:
+  owner: acek1216
+  name: discord-bot
+  push:
+    branch: ^main$
+filename: cloudbuild.yaml

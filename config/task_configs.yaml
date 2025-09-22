@@ -1,0 +1,238 @@
+# Task Configuration System
+# タスク実行設定の外部化
+
+# タスクタイプ定義
+task_types:
+  standard:
+    description: "標準AIタスク"
+    use_memory: false
+    use_kb: true
+    use_summary: true
+    context_strategy: "cached"
+    prompt_template: "standard"
+    post_processing:
+      - "log_response"
+      - "kb_summary"
+
+  memory_enabled:
+    description: "メモリ機能付きAIタスク"
+    use_memory: true
+    use_kb: true
+    use_summary: true
+    context_strategy: "parallel_memory"
+    prompt_template: "memory_enhanced"
+    post_processing:
+      - "log_response"
+      - "update_memory"
+      - "kb_summary"
+
+  council:
+    description: "AI評議会タスク"
+    use_memory: false
+    use_kb: true
+    use_summary: true
+    context_strategy: "council_optimized"
+    prompt_template: "council"
+    special_handler: "genius_council"
+    post_processing:
+      - "log_response"
+      - "parallel_ai_council"
+      - "synthesis_report"
+
+  lightweight:
+    description: "軽量タスク（要約のみ）"
+    use_memory: false
+    use_kb: false
+    use_summary: false
+    context_strategy: "minimal"
+    prompt_template: "simple"
+    post_processing:
+      - "log_response"
+
+  notion_free:
+    description: "Notion連携なしライトタスク"
+    use_memory: false
+    use_kb: false
+    use_summary: false
+    context_strategy: "minimal"
+    prompt_template: "simple"
+    post_processing: []
+
+# AIタイプとタスクタイプのマッピング
+ai_task_mapping:
+  gpt5:
+    task_type: "memory_enabled"
+    priority: 1.0
+    timeout: 30
+    max_retries: 2
+
+  gpt4o:
+    task_type: "memory_enabled"
+    priority: 1.0
+    timeout: 25
+    max_retries: 2
+
+  gpt5mini:
+    task_type: "lightweight"
+    priority: 0.8
+    timeout: 15
+    max_retries: 1
+
+  gemini:
+    task_type: "standard"
+    priority: 0.9
+    timeout: 30
+    max_retries: 2
+
+
+  claude:
+    task_type: "standard"
+    priority: 0.8
+    timeout: 30
+    max_retries: 2
+
+  grok:
+    task_type: "standard"
+    priority: 0.7
+    timeout: 30
+    max_retries: 2
+
+  mistral:
+    task_type: "standard"
+    priority: 0.8
+    timeout: 30
+    max_retries: 2
+
+  llama:
+    task_type: "standard"
+    priority: 0.8
+    timeout: 35
+    max_retries: 2
+
+  perplexity:
+    task_type: "standard"
+    priority: 0.9
+    timeout: 30
+    max_retries: 2
+
+  o3:
+    task_type: "notion_free"
+    priority: 1.0
+    timeout: 45
+    max_retries: 1
+
+  # 特殊チャンネル
+  genius:
+    task_type: "council"
+    priority: 1.0
+    timeout: 120
+    max_retries: 1
+
+  genius_light:
+    task_type: "notion_free"
+    priority: 0.9
+    timeout: 20
+    max_retries: 1
+
+  genius_pro:
+    task_type: "council"
+    priority: 1.0
+    timeout: 120
+    max_retries: 1
+
+# コンテキスト戦略設定
+context_strategies:
+  minimal:
+    description: "最小コンテキスト"
+    steps:
+      - "message_content"
+
+  cached:
+    description: "キャッシュ最適化コンテキスト"
+    steps:
+      - "message_content"
+      - "cached_notion_context"
+
+  parallel_memory:
+    description: "並列メモリ取得"
+    steps:
+      - "message_content"
+      - "parallel_kb_context"
+      - "memory_history"
+      - "attachment_analysis"
+
+  council_optimized:
+    description: "AI評議会用最適化"
+    steps:
+      - "message_content"
+      - "initial_summary"
+      - "council_parallel_execution"
+
+# プロンプトテンプレート設定
+prompt_templates:
+  simple:
+    template: "{message_content}"
+
+  standard:
+    template: |
+      参考: {notion_context}
+      質問: {message_content}
+
+  memory_enhanced:
+    template: |
+      以下の【参考情報】と【記憶履歴】を元に【ユーザーの質問】に回答してください。
+
+      【参考情報】
+      {kb_context}
+
+      【記憶履歴】
+      {memory_history}
+
+      【ユーザーの質問】
+      {message_content}
+
+  council:
+    template: |
+      論点: {initial_summary}
+
+      議題「{message_content}」を分析してください。
+
+# 後処理設定
+post_processing_handlers:
+  log_response:
+    description: "応答をNotionログに記録"
+    enabled: true
+
+  update_memory:
+    description: "メモリを更新"
+    enabled: true
+    condition: "use_memory"
+
+  kb_summary:
+    description: "KB用要約作成・追記"
+    enabled: true
+    condition: "use_summary"
+
+  parallel_ai_council:
+    description: "並列AI評議会実行"
+    enabled: true
+    condition: "special_handler == 'genius_council'"
+
+  synthesis_report:
+    description: "統合レポート作成"
+    enabled: true
+    condition: "special_handler == 'genius_council'"
+
+# パフォーマンス設定
+performance:
+  parallel_context_fetch: true
+  cache_timeout: 300
+  max_concurrent_tasks: 5
+  memory_cleanup_interval: 3600
+
+# デバッグ・ログ設定
+debugging:
+  log_context_fetch: true
+  log_ai_responses: true
+  log_post_processing: true
+  performance_metrics: true

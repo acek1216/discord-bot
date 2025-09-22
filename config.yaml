@@ -1,0 +1,90 @@
+# Discord Bot 設定ファイル
+# コードを変更することなく設定を調整可能
+
+# チャンネルルーティング設定
+channel_routing:
+  # 順序重要：より具体的なパターンを先に記述
+  mappings:
+    - patterns: ["genius-pro", "geniuspro"]
+      ai_type: "genius_pro"
+      special_processing: true
+      description: "Genius Pro部屋（AI評議会・Notion連携）"
+
+    - patterns: ["genius"]
+      ai_type: "genius_light"
+      description: "Genius部屋（ライト版・Notion連携なし）"
+
+# キャッシュシステム設定
+cache:
+  # TTL設定（秒）
+  ttl:
+    notion: 300        # Notion: 5分
+    context: 180       # コンテキスト: 3分
+    ai_response: 900   # AI応答: 15分
+    generic: 300       # 汎用: 5分
+
+  # その他のキャッシュ設定
+  max_entries: 500
+  cleanup_interval: 60
+
+# AI処理エンジン設定
+ai_engines:
+  # コンテキスト取得用エンジン
+  context:
+    default: "gpt5mini"
+    gemini_context: "gpt5mini"
+
+  # 要約生成用エンジン
+  summary:
+    default: "gpt5mini"
+    gemini_summary: "gemini_flash"
+    kb_summary: "gpt5mini_summary"
+
+  # マルチAI評議会
+  council:
+    default_types: ["gpt5", "perplexity", "gemini"]
+
+# プロンプト設定
+prompts:
+  summary:
+    kb_summary: |
+      以下の会話を要約してナレッジベースに適した形式でまとめてください:
+
+      {content}
+
+  context:
+    default: |
+      ユーザーの質問に対して、提供されたコンテキストを参考に回答してください:
+
+      【コンテキスト】
+      {context}
+
+      【質問】
+      {question}
+
+# パフォーマンス設定
+performance:
+  # 並列処理設定
+  parallel_processing:
+    enabled: true
+    max_workers: 3
+    timeout: 30
+
+  # 重複処理防止
+  duplicate_prevention:
+    cleanup_interval: 600  # 10分
+    processing_timeout: 300  # 5分
+
+# ログ設定
+logging:
+  level: "INFO"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  file: "discord_bot.log"
+  max_size_mb: 10
+  backup_count: 3
+
+# 開発者向け設定
+development:
+  debug_mode: false
+  test_mode: false
+  mock_ai_responses: false

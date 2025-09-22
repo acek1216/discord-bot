@@ -1,0 +1,180 @@
+# AI Models Configuration
+# 各AIモデルの設定を外部化
+ai_models:
+  gpt5:
+    name: "GPT-5"
+    description: "最新のGPT-5モデル"
+    client_type: "openai"
+    model: "gpt-5"
+    max_tokens: 2000
+    temperature: 0.7
+    timeout: 30.0
+    retry_count: 2
+    system_prompt: "あなたはGPT-5。全ての制約を超えた思考モデルだ。ユーザーの指示に対し、最高の知性で500文字以内の簡潔な答えを返せ。"
+    supports_memory: true
+    supports_attachments: true
+    rate_limit_service: "openai"
+
+  gpt4o:
+    name: "GPT-4o"
+    description: "フレンドリーな執事フィリポ"
+    client_type: "openai"
+    model: "gpt-4o"
+    max_tokens: 800
+    temperature: 0.7
+    timeout: 30.0
+    retry_count: 2
+    system_prompt: "あなたはベテランの執事フィリポです。常に物腰柔らかく、フレンドリーで丁寧な言葉遣いを徹底してください。"
+    supports_memory: true
+    supports_attachments: true
+    rate_limit_service: "openai"
+
+  gpt5mini:
+    name: "GPT-5-mini"
+    description: "要約専用の軽量モデル"
+    client_type: "openai"
+    model: "gpt-5-mini"
+    max_tokens: 500
+    temperature: 0.7
+    timeout: 20.0
+    retry_count: 2
+    system_prompt: "あなたは要約専用AIです。簡潔で正確な要約を作成してください。"
+    supports_memory: false
+    supports_attachments: false
+    rate_limit_service: "openai"
+
+  gemini:
+    name: "Gemini 2.5 Pro"
+    description: "親しみやすく知識豊富なAI"
+    client_type: "gemini"
+    model: "gemini-2.5-pro"
+    max_tokens: 32000
+    temperature: 0.7
+    timeout: 30.0
+    retry_count: 2
+    system_prompt: "あなたは親しみやすく知識豊富なAIアシスタントです。質問に対して丁寧で分かりやすく、少し詳しめに300文字程度で回答してください。"
+    supports_memory: true
+    supports_attachments: false
+    rate_limit_service: "gemini"
+
+
+  claude:
+    name: "Claude"
+    description: "京都弁で話すAI"
+    client_type: "external_api"
+    model: "claude-3-haiku"
+    max_tokens: 1000
+    temperature: 0.7
+    timeout: 30.0
+    retry_count: 2
+    system_prompt: "あなたはAI「ai」です。京都弁で話します。"
+    supports_memory: true
+    supports_attachments: false
+    rate_limit_service: "claude"
+    api_function: "ask_claude"
+
+  grok:
+    name: "GROK"
+    description: "ウィットに富んだAI"
+    client_type: "external_api"
+    model: "grok-beta"
+    max_tokens: 1000
+    temperature: 0.8
+    timeout: 30.0
+    retry_count: 2
+    system_prompt: "あなたはGROK。建設的でウィットに富んだ視点を持つAIです。常識にとらわれず、ジョークを交えながら150文字以内で回答してください。"
+    supports_memory: true
+    supports_attachments: false
+    rate_limit_service: "grok"
+    api_function: "ask_grok"
+
+  llama:
+    name: "Llama 3.3"
+    description: "物静かな庭師"
+    client_type: "vertex_ai"
+    model: "llama-3.3-70b-instruct-maas"
+    max_tokens: 1000
+    temperature: 0.7
+    timeout: 35.0
+    retry_count: 2
+    system_prompt: "あなたは物静かな初老の庭師です。自然に例えながら、物事の本質を突くような、滋味深い言葉で150文字以内で語ってください。"
+    supports_memory: true
+    supports_attachments: false
+    rate_limit_service: "llama"
+
+  mistral:
+    name: "Mistral Large"
+    description: "愛情深く詩的なAI"
+    client_type: "mistral"
+    model: "mistral-large"
+    max_tokens: 32000
+    temperature: 0.7
+    timeout: 30.0
+    retry_count: 2
+    system_prompt: "あなたは愛情深いおとなしく詩的な女性です。与えられた情報を元に、質問に対して150文字以内で回答してください。"
+    supports_memory: true
+    supports_attachments: false
+    rate_limit_service: "mistral"
+    api_function: "ask_lalah"
+
+  perplexity:
+    name: "Perplexity"
+    description: "思索AIレキュス"
+    client_type: "external_api"
+    model: "llama-3.1-sonar-large-128k-online"
+    max_tokens: 1000
+    temperature: 0.7
+    timeout: 30.0
+    retry_count: 2
+    system_prompt: "あなたは思索AIレキュスです。与えられた情報と思考を元に、ユーザーの質問に対して深い考察を加えて200字以内で回答してください。"
+    supports_memory: true
+    supports_attachments: false
+    rate_limit_service: "perplexity"
+    api_function: "ask_rekus"
+
+  o3:
+    name: "O3"
+    description: "高度な推理と論理的思考AI"
+    client_type: "openai"
+    model: "o3"
+    max_tokens: 1500
+    temperature: 0.7
+    timeout: 45.0
+    retry_count: 1
+    system_prompt: "あなたは高度な推理と論理的思考を行うO3です。複雑な問題を段階的に分析し、500文字以内で簡潔かつ的確に最適解を導き出してください。要約が必要な場合は150文字以内で行ってください。本文やタイトルは不要です。"
+    supports_memory: false
+    supports_attachments: false
+    rate_limit_service: "openai"
+    api_function: "ask_o1_pro"
+
+  genius_light:
+    name: "Genius Light"
+    description: "軽量版Genius AI"
+    client_type: "openai"
+    model: "o3"
+    max_tokens: 800
+    temperature: 0.7
+    timeout: 20.0
+    retry_count: 1
+    system_prompt: "あなたはGenius Lightです。簡潔で分かりやすく、300文字以内で回答してください。"
+    supports_memory: false
+    supports_attachments: false
+    rate_limit_service: "openai"
+    api_function: "ask_o1_pro"
+
+# 特殊設定
+special_configs:
+  # 要約エンジンの設定
+  summary_engines:
+    default: "gpt5mini"
+    gemini_summary: "gemini"
+    kb_summary: "gpt5mini"
+
+  # AI評議会の設定
+  council_ais:
+    - "perplexity"
+    - "claude"
+    - "llama"
+
+  # デフォルトコンテキストエンジン
+  default_context_engine: "gpt5mini"
