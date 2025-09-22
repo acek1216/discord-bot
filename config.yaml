@@ -11,7 +11,7 @@ channel_routing:
       description: "Genius Pro部屋（AI評議会・Notion連携）"
 
     - patterns: ["genius"]
-      ai_type: "o3"
+      ai_type: "genius_light"
       description: "Genius部屋（ライト版・Notion連携なし）"
 
 # キャッシュシステム設定
