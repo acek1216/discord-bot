@@ -147,9 +147,9 @@ ai_models:
     rate_limit_service: "openai"
     api_function: "ask_o1_pro"
 
-  genius_light:
-    name: "Genius Light"
-    description: "軽量版Genius AI"
+  genius:
+    name: "Genius"
+    description: "完全版Genius AI（添付ファイル解析対応）"
     client_type: "openai"
     model: "o3"
     max_tokens: 800

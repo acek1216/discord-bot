@@ -353,7 +353,7 @@ class AIClientManager:
             "llama": "llama",
             "perplexity": "perplexity",
             "o3": "openai",
-            "genius_light": "openai"
+            "genius": "openai"
         }
         return service_mapping.get(ai_type, ai_type)
 

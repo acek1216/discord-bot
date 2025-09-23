@@ -136,7 +136,7 @@ def get_unified_ai_configs():
             needs_summary=True,
             special_handler="genius_pro"
         ),
-        "genius_light": AIConfig(
+        "genius": AIConfig(
             ai_function=None,
             ai_name="Genius Light",
             needs_summary=False,
@@ -303,28 +303,36 @@ async def run_genius_task(bot: commands.Bot, message: discord.Message):
         safe_log("⚠️ geniusタスク: ", f"メッセージ {message_id} は既に処理中または処理済み")
         return
 
-    prompt = message.content
-
     # 添付ファイルがある場合は解析を追加
+    enhanced_content = message.content
     if message.attachments:
         try:
             attachment_info = await analyze_attachment_for_gemini(message.attachments[0])
-            prompt += f"\n\n{attachment_info}"
+            enhanced_content += f"\n\n{attachment_info}"
             safe_log("📎 Genius部屋添付ファイル解析完了: ", f"{message.attachments[0].filename}")
         except Exception as e:
             safe_log("🚨 Genius部屋添付ファイル解析エラー: ", e)
+
+    # メッセージ内容を一時的に変更
+    original_content = message.content
+    message.content = enhanced_content
 
     # タイピングインジケーター開始
     async with message.channel.typing():
         try:
             # 統一タスクエンジンを使用してシンプルな応答
             task_engine = get_unified_task_engine()
-            result = await task_engine.execute_task(bot, message, "genius_light")
+            result = await task_engine.execute_task(bot, message, "genius")
+
+            # メッセージ内容を元に戻す
+            message.content = original_content
 
             if not result.success and result.response:
                 await message.channel.send(result.response)
 
         except Exception as e:
+            # エラー時もメッセージ内容を元に戻す
+            message.content = original_content
             safe_log("🚨 geniusタスクエラー: ", e)
             await message.channel.send(f"❌ Genius応答エラー: {str(e)[:100]}")
             duplicate_handler.finish_processing(message_id, success=False)

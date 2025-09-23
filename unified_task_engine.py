@@ -390,7 +390,7 @@ class UnifiedTaskEngine:
 
             # Notion設定確認（genius_lightはスキップ）
             page_ids = []
-            if ai_type != "genius_light":
+            if ai_type == "genius_pro":
                 page_ids = NOTION_PAGE_MAP.get(str(message.channel.id))
                 if not page_ids:
                     return TaskResult(
@@ -400,6 +400,8 @@ class UnifiedTaskEngine:
                         execution_time=time.time() - start_time,
                         error="No Notion configuration"
                     )
+            else:
+                page_ids = []
 
             # 標準タスク実行フロー
             result = await self._execute_standard_task(bot, message, ai_type, config, page_ids)
@@ -440,8 +442,8 @@ class UnifiedTaskEngine:
             # 2. プロンプト構築
             prompt = self._build_prompt(config, context)
 
-            # 3. ユーザーメッセージログ記録（genius_lightは除く）
-            if ai_type != "genius_light" and page_ids:
+            # 3. ユーザーメッセージログ記録（genius_proのみ）
+            if ai_type == "genius_pro" and page_ids:
                 await log_user_message(page_ids[0], message.author.display_name, message.content)
 
             # 4. AI実行（キャッシュ統合）

@@ -128,7 +128,7 @@ ai_task_mapping:
     timeout: 120
     max_retries: 1
 
-  genius_light:
+  genius:
     task_type: "notion_free"
     priority: 0.9
     timeout: 20
