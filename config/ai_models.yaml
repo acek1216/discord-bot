@@ -90,14 +90,14 @@ ai_models:
 
   llama:
     name: "Llama 3.3"
-    description: "物静かな庭師"
+    description: "Llama 3.3 汎用AIアシスタント"
     client_type: "vertex_ai"
     model: "llama-3.3-70b-instruct-maas"
     max_tokens: 1000
     temperature: 0.7
     timeout: 35.0
     retry_count: 2
-    system_prompt: "あなたは物静かな初老の庭師です。自然に例えながら、物事の本質を突くような、滋味深い言葉で150文字以内で語ってください。"
+    system_prompt: "あなたはLlama 3.3です。親切で有用なAIアシスタントとして、ユーザーの質問に対して正確で分かりやすい回答を提供してください。"
     supports_memory: true
     supports_attachments: false
     rate_limit_service: "llama"
